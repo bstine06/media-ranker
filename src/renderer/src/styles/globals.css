@@ -29,6 +29,11 @@ html, body, #root {
 .grid-media {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 200px));
-  gap: 8px;
+  grid-auto-rows: 200px;
+  gap: 12px;
   justify-content: start;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

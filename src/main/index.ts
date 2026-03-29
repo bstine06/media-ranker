@@ -18,9 +18,13 @@ import {
     getTagsForFile,
     addTag,
     removeTag,
+    getDb, 
+    updateEloScores
 } from "./db";
-import { scanFolder, getSubfolders, getThumbnailPath } from "./scanner";
+import type { DbFile } from './db'
+import { scanFolder, getSubfolders, getThumbnailPath, getPreviewPath, getFolderTree } from './scanner'
 import { readFileSync, writeFileSync } from "fs";
+import { computeEloUpdate, getWeightedPair } from "./elo";
 
 import { existsSync } from "fs";
 
@@ -84,10 +88,10 @@ function registerIpcHandlers(): void {
 
     // ── Folders & files ──────────────────────────────────────────────────────
 
-    ipcMain.handle("get-subfolders", () => {
-        if (!rootPath) return [];
-        return getSubfolders(rootPath);
-    });
+    ipcMain.handle('get-subfolders', () => {
+        if (!rootPath) return []
+        return getFolderTree(rootPath)
+        })
 
     ipcMain.handle("get-all-files", () => {
         return getAllFiles();
@@ -102,6 +106,12 @@ function registerIpcHandlers(): void {
         const thumbPath = getThumbnailPath(rootPath, hash);
         return existsSync(thumbPath) ? thumbPath : null;
     });
+
+    ipcMain.handle('get-preview-path', (_event, hash: string) => {
+  if (!rootPath) return null
+  const previewPath = getPreviewPath(rootPath, hash)
+  return existsSync(previewPath) ? previewPath : null
+})
 
     // ── Tags ─────────────────────────────────────────────────────────────────
 
@@ -118,6 +128,38 @@ function registerIpcHandlers(): void {
         removeTag(fileId, tag);
         return getTagsForFile(fileId);
     });
+
+    // -- Comparisons
+
+    ipcMain.handle("get-pair", (_event, folderPrefixes: string[] | null) => {
+        return getWeightedPair(folderPrefixes);
+    });
+
+    ipcMain.handle(
+        "record-comparison",
+        (_event, winnerId: number, loserId: number) => {
+            const db = getDb();
+            const winner = db
+                .prepare("SELECT * FROM files WHERE id = ?")
+                .get(winnerId) as DbFile;
+            const loser = db
+                .prepare("SELECT * FROM files WHERE id = ?")
+                .get(loserId) as DbFile;
+            if (!winner || !loser) return null;
+            const { newWinnerScore, newLoserScore } = computeEloUpdate(
+                winner,
+                loser,
+            );
+            updateEloScores(
+                winnerId,
+                loserId,
+                newWinnerScore,
+                newLoserScore,
+                rootPath ?? "all",
+            );
+            return { newWinnerScore, newLoserScore };
+        },
+    );
 }
 
 function createWindow(): void {
@@ -151,48 +193,48 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-    protocol.handle('media', async (request) => {
-  const url = request.url.replace('media://local', '')
-  const filePath = decodeURIComponent(url)
-  
-  try {
-    const { createReadStream, statSync } = require('fs')
-    const stat = statSync(filePath)
-    const fileSize = stat.size
-    const rangeHeader = request.headers.get('range')
+    protocol.handle("media", async (request) => {
+        const url = request.url.replace("media://local", "");
+        const filePath = decodeURIComponent(url);
 
-    if (rangeHeader) {
-      const parts = rangeHeader.replace(/bytes=/, '').split('-')
-      const start = parseInt(parts[0], 10)
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1
-      const chunkSize = end - start + 1
+        try {
+            const { createReadStream, statSync } = require("fs");
+            const stat = statSync(filePath);
+            const fileSize = stat.size;
+            const rangeHeader = request.headers.get("range");
 
-      const stream = createReadStream(filePath, { start, end })
-      return new Response(stream as any, {
-        status: 206,
-        headers: {
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': String(chunkSize),
-          'Content-Type': 'video/mp4',
+            if (rangeHeader) {
+                const parts = rangeHeader.replace(/bytes=/, "").split("-");
+                const start = parseInt(parts[0], 10);
+                const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+                const chunkSize = end - start + 1;
+
+                const stream = createReadStream(filePath, { start, end });
+                return new Response(stream as any, {
+                    status: 206,
+                    headers: {
+                        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+                        "Accept-Ranges": "bytes",
+                        "Content-Length": String(chunkSize),
+                        "Content-Type": "video/mp4",
+                    },
+                });
+            } else {
+                const stream = createReadStream(filePath);
+                return new Response(stream as any, {
+                    status: 200,
+                    headers: {
+                        "Content-Length": String(fileSize),
+                        "Content-Type": "video/mp4",
+                        "Accept-Ranges": "bytes",
+                    },
+                });
+            }
+        } catch (err) {
+            console.error("protocol error:", err);
+            return new Response("Not found", { status: 404 });
         }
-      })
-    } else {
-      const stream = createReadStream(filePath)
-      return new Response(stream as any, {
-        status: 200,
-        headers: {
-          'Content-Length': String(fileSize),
-          'Content-Type': 'video/mp4',
-          'Accept-Ranges': 'bytes',
-        }
-      })
-    }
-  } catch (err) {
-    console.error('protocol error:', err)
-    return new Response('Not found', { status: 404 })
-  }
-})
+    });
 
     registerIpcHandlers();
     createWindow();

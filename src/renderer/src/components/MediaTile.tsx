@@ -1,43 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import type { DbFile } from '../types'
 import { toMediaUrl, toThumbnailUrl } from '../lib/media'
 import HoverPreview from './HoverPreview'
-
-interface PreviewState {
-  anchorY: number
-  tileRight: number
-  tileLeft: number
-  naturalW: number | null
-  naturalH: number | null
-}
-
-function computePreviewLayout(state: PreviewState): {
-  x: number
-  y: number
-  width: number
-  height: number
-} {
-  const maxW = window.innerWidth * 0.75
-  const maxH = window.innerHeight * 0.75
-
-  const natW = state.naturalW ?? 1600
-  const natH = state.naturalH ?? 900
-
-  const scale = Math.min(maxW / natW, maxH / natH)
-  const width = natW * scale
-  const height = natH * scale
-
-  const spaceRight = window.innerWidth - state.tileRight
-  const x = spaceRight > width + 16
-    ? state.tileRight + 8
-    : state.tileLeft - width - 8
-
-  const y = Math.min(state.anchorY, window.innerHeight - height - 16)
-  const clampedX = Math.max(8, Math.min(x, window.innerWidth - width - 8))
-  const clampedY = Math.max(8, y)
-
-  return { x: clampedX, y: clampedY, width, height }
-}
+import { useHoverPreview } from '../hooks/useHoverPreview'
 
 export default function MediaTile({
   file,
@@ -47,12 +12,17 @@ export default function MediaTile({
   rootPath: string
 }): JSX.Element {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
-  const [preview, setPreview] = useState<PreviewState | null>(null)
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const previewRef = useRef<PreviewState | null>(null)
-  const tileRef = useRef<HTMLDivElement>(null)
   const isVideo = file.media_type === 'video'
   const fullUrl = toMediaUrl(rootPath, file.path)
+
+  const {
+    elementRef,
+    layout,
+    preview,
+    handleMouseEnter,
+    handleMouseLeave,
+    handleNaturalSize,
+  } = useHoverPreview()
 
   useEffect(() => {
     window.api.getThumbnailPath(file.content_hash).then((absPath) => {
@@ -60,42 +30,11 @@ export default function MediaTile({
     })
   }, [file.content_hash])
 
-  const handleMouseEnter = () => {
-    const rect = tileRef.current?.getBoundingClientRect()
-    if (!rect) return
-    hoverTimer.current = setTimeout(() => {
-      const state: PreviewState = {
-        anchorY: rect.top,
-        tileRight: rect.right,
-        tileLeft: rect.left,
-        naturalW: null,
-        naturalH: null,
-      }
-      previewRef.current = state
-      setPreview(state)
-    }, 200)
-  }
-
-  const handleMouseLeave = () => {
-    if (hoverTimer.current) clearTimeout(hoverTimer.current)
-    previewRef.current = null
-    setPreview(null)
-  }
-
-  const handleNaturalSize = useCallback((w: number, h: number) => {
-    if (!previewRef.current) return
-    const updated = { ...previewRef.current, naturalW: w, naturalH: h }
-    previewRef.current = updated
-    setPreview(updated)
-  }, [])
-
-  const layout = preview ? computePreviewLayout(preview) : null
-
   return (
     <>
       <div
-        ref={tileRef}
-        className="group relative aspect-square overflow-hidden rounded-lg bg-neutral-800 cursor-pointer"
+        ref={elementRef as React.RefObject<HTMLDivElement>}
+        className="group relative overflow-hidden rounded-lg bg-neutral-800 cursor-pointer"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
@@ -129,7 +68,6 @@ export default function MediaTile({
         <HoverPreview
           file={file}
           fullUrl={fullUrl}
-          thumbUrl={thumbUrl}
           x={layout.x}
           y={layout.y}
           width={layout.width}

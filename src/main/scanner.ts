@@ -27,6 +27,12 @@ export interface ScanResult {
   unsupported: number
 }
 
+export interface FolderNode {
+  name: string
+  relativePath: string
+  children: FolderNode[]
+}
+
 function getMediaType(ext: string): MediaType | null {
   const e = ext.toLowerCase()
   if (PHOTO_EXTS.has(e)) return 'photo'
@@ -45,39 +51,36 @@ function hashFile(filePath: string): Promise<string> {
   })
 }
 
-function ensureThumbnailDir(rootPath: string): string {
-  const dir = join(rootPath, '_thumbnails')
-  if (!existsSync(dir)) mkdirSync(dir)
-  return dir
+function ensureDir(dirPath: string): void {
+  if (!existsSync(dirPath)) mkdirSync(dirPath)
 }
 
-async function generateThumbnail(
+async function generateSizedImage(
   filePath: string,
-  thumbPath: string,
+  outPath: string,
+  width: number,
   mediaType: MediaType
 ): Promise<void> {
-  if (existsSync(thumbPath)) return // already generated
+  if (existsSync(outPath)) return
 
   if (mediaType === 'video') {
-    // Extract frame at 1 second, scale to 400px wide
     await execFileAsync('ffmpeg', [
       '-ss', '00:00:01',
       '-i', filePath,
       '-vframes', '1',
-      '-vf', 'scale=400:-2',
-      '-q:v', '4',
+      '-vf', `scale=${width}:-2`,
+      '-q:v', '3',
       '-y',
-      thumbPath
+      outPath,
     ])
   } else {
-    // Use ffmpeg for photos and gifs too — resize to 400px wide
     await execFileAsync('ffmpeg', [
       '-i', filePath,
-      '-vf', 'scale=400:-2',
+      '-vf', `scale=${width}:-2`,
       '-vframes', '1',
-      '-q:v', '4',
+      '-q:v', '3',
       '-y',
-      thumbPath
+      outPath,
     ])
   }
 }
@@ -114,7 +117,7 @@ function walkDir(dirPath: string, rootPath: string): ScannedFile[] {
         absolutePath: absPath,
         relativePath: relative(rootPath, absPath),
         filename: basename(entry),
-        mediaType
+        mediaType,
       })
     }
   }
@@ -124,7 +127,10 @@ function walkDir(dirPath: string, rootPath: string): ScannedFile[] {
 
 export async function scanFolder(rootPath: string): Promise<ScanResult> {
   const files = walkDir(rootPath, rootPath)
-  const thumbDir = ensureThumbnailDir(rootPath)
+  const thumbDir = join(rootPath, '_thumbnails')
+  const previewDir = join(rootPath, '_previews')
+  ensureDir(thumbDir)
+  ensureDir(previewDir)
 
   let added = 0
   let updated = 0
@@ -134,20 +140,27 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
     try {
       const hash = await hashFile(file.absolutePath)
       const before = getFileByHash(hash)
-      const thumbPath = join(thumbDir, `${hash}.jpg`)
 
-      // Generate thumbnail (skips if already exists)
+      const thumbPath = join(thumbDir, `${hash}.jpg`)
+      const previewPath = join(previewDir, `${hash}.jpg`)
+
       try {
-        await generateThumbnail(file.absolutePath, thumbPath, file.mediaType)
-      } catch (thumbErr) {
-        console.warn(`Thumbnail failed for ${file.filename}:`, thumbErr)
+        await generateSizedImage(file.absolutePath, thumbPath, 400, file.mediaType)
+      } catch (e) {
+        console.warn(`Thumbnail failed for ${file.filename}:`, e)
+      }
+
+      try {
+        await generateSizedImage(file.absolutePath, previewPath, 1200, file.mediaType)
+      } catch (e) {
+        console.warn(`Preview failed for ${file.filename}:`, e)
       }
 
       upsertFile({
         content_hash: hash,
         path: file.relativePath,
         filename: file.filename,
-        media_type: file.mediaType
+        media_type: file.mediaType,
       })
 
       if (!before) added++
@@ -179,6 +192,41 @@ export function getSubfolders(rootPath: string): string[] {
   })
 }
 
+export function getFolderTree(rootPath: string): FolderNode[] {
+  function walk(dirPath: string): FolderNode[] {
+    let entries: string[]
+    try {
+      entries = readdirSync(dirPath)
+    } catch {
+      return []
+    }
+
+    const nodes: FolderNode[] = []
+    for (const entry of entries) {
+      if (entry.startsWith('.') || entry.startsWith('_')) continue
+      const absPath = join(dirPath, entry)
+      try {
+        if (statSync(absPath).isDirectory()) {
+          nodes.push({
+            name: entry,
+            relativePath: relative(rootPath, absPath),
+            children: walk(absPath),
+          })
+        }
+      } catch {
+        continue
+      }
+    }
+    return nodes
+  }
+
+  return walk(rootPath)
+}
+
 export function getThumbnailPath(rootPath: string, hash: string): string {
   return join(rootPath, '_thumbnails', `${hash}.jpg`)
+}
+
+export function getPreviewPath(rootPath: string, hash: string): string {
+  return join(rootPath, '_previews', `${hash}.jpg`)
 }

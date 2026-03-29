@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
+export interface FolderNode {
+  name: string
+  relativePath: string
+  children: FolderNode[]
+}
+
 const api = {
     // ── Utility ────────────────────────────────────────────────────────────
     ping: (): Promise<string> => ipcRenderer.invoke("ping"),
@@ -22,13 +28,16 @@ const api = {
         ipcRenderer.invoke("get-root-path"),
 
     // ── Folders & files ────────────────────────────────────────────────────
-    getSubfolders: (): Promise<string[]> =>
-        ipcRenderer.invoke("get-subfolders"),
+    getSubfolders: (): Promise<FolderNode[]> =>
+  ipcRenderer.invoke('get-subfolders'),
 
     getAllFiles: (): Promise<unknown[]> => ipcRenderer.invoke("get-all-files"),
 
     getFilesInFolder: (folderRelPath: string): Promise<unknown[]> =>
         ipcRenderer.invoke("get-files-in-folder", folderRelPath),
+
+    getPreviewPath: (hash: string): Promise<string | null> =>
+  ipcRenderer.invoke('get-preview-path', hash),
 
     // ── Tags ───────────────────────────────────────────────────────────────
     getTags: (fileId: number): Promise<string[]> =>
@@ -42,6 +51,17 @@ const api = {
 
     getThumbnailPath: (hash: string): Promise<string | null> =>
         ipcRenderer.invoke("get-thumbnail-path", hash),
+
+    getPair: (
+        folderPrefixes: string[] | null,
+    ): Promise<[unknown, unknown] | null> =>
+        ipcRenderer.invoke("get-pair", folderPrefixes),
+
+    recordComparison: (
+        winnerId: number,
+        loserId: number,
+    ): Promise<{ newWinnerScore: number; newLoserScore: number } | null> =>
+        ipcRenderer.invoke("record-comparison", winnerId, loserId),
 };
 
 if (process.contextIsolated) {

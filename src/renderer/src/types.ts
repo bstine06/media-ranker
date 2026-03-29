@@ -8,3 +8,9 @@ export interface DbFile {
   comparison_count: number
   date_indexed: string
 }
+
+export interface FolderNode {
+  name: string
+  relativePath: string
+  children: FolderNode[]
+}
