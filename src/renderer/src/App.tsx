@@ -21,14 +21,30 @@ function getAllPaths(nodes: FolderNode[]): string[] {
 }
 
 // helper — walks the tree and renames the matching node
-    function renameFolderNode(nodes: FolderNode[], oldPath: string, newPath: string): FolderNode[] {
-        return nodes.map((n) => {
-            if (n.relativePath === oldPath) {
-                return { ...n, name: newPath.split("/").pop()!, relativePath: newPath };
-            }
+function renameFolderNode(nodes: FolderNode[], oldPath: string, newPath: string): FolderNode[] {
+    return nodes.map((n) => {
+        if (n.relativePath === oldPath) {
+            return {
+                ...n,
+                name: newPath.split("/").pop()!,
+                relativePath: newPath,
+                children: rebaseChildren(n.children, oldPath, newPath),
+            };
+        }
+        if (oldPath.startsWith(n.relativePath + "/")) {
             return { ...n, children: renameFolderNode(n.children, oldPath, newPath) };
-        });
-    }
+        }
+        return n;
+    });
+}
+
+function rebaseChildren(nodes: FolderNode[], oldBase: string, newBase: string): FolderNode[] {
+    return nodes.map((n) => ({
+        ...n,
+        relativePath: newBase + n.relativePath.slice(oldBase.length),
+        children: rebaseChildren(n.children, oldBase, newBase),
+    }));
+}
 
 function WelcomeScreen({
     onSelect,
@@ -170,9 +186,23 @@ export default function App(): JSX.Element {
     }, [subfolders]);
 
     const handleFolderRenamed = useCallback((oldRelPath: string, newRelPath: string) => {
-        setSubfolders((prev) => renameFolderNode(prev, oldRelPath, newRelPath));
-        setActiveFolder(newRelPath);
-    }, []);
+    setSubfolders((prev) => renameFolderNode(prev, oldRelPath, newRelPath));
+    setActiveFolder(newRelPath);
+    setCheckedFolders((prev) => {
+        const next = new Set<string>();
+        for (const p of prev) {
+            if (p === oldRelPath) {
+                next.add(newRelPath);
+            } else if (p.startsWith(oldRelPath + "/")) {
+                // child path — rebase it
+                next.add(newRelPath + p.slice(oldRelPath.length));
+            } else {
+                next.add(p);
+            }
+        }
+        return next;
+    });
+}, []);
 
     if (!rootPath) {
         return (
