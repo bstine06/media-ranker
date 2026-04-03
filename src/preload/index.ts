@@ -2,9 +2,9 @@ import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 
 export interface FolderNode {
-  name: string
-  relativePath: string
-  children: FolderNode[]
+    name: string;
+    relativePath: string;
+    children: FolderNode[];
 }
 
 const api = {
@@ -29,15 +29,27 @@ const api = {
 
     // ── Folders & files ────────────────────────────────────────────────────
     getSubfolders: (): Promise<FolderNode[]> =>
-  ipcRenderer.invoke('get-subfolders'),
+        ipcRenderer.invoke("get-subfolders"),
 
     getAllFiles: (): Promise<unknown[]> => ipcRenderer.invoke("get-all-files"),
 
     getFilesInFolder: (folderRelPath: string): Promise<unknown[]> =>
         ipcRenderer.invoke("get-files-in-folder", folderRelPath),
 
-    getPreviewPath: (hash: string): Promise<string | null> =>
-  ipcRenderer.invoke('get-preview-path', hash),
+    getThumbnailPath: (hash: string): Promise<string | null> =>
+        ipcRenderer.invoke("get-thumbnail-path", hash),
+
+    readFolderMetadata: (folderRelPath: string) =>
+        ipcRenderer.invoke("read-folder-metadata", folderRelPath),
+
+    writeFolderMetadata: (folderRelPath: string, metadata: unknown) =>
+        ipcRenderer.invoke("write-folder-metadata", folderRelPath, metadata),
+
+    renameFolder: (oldRelPath: string, newName: string) =>
+        ipcRenderer.invoke("rename-folder", oldRelPath, newName),
+
+    openExternal: (url: string) => 
+        ipcRenderer.invoke("open-external", url),
 
     // ── Tags ───────────────────────────────────────────────────────────────
     getTags: (fileId: number): Promise<string[]> =>
@@ -49,9 +61,7 @@ const api = {
     removeTag: (fileId: number, tag: string): Promise<string[]> =>
         ipcRenderer.invoke("remove-tag", fileId, tag),
 
-    getThumbnailPath: (hash: string): Promise<string | null> =>
-        ipcRenderer.invoke("get-thumbnail-path", hash),
-
+    // ── Comparisons ────────────────────────────────────────────────────────
     getPair: (
         folderPrefixes: string[] | null,
     ): Promise<[unknown, unknown] | null> =>

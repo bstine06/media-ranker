@@ -22,7 +22,10 @@ declare global {
       removeTag: (fileId: number, tag: string) => Promise<string[]>
       getPair: (folderPrefixes: string[] | null) => Promise<[DbFile, DbFile] | null>
       recordComparison: (winnerId: number, loserId: number) => Promise<{ newWinnerScore: number; newLoserScore: number } | null>
-      getPreviewPath: (hash: string) => Promise<string | null>
+      readFolderMetadata: (folderRelPath: string) => Promise<import('./components/BrowseView').FolderMetadata | null>
+      writeFolderMetadata: (folderRelPath: string, metadata: import('./components/BrowseView').FolderMetadata) => Promise<void>
+      renameFolder: (oldRelPath: string, newName: string) => Promise<{ ok: true; newRelPath: string } | { ok: false; error: string }>
+      openExternal: (url: string) => Promise<void>
     }
   }
 }

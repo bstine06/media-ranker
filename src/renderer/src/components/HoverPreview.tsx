@@ -107,7 +107,7 @@ export default function HoverPreview({
         ) : (
           <img
             ref={imgRef}
-            src={isGif ? fullUrl : fullUrl}
+            src={fullUrl}
             alt={file.filename}
             onLoad={handleImgLoad}
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}

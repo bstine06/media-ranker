@@ -52,6 +52,10 @@ export default function RankingsView({
         });
     }, [folderPrefixes]);
 
+    useEffect(() => {
+        rowRefs.current = rowRefs.current.slice(0, files.length)
+    }, [files.length])
+
     // Compute preview layout for keyboard-selected row
     const computeKeyPreview = useCallback((index: number) => {
         const el = rowRefs.current[index];

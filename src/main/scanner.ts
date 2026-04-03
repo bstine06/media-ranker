@@ -3,7 +3,8 @@ import { createReadStream, readdirSync, statSync, existsSync, mkdirSync } from '
 import { join, relative, extname, basename } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { upsertFile, getFileByHash } from './db'
+import { upsertFile, getFileByPath } from './db'
+import ffmpegPath from 'ffmpeg-static'
 
 const execFileAsync = promisify(execFile)
 
@@ -24,6 +25,7 @@ export interface ScanResult {
   scanned: number
   added: number
   updated: number
+  skipped: number
   unsupported: number
 }
 
@@ -31,6 +33,10 @@ export interface FolderNode {
   name: string
   relativePath: string
   children: FolderNode[]
+}
+
+export interface FolderMetadata {
+  description: string
 }
 
 function getMediaType(ext: string): MediaType | null {
@@ -62,25 +68,22 @@ async function generateSizedImage(
   mediaType: MediaType
 ): Promise<void> {
   if (existsSync(outPath)) return
+  const bin = ffmpegPath! // path to bundled ffmpeg
 
   if (mediaType === 'video') {
-    await execFileAsync('ffmpeg', [
+    await execFileAsync(bin, [
       '-ss', '00:00:01',
       '-i', filePath,
       '-vframes', '1',
       '-vf', `scale=${width}:-2`,
-      '-q:v', '3',
-      '-y',
-      outPath,
+      '-q:v', '3', '-y', outPath,
     ])
   } else {
-    await execFileAsync('ffmpeg', [
+    await execFileAsync(bin, [
       '-i', filePath,
       '-vf', `scale=${width}:-2`,
       '-vframes', '1',
-      '-q:v', '3',
-      '-y',
-      outPath,
+      '-q:v', '3', '-y', outPath,
     ])
   }
 }
@@ -134,12 +137,28 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
 
   let added = 0
   let updated = 0
+  let skipped = 0
   let unsupported = 0
 
   for (const file of files) {
     try {
-      const hash = await hashFile(file.absolutePath)
-      const before = getFileByHash(hash)
+      const stat = statSync(file.absolutePath)
+      const mtime = stat.mtimeMs
+      const size = stat.size
+
+      const existing = getFileByPath(file.relativePath)
+
+      let hash: string
+      if (existing && existing.mtime === mtime && existing.size === size) {
+        // File unchanged — reuse stored hash, skip full read
+        hash = existing.content_hash
+        skipped++
+      } else {
+        hash = await hashFile(file.absolutePath)
+
+        if (!existing) added++
+        else updated++
+      }
 
       const thumbPath = join(thumbDir, `${hash}.jpg`)
       const previewPath = join(previewDir, `${hash}.jpg`)
@@ -161,17 +180,16 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
         path: file.relativePath,
         filename: file.filename,
         media_type: file.mediaType,
+        mtime,
+        size,
       })
-
-      if (!before) added++
-      else if (before.path !== file.relativePath) updated++
     } catch (err) {
       console.error(`Failed to process ${file.absolutePath}:`, err)
       unsupported++
     }
   }
 
-  return { scanned: files.length, added, updated, unsupported }
+  return { scanned: files.length, added, updated, skipped, unsupported }
 }
 
 export function getSubfolders(rootPath: string): string[] {
@@ -225,8 +243,4 @@ export function getFolderTree(rootPath: string): FolderNode[] {
 
 export function getThumbnailPath(rootPath: string, hash: string): string {
   return join(rootPath, '_thumbnails', `${hash}.jpg`)
-}
-
-export function getPreviewPath(rootPath: string, hash: string): string {
-  return join(rootPath, '_previews', `${hash}.jpg`)
 }

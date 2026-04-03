@@ -7,7 +7,7 @@ import {
     protocol,
     net,
 } from "electron";
-import { join } from "path";
+import path, { join } from "path";
 import { pathToFileURL } from "url";
 import { is } from "@electron-toolkit/utils";
 import {
@@ -18,17 +18,32 @@ import {
     getTagsForFile,
     addTag,
     removeTag,
-    getDb, 
-    updateEloScores
+    getDb,
+    updateEloScores,
 } from "./db";
-import type { DbFile } from './db'
-import { scanFolder, getSubfolders, getThumbnailPath, getPreviewPath, getFolderTree } from './scanner'
-import { readFileSync, writeFileSync } from "fs";
+import type { DbFile } from "./db";
+import {
+    scanFolder,
+    getSubfolders,
+    getThumbnailPath,
+    getFolderTree,
+    FolderMetadata,
+} from "./scanner";
+import {
+    readFileSync,
+    writeFileSync,
+    createReadStream,
+    statSync,
+    rename,
+    existsSync,
+} from "fs";
 import { computeEloUpdate, getWeightedPair } from "./elo";
-
-import { existsSync } from "fs";
+import { promisify } from "util";
+import { renameFolderPaths } from "./db";
 
 let rootPath: string | null = null;
+
+const renameAsync = promisify(rename);
 
 function getConfigPath(): string {
     return join(app.getPath("userData"), "config.json");
@@ -53,6 +68,14 @@ function saveRootPath(path: string): void {
         );
     } catch (err) {
         console.error("Failed to save config:", err);
+    }
+}
+
+function saveFolderMetadata(path: string, metadata: FolderMetadata): void {
+    try {
+        writeFileSync(path + ".meta.json", JSON.stringify(metadata), "utf-8");
+    } catch (err) {
+        console.error("Failed to save metadata:", err);
     }
 }
 
@@ -88,10 +111,10 @@ function registerIpcHandlers(): void {
 
     // ── Folders & files ──────────────────────────────────────────────────────
 
-    ipcMain.handle('get-subfolders', () => {
-        if (!rootPath) return []
-        return getFolderTree(rootPath)
-        })
+    ipcMain.handle("get-subfolders", () => {
+        if (!rootPath) return [];
+        return getFolderTree(rootPath);
+    });
 
     ipcMain.handle("get-all-files", () => {
         return getAllFiles();
@@ -107,11 +130,63 @@ function registerIpcHandlers(): void {
         return existsSync(thumbPath) ? thumbPath : null;
     });
 
-    ipcMain.handle('get-preview-path', (_event, hash: string) => {
-  if (!rootPath) return null
-  const previewPath = getPreviewPath(rootPath, hash)
-  return existsSync(previewPath) ? previewPath : null
-})
+    ipcMain.handle("read-folder-metadata", (_event, folderRelPath: string) => {
+        if (!rootPath) return null;
+        const metaPath = path.join(rootPath, folderRelPath, ".metadata.json");
+        try {
+            if (!existsSync(metaPath)) return null;
+            const raw = readFileSync(metaPath, "utf-8");
+            return JSON.parse(raw);
+        } catch {
+            return null;
+        }
+    });
+
+    ipcMain.handle(
+        "write-folder-metadata",
+        (_event, folderRelPath: string, metadata: unknown) => {
+            if (!rootPath) return;
+            const metaPath = path.join(
+                rootPath,
+                folderRelPath,
+                ".metadata.json",
+            );
+            writeFileSync(metaPath, JSON.stringify(metadata, null, 2), "utf-8");
+        },
+    );
+
+    ipcMain.handle(
+        "rename-folder",
+        async (_event, oldRelPath: string, newName: string) => {
+            if (!rootPath) return { ok: false, error: "No library open" };
+
+            const parentDir = path.dirname(oldRelPath);
+            const newRelPath =
+                parentDir === "." ? newName : `${parentDir}/${newName}`;
+            const oldAbsPath = path.join(rootPath, oldRelPath);
+            const newAbsPath = path.join(rootPath, newRelPath);
+
+            // Conflict check — refuse if sibling with that name already exists
+            if (existsSync(newAbsPath)) {
+                return {
+                    ok: false,
+                    error: `A folder named "${newName}" already exists here`,
+                };
+            }
+
+            try {
+                await renameAsync(oldAbsPath, newAbsPath);
+                renameFolderPaths(oldRelPath, newRelPath);
+                return { ok: true, newRelPath };
+            } catch (err: any) {
+                return { ok: false, error: err.message };
+            }
+        },
+    );
+
+    ipcMain.handle("open-external", (_event, url: string) => {
+        shell.openExternal(url);
+    });
 
     // ── Tags ─────────────────────────────────────────────────────────────────
 
@@ -197,8 +272,11 @@ app.whenReady().then(() => {
         const url = request.url.replace("media://local", "");
         const filePath = decodeURIComponent(url);
 
+        console.log("protocol request:", request.url);
+        console.log("resolved path:", filePath);
+        console.log("exists:", existsSync(filePath));
+
         try {
-            const { createReadStream, statSync } = require("fs");
             const stat = statSync(filePath);
             const fileSize = stat.size;
             const rangeHeader = request.headers.get("range");
@@ -209,6 +287,17 @@ app.whenReady().then(() => {
                 const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
                 const chunkSize = end - start + 1;
 
+                const ext = path.extname(filePath).toLowerCase();
+                const contentType =
+                    {
+                        ".mp4": "video/mp4",
+                        ".mov": "video/quicktime",
+                        ".qt": "video/quicktime",
+                        ".jpg": "image/jpeg",
+                        ".png": "image/png",
+                        ".gif": "image/gif",
+                    }[ext] ?? "application/octet-stream";
+
                 const stream = createReadStream(filePath, { start, end });
                 return new Response(stream as any, {
                     status: 206,
@@ -216,7 +305,7 @@ app.whenReady().then(() => {
                         "Content-Range": `bytes ${start}-${end}/${fileSize}`,
                         "Accept-Ranges": "bytes",
                         "Content-Length": String(chunkSize),
-                        "Content-Type": "video/mp4",
+                        "Content-Type": contentType,
                     },
                 });
             } else {

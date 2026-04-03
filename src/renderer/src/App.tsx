@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import type { DbFile, FolderNode } from "./types";
+import type { AppStatus, DbFile, FolderNode } from "./types";
 import NavItem from "./components/NavItem";
 import BrowseView from "./components/BrowseView";
 import CompareView from "./components/CompareView";
@@ -19,6 +19,16 @@ function getAllPaths(nodes: FolderNode[]): string[] {
     walk(nodes);
     return paths;
 }
+
+// helper — walks the tree and renames the matching node
+    function renameFolderNode(nodes: FolderNode[], oldPath: string, newPath: string): FolderNode[] {
+        return nodes.map((n) => {
+            if (n.relativePath === oldPath) {
+                return { ...n, name: newPath.split("/").pop()!, relativePath: newPath };
+            }
+            return { ...n, children: renameFolderNode(n.children, oldPath, newPath) };
+        });
+    }
 
 function WelcomeScreen({
     onSelect,
@@ -53,6 +63,7 @@ function PlaceholderView({ label }: { label: string }): JSX.Element {
 
 export default function App(): JSX.Element {
     const [rootPath, setRootPath] = useState<string | null>(null);
+    const [appStatus, setAppStatus] = useState<AppStatus>({text: "idle", mood: "neutral"});
     const [view, setView] = useState<View>("browse");
     const [subfolders, setSubfolders] = useState<FolderNode[]>([]);
     const [activeFolder, setActiveFolder] = useState<string | null>(null);
@@ -77,9 +88,14 @@ export default function App(): JSX.Element {
         [],
     );
 
+    const setAppStatusIdle = () => {
+        setAppStatus({text: "idle", mood: "neutral"})
+    }
+
     const openLibrary = useCallback(
         async (path: string) => {
             setIsScanning(true);
+            setAppStatus({text: "Opening library...", mood: "neutral"})
             setRootPath(path);
             const result = await window.api.openLibrary(path);
             setScanResult({ scanned: result.scanned, added: result.added });
@@ -88,6 +104,25 @@ export default function App(): JSX.Element {
             // Check all folders by default
             setCheckedFolders(new Set(getAllPaths(folders)));
             await loadFolder(null, path);
+            setAppStatusIdle();
+            setIsScanning(false);
+        },
+        [loadFolder],
+    );
+
+    const rescanLibrary = useCallback(
+        async (path: string, activeFolder: string | null) => {
+            setIsScanning(true);
+            setAppStatus({text: "Rescanning...", mood: "neutral"})
+            setRootPath(path);
+            const result = await window.api.openLibrary(path);
+            setScanResult({ scanned: result.scanned, added: result.added });
+            const folders = await window.api.getSubfolders();
+            setSubfolders(folders);
+            // Check all folders by default
+            setCheckedFolders(new Set(getAllPaths(folders)));
+            await loadFolder(activeFolder, path);
+            setAppStatusIdle();
             setIsScanning(false);
         },
         [loadFolder],
@@ -97,6 +132,11 @@ export default function App(): JSX.Element {
         const path = await window.api.selectRootFolder();
         if (path) await openLibrary(path);
     };
+
+    const handleRescanLibrary = async () => {
+        const path = await window.api.getRootPath();
+        if (path) await rescanLibrary(path, activeFolder);
+    }
 
     useEffect(() => {
         window.api.getRootPath().then((savedPath) => {
@@ -128,6 +168,11 @@ export default function App(): JSX.Element {
             return new Set(allPaths);
         });
     }, [subfolders]);
+
+    const handleFolderRenamed = useCallback((oldRelPath: string, newRelPath: string) => {
+        setSubfolders((prev) => renameFolderNode(prev, oldRelPath, newRelPath));
+        setActiveFolder(newRelPath);
+    }, []);
 
     if (!rootPath) {
         return (
@@ -168,6 +213,8 @@ export default function App(): JSX.Element {
                     onToggleFolder={handleToggleFolder}
                     onCheckAll={handleCheckAll}
                     onChangeLibrary={handleSelectFolder}
+                    onRescanLibrary={handleRescanLibrary}
+                    status = {appStatus}
                 />
 
                 <main className="flex flex-1 flex-col overflow-hidden bg-neutral-950 min-w-0">
@@ -176,6 +223,7 @@ export default function App(): JSX.Element {
                             files={files}
                             rootPath={rootPath}
                             activeFolder={activeFolder}
+                            onFolderRenamed={handleFolderRenamed}
                         />
                     )}
                     {view === "compare" && (

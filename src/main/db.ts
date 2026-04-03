@@ -11,6 +11,8 @@ export interface DbFile {
   elo_score: number
   comparison_count: number
   date_indexed: string
+  mtime: number
+  size: number
 }
 
 export interface DbTag {
@@ -50,7 +52,9 @@ export function initDb(rootPath: string): Database.Database {
       media_type      TEXT    NOT NULL CHECK(media_type IN ('photo', 'gif', 'video')),
       elo_score       REAL    NOT NULL DEFAULT 1000,
       comparison_count INTEGER NOT NULL DEFAULT 0,
-      date_indexed    TEXT    NOT NULL DEFAULT (datetime('now'))
+      date_indexed    TEXT    NOT NULL DEFAULT (datetime('now')),
+      mtime           INTEGER NOT NULL DEFAULT 0,
+      size            INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS tags (
@@ -90,20 +94,29 @@ export function upsertFile(file: Omit<DbFile, 'id' | 'elo_score' | 'comparison_c
   const existing = db.prepare('SELECT * FROM files WHERE content_hash = ?').get(file.content_hash) as DbFile | undefined
 
   if (existing) {
-    // File moved or renamed — update path and filename
-    if (existing.path !== file.path || existing.filename !== file.filename) {
-      db.prepare('UPDATE files SET path = ?, filename = ? WHERE content_hash = ?')
-        .run(file.path, file.filename, file.content_hash)
+    // File moved/renamed or mtime/size changed — update all tracked fields
+    if (
+      existing.path !== file.path ||
+      existing.filename !== file.filename ||
+      existing.mtime !== file.mtime ||
+      existing.size !== file.size
+    ) {
+      db.prepare('UPDATE files SET path = ?, filename = ?, mtime = ?, size = ? WHERE content_hash = ?')
+        .run(file.path, file.filename, file.mtime, file.size, file.content_hash)
     }
-    return { ...existing, path: file.path, filename: file.filename }
+    return { ...existing, path: file.path, filename: file.filename, mtime: file.mtime, size: file.size }
   }
 
   const result = db.prepare(`
-    INSERT INTO files (content_hash, path, filename, media_type)
-    VALUES (?, ?, ?, ?)
-  `).run(file.content_hash, file.path, file.filename, file.media_type)
+    INSERT INTO files (content_hash, path, filename, media_type, mtime, size)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(file.content_hash, file.path, file.filename, file.media_type, file.mtime, file.size)
 
   return db.prepare('SELECT * FROM files WHERE id = ?').get(result.lastInsertRowid) as DbFile
+}
+
+export function getFileByPath(relativePath: string): DbFile | undefined {
+  return getDb().prepare('SELECT * FROM files WHERE path = ?').get(relativePath) as DbFile | undefined
 }
 
 export function getAllFiles(): DbFile[] {
@@ -114,7 +127,7 @@ export function getFilesByFolder(folderRelPath: string): DbFile[] {
   // Match files whose path starts with the given folder prefix
   return getDb()
     .prepare("SELECT * FROM files WHERE path LIKE ? ORDER BY elo_score DESC")
-    .all(`${folderRelPath}%`) as DbFile[]
+    .all(`${folderRelPath.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`) as DbFile[]
 }
 
 export function getFileByHash(hash: string): DbFile | undefined {
@@ -127,6 +140,23 @@ export function getUnindexedCount(): number {
     .prepare('SELECT COUNT(*) as count FROM files WHERE comparison_count = 0')
     .get() as { count: number }
   return result.count
+}
+
+export function renameFolderPaths(oldPrefix: string, newPrefix: string): void {
+    const db = getDb()
+    db.transaction(() => {
+        // Update all files whose path starts with the old prefix
+        db.prepare(`
+            UPDATE files
+            SET path = ? || substr(path, ?)
+            WHERE path = ? OR path LIKE ?
+        `).run(
+            newPrefix,
+            oldPrefix.length + 1,
+            oldPrefix,
+            `${oldPrefix.replace(/%/g, '\\%').replace(/_/g, '\\_')}/%`
+        )
+    })()
 }
 
 // ── Tag queries ─────────────────────────────────────────────────────────────

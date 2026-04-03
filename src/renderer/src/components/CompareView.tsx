@@ -3,6 +3,24 @@ import type { DbFile } from "../types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { useKeyboardShortcut } from "../hooks/useKeyboard";
 
+// Held at module level so GC doesn't collect them before decode finishes
+const preloadCache = new Map<string, HTMLImageElement>();
+
+function preloadImage(url: string): void {
+    if (preloadCache.has(url)) return;
+    const img = new Image();
+    img.src = url;
+    preloadCache.set(url, img);
+    // Clean up after decode so the cache doesn't grow forever
+    img.decode().finally(() => preloadCache.delete(url));
+}
+
+async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
+    if (file.media_type === "video") return;
+    // Preload full res (thumbnail is tiny and fast enough not to need it)
+    preloadImage(toMediaUrl(rootPath, file.path));
+}
+
 export default function CompareView({
     rootPath,
     folderPrefixes,
@@ -16,25 +34,17 @@ export default function CompareView({
     const [stats, setStats] = useState({ comparisons: 0 });
     const [hoveredSide, setHoveredSide] = useState<"a" | "b" | null>(null);
 
-    const preloadFile = (file: DbFile) => {
-        const url = toMediaUrl(rootPath, file.path);
-        if (file.media_type !== "video") {
-            const img = new Image();
-            img.src = url;
-        }
-    };
-
     const loadPair = useCallback(async () => {
         setLoading(true);
         const result = await window.api.getPair(folderPrefixes);
         setPair(result);
         setLoading(false);
 
-        // Preload next pair in background while user decides
+        // Preload the next pair's full-res images in the background
         window.api.getPair(folderPrefixes).then((next) => {
             if (next) {
-                preloadFile(next[0]);
-                preloadFile(next[1]);
+                preloadFile(rootPath, next[0]);
+                preloadFile(rootPath, next[1]);
             }
         });
     }, [folderPrefixes, rootPath]);
@@ -62,27 +72,26 @@ export default function CompareView({
     }, [loadPair]);
 
     const handleLeft = useCallback(() => {
-        if (!pair || comparing) return;
-        if (hoveredSide === "a") {
-            const [a, b] = pair;
-            handlePick(a.id, b.id);
-        } else {
-            setHoveredSide("a");
-        }
-    }, [pair, comparing, hoveredSide, handlePick]);
+        setHoveredSide("a");
+    }, []);
 
     const handleRight = useCallback(() => {
+        setHoveredSide("b");
+    }, []);
+
+    const handleDown = useCallback(() => {
         if (!pair || comparing) return;
-        if (hoveredSide === "b") {
-            const [a, b] = pair;
-            handlePick(b.id, a.id);
+        const [a, b] = pair;
+        if (hoveredSide === "a") {
+            handlePick(a.id, b.id);
         } else {
-            setHoveredSide("b");
+            handlePick(b.id, a.id);
         }
     }, [pair, comparing, hoveredSide, handlePick]);
 
-    useKeyboardShortcut({ key: "ArrowLeft", onKeyPressed: handleLeft });
-    useKeyboardShortcut({ key: "ArrowRight", onKeyPressed: handleRight });
+    useKeyboardShortcut({ key: "a", onKeyPressed: handleLeft });
+    useKeyboardShortcut({ key: "d", onKeyPressed: handleRight });
+    useKeyboardShortcut({ key: "s", onKeyPressed: handleDown });
 
     if (loading) {
         return (
@@ -145,119 +154,132 @@ export default function CompareView({
     );
 }
 
+function LoadingCover(): JSX.Element {
+    return (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-neutral-800">
+    <div className="h-full bg-white/40 animate-[shimmer_1.5s_ease-in-out_infinite]" 
+         style={{ width: '60%' }} />
+  </div>
+    );
+}
+
 function CompareCard({
-  file,
-  rootPath,
-  onPick,
-  disabled,
-  forceHover,
-  onMouseEnter,
-  onMouseLeave,
+    file,
+    rootPath,
+    onPick,
+    disabled,
+    forceHover,
+    onMouseEnter,
+    onMouseLeave,
 }: {
-  file: DbFile
-  rootPath: string
-  onPick: () => void
-  disabled: boolean
-  forceHover: boolean
-  onMouseEnter: () => void
-  onMouseLeave: () => void
+    file: DbFile;
+    rootPath: string;
+    onPick: () => void;
+    disabled: boolean;
+    forceHover: boolean;
+    onMouseEnter: () => void;
+    onMouseLeave: () => void;
 }): JSX.Element {
-  const [thumbUrl, setThumbUrl] = useState<string | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [fullLoaded, setFullLoaded] = useState(false)
-  const [mouseHover, setMouseHover] = useState(false)
-  const hovered = forceHover || mouseHover
-  const isVideo = file.media_type === 'video'
-  const isGif = file.media_type === 'gif'
-  const fullUrl = toMediaUrl(rootPath, file.path)
+    const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+    const [fullLoaded, setFullLoaded] = useState(false);
+    const [mouseHover, setMouseHover] = useState(false);
+    const hovered = forceHover || mouseHover;
+    const isVideo = file.media_type === "video";
+    const isGif = file.media_type === "gif";
+    const fullUrl = toMediaUrl(rootPath, file.path);
 
-  useEffect(() => {
-    setThumbUrl(null)
-    setPreviewUrl(null)
-    setFullLoaded(false)
+    useEffect(() => {
+        setThumbUrl(null);
+        setFullLoaded(false);
 
-    window.api.getThumbnailPath(file.content_hash).then((absPath) => {
-      if (absPath) setThumbUrl(toThumbnailUrl(absPath))
-    })
+        window.api.getThumbnailPath(file.content_hash).then((absPath) => {
+            if (absPath) setThumbUrl(toThumbnailUrl(absPath));
+        });
+    }, [file.content_hash]);
 
-    window.api.getPreviewPath(file.content_hash).then((absPath) => {
-      if (absPath) setPreviewUrl(toThumbnailUrl(absPath))
-    })
-  }, [file.content_hash])
+    // LoadingCover shows until full res is done
+    const showLoadingCover = !isVideo && !isGif && !fullLoaded;
 
-  // Preload preview in background
-  useEffect(() => {
-    if (!previewUrl || isVideo || isGif) return
-    const img = new Image()
-    img.src = previewUrl
-    img.onload = () => setFullLoaded(true)
-  }, [previewUrl, isVideo, isGif])
+    return (
+        <div
+            className={`relative flex flex-1 flex-col overflow-hidden rounded-xl border-2 transition-all cursor-pointer
+                ${
+                    disabled
+                        ? "border-neutral-800 opacity-60"
+                        : hovered
+                          ? "border-white"
+                          : "border-neutral-700"
+                }`}
+            onClick={onPick}
+            onMouseEnter={() => {
+                setMouseHover(true);
+                onMouseEnter();
+            }}
+            onMouseLeave={() => {
+                setMouseHover(false);
+                onMouseLeave();
+            }}
+        >
+            <div className="relative flex-1 overflow-hidden bg-neutral-900">
+                {isVideo ? (
+                    <video
+                        key={fullUrl}
+                        src={fullUrl}
+                        className="h-full w-full object-contain"
+                        muted={!hovered}
+                        loop
+                        playsInline
+                        autoPlay
+                    />
+                ) : (
+                    <>
+                        {/* Blurred thumbnail shown instantly */}
+                        {thumbUrl && (
+                            <img
+                                src={thumbUrl}
+                                alt={file.filename}
+                                className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
+                                style={{
+                                    filter: "blur(8px)",
+                                    transform: "scale(1.0)",
+                                    opacity: fullLoaded ? 0 : 1,
+                                }}
+                            />
+                        )}
+                        {/* Full res fades in once loaded */}
+                        <img
+                            src={fullUrl}
+                            alt={file.filename}
+                            className="relative h-full w-full object-contain transition-opacity duration-300"
+                            style={{ opacity: fullLoaded ? 1 : 0 }}
+                            onLoad={() => setFullLoaded(true)}
+                        />
+                        {/* LoadingCover overlay while waiting for full res */}
+                        {showLoadingCover && <LoadingCover />}
+                    </>
+                )}
 
-  return (
-    <div
-      className={`relative flex flex-1 flex-col overflow-hidden rounded-xl border-2 transition-all cursor-pointer
-        ${disabled
-          ? 'border-neutral-800 opacity-60'
-          : hovered
-            ? 'border-white'
-            : 'border-neutral-700'
-        }`}
-      onClick={onPick}
-      onMouseEnter={() => { setMouseHover(true); onMouseEnter() }}
-      onMouseLeave={() => { setMouseHover(false); onMouseLeave() }}
-    >
-      <div className="relative flex-1 overflow-hidden bg-neutral-900">
-        {isVideo ? (
-          <video
-            src={fullUrl}
-            className="h-full w-full object-contain"
-            muted={!hovered}
-            loop
-            playsInline
-            autoPlay
-          />
-        ) : (
-          <>
-            {/* Blurred thumbnail shown instantly */}
-            {thumbUrl && (
-              <img
-                src={thumbUrl}
-                alt={file.filename}
-                className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
-                style={{
-                  filter: 'blur(8px)',
-                  transform: 'scale(1.05)',
-                  opacity: fullLoaded ? 0 : 1,
-                }}
-              />
-            )}
-            {/* Preview fades in once loaded */}
-            {(previewUrl || isGif) && (
-              <img
-                src={isGif ? fullUrl : previewUrl ?? ''}
-                alt={file.filename}
-                className="relative h-full w-full object-contain transition-opacity duration-300"
-                style={{ opacity: (fullLoaded || isGif) ? 1 : 0 }}
-                onLoad={() => !isGif && setFullLoaded(true)}
-              />
-            )}
-          </>
-        )}
+                {isVideo && (
+                    <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                        ▶
+                    </div>
+                )}
+                {isGif && (
+                    <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                        GIF
+                    </div>
+                )}
+            </div>
 
-        {isVideo && (
-          <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">▶</div>
-        )}
-        {isGif && (
-          <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">GIF</div>
-        )}
-      </div>
-
-      <div className="shrink-0 border-t border-neutral-800 bg-neutral-900 px-4 py-3">
-        <p className="truncate text-sm font-medium text-white">{file.filename}</p>
-        <p className="text-xs text-neutral-500">
-          {Math.round(file.elo_score)} pts · {file.comparison_count} comparisons
-        </p>
-      </div>
-    </div>
-  )
+            <div className="shrink-0 border-t border-neutral-800 bg-neutral-900 px-4 py-3">
+                <p className="truncate text-sm font-medium text-white">
+                    {file.filename}
+                </p>
+                <p className="text-xs text-neutral-500">
+                    {Math.round(file.elo_score)} pts · {file.comparison_count}{" "}
+                    comparisons
+                </p>
+            </div>
+        </div>
+    );
 }
