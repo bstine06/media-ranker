@@ -48,8 +48,30 @@ const api = {
     renameFolder: (oldRelPath: string, newName: string) =>
         ipcRenderer.invoke("rename-folder", oldRelPath, newName),
 
-    openExternal: (url: string) => 
-        ipcRenderer.invoke("open-external", url),
+    openExternal: (url: string) => ipcRenderer.invoke("open-external", url),
+
+    // ── File watching ──────────────────────────────────────────────────────
+    onMediaAdded: (
+        callback: (file: {
+            relativePath: string;
+            hash: string;
+            mediaType: string;
+        }) => void,
+    ) => {
+        const handler = (
+            _event: unknown,
+            data: { relativePath: string; hash: string; mediaType: string },
+        ) => callback(data);
+        ipcRenderer.on("media:added", handler);
+        return () => ipcRenderer.removeListener("media:added", handler); // returns cleanup fn
+    },
+
+    onMediaRemoved: (callback: (file: { relativePath: string }) => void) => {
+        const handler = (_event: unknown, data: { relativePath: string }) =>
+            callback(data);
+        ipcRenderer.on("media:removed", handler);
+        return () => ipcRenderer.removeListener("media:removed", handler);
+    },
 
     // ── Tags ───────────────────────────────────────────────────────────────
     getTags: (fileId: number): Promise<string[]> =>
@@ -60,6 +82,14 @@ const api = {
 
     removeTag: (fileId: number, tag: string): Promise<string[]> =>
         ipcRenderer.invoke("remove-tag", fileId, tag),
+
+    getAllTags: (): Promise<string[]> => ipcRenderer.invoke("get-all-tags"),
+
+    getFileIdsByTags: (tags: string[], mode: "and" | "or"): Promise<number[]> =>
+        ipcRenderer.invoke("get-file-ids-by-tags", tags, mode),
+
+    addTagToFolder: (folderRelPath: string, tag: string): Promise<number> =>
+        ipcRenderer.invoke("add-tag-to-folder", folderRelPath, tag),
 
     // ── Comparisons ────────────────────────────────────────────────────────
     getPair: (

@@ -17,6 +17,9 @@ import {
     getFilesByFolder,
     getTagsForFile,
     addTag,
+    getAllTags,
+    getFileIdsByTags,
+    addTagToFolder,
     removeTag,
     getDb,
     updateEloScores,
@@ -40,6 +43,7 @@ import {
 import { computeEloUpdate, getWeightedPair } from "./elo";
 import { promisify } from "util";
 import { renameFolderPaths } from "./db";
+import { watchFolder, unwatchAll } from "./watcher";
 
 let rootPath: string | null = null;
 
@@ -99,15 +103,30 @@ function registerIpcHandlers(): void {
         saveRootPath(folderPath);
         initDb(folderPath);
         const result = await scanFolder(folderPath);
+
+        // Start watching — get mainWindow from the closure
+        console.log('about to call watchFolder with:', folderPath)
+    const win = BrowserWindow.getAllWindows()[0];
+    console.log('win found:', !!win)
+    if (win) watchFolder(folderPath, win);
+
         return result;
     });
 
+    // And clean up on quit:
+    app.on("before-quit", () => unwatchAll());
+
     ipcMain.handle("get-root-path", () => {
-        if (!rootPath) {
-            rootPath = loadSavedRootPath();
+    if (!rootPath) {
+        rootPath = loadSavedRootPath();
+        if (rootPath) {
+            initDb(rootPath);  // ← add this
+            const win = BrowserWindow.getAllWindows()[0];
+            if (win) watchFolder(rootPath, win);
         }
-        return rootPath;
-    });
+    }
+    return rootPath;
+});
 
     // ── Folders & files ──────────────────────────────────────────────────────
 
@@ -203,6 +222,24 @@ function registerIpcHandlers(): void {
         removeTag(fileId, tag);
         return getTagsForFile(fileId);
     });
+
+    ipcMain.handle("get-all-tags", () => {
+        return getAllTags();
+    });
+
+    ipcMain.handle(
+        "get-file-ids-by-tags",
+        (_event, tags: string[], mode: "and" | "or") => {
+            return getFileIdsByTags(tags, mode);
+        },
+    );
+
+    ipcMain.handle(
+        "add-tag-to-folder",
+        (_event, folderRelPath: string, tag: string) => {
+            return addTagToFolder(folderRelPath, tag);
+        },
+    );
 
     // -- Comparisons
 

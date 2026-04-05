@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.renderer.json",
     "dist": "electron-builder",
     "postinstall": "electron-builder install-app-deps",
-"rebuild": "electron-builder install-app-deps"
+    "rebuild": "electron-builder install-app-deps"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
@@ -23,6 +23,7 @@
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@electron-toolkit/utils": "^3.0.0",
     "@types/better-sqlite3": "^7.6.8",
+    "@types/chokidar": "^1.7.5",
     "@types/node": "^20.12.5",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.0",
@@ -40,32 +41,32 @@
     "vite": "^5.2.10"
   },
   "build": {
-  "appId": "com.yourname.media-ranker",
-  "productName": "Media Ranker",
-  "asar": true,
-  "asarUnpack": [
-    "node_modules/better-sqlite3/**",
-    "node_modules/sharp/**",
-    "node_modules/ffmpeg-static/**"
-  ],
-  "directories": {
-    "output": "dist"
-  },
-  "mac": {
-    "category": "public.app-category.entertainment",
-    "target": "dmg"
-  },
-  "win": {
-    "target": "nsis"
-  },
-  "linux": {
-    "target": "AppImage"
-  },
-  "files": [
-    "out/**/*",
-    "node_modules/**",
-    "!node_modules/**/{test,tests,spec,specs}/**",
-    "!node_modules/**/*.{md,txt}"
-  ]
-}
+    "appId": "com.yourname.media-ranker",
+    "productName": "Media Ranker",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/sharp/**",
+      "node_modules/ffmpeg-static/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.entertainment",
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "files": [
+      "out/**/*",
+      "node_modules/**",
+      "!node_modules/**/{test,tests,spec,specs}/**",
+      "!node_modules/**/*.{md,txt}"
+    ]
+  }
 }

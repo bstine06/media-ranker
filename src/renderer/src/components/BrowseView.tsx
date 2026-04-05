@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DbFile } from "../types";
-import { toThumbnailUrl } from "../lib/media";
+import { toThumbnailUrl, toMediaUrl } from "../lib/media";
 import MediaTile from "./MediaTile";
+import HoverPreview from "./HoverPreview";
+import { useHoverPreview } from "../hooks/useHoverPreview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,6 +14,105 @@ export interface FolderMetadata {
 
 const URL_RE = /^https?:\/\//i;
 
+type ViewMode = "grid" | "rows";
+type SortMode = "default" | "rank";
+
+function TagAllButton({
+    activeFolder,
+    allTags,
+    onDone,
+}: {
+    activeFolder: string;
+    allTags: string[];
+    onDone: () => void;
+}): JSX.Element {
+    const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState("");
+    const [applying, setApplying] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (open) setTimeout(() => inputRef.current?.focus(), 0);
+    }, [open]);
+
+    const suggestions = search.trim()
+        ? allTags.filter((t) => t.toLowerCase().includes(search.toLowerCase()))
+        : [];
+
+    const apply = async (tag: string) => {
+        if (!tag.trim()) return;
+        setApplying(true);
+        await window.api.addTagToFolder(activeFolder, tag.trim().toLowerCase());
+        setApplying(false);
+        setOpen(false);
+        setSearch("");
+        onDone();
+    };
+
+    if (!open) {
+        return (
+            <button
+                onClick={() => setOpen(true)}
+                className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            >
+                Tag all
+            </button>
+        );
+    }
+
+    return (
+        <div className="relative flex items-center gap-1.5">
+            <div className="relative">
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") apply(search);
+                        if (e.key === "Escape") {
+                            setOpen(false);
+                            setSearch("");
+                        }
+                    }}
+                    placeholder="Tag name…"
+                    disabled={applying}
+                    className="w-32 rounded-md bg-neutral-800 border border-neutral-700 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600"
+                />
+                {suggestions.length > 0 && (
+                    <div className="absolute right-0 top-full mt-1 w-40 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg max-h-40 overflow-y-auto">
+                        {suggestions.slice(0, 20).map((tag) => (
+                            <button
+                                key={tag}
+                                onMouseDown={() => apply(tag)}
+                                className="w-full text-left px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800 transition-colors"
+                            >
+                                {tag}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+            <button
+                onClick={() => apply(search)}
+                disabled={applying || !search.trim()}
+                className="text-xs bg-neutral-700 hover:bg-neutral-600 disabled:opacity-40 text-neutral-200 rounded px-2 py-1 transition-colors"
+            >
+                {applying ? "…" : "Apply"}
+            </button>
+            <button
+                onClick={() => {
+                    setOpen(false);
+                    setSearch("");
+                }}
+                className="text-xs text-neutral-600 hover:text-neutral-400 transition-colors"
+            >
+                Cancel
+            </button>
+        </div>
+    );
+}
+
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
 export default function BrowseView({
@@ -19,17 +120,29 @@ export default function BrowseView({
     rootPath,
     activeFolder,
     onFolderRenamed,
+    onInspectFile,
+    allTags,
+    onTagsChanged,
 }: {
     files: DbFile[];
     rootPath: string;
     activeFolder: string | null;
     onFolderRenamed: (oldRelPath: string, newRelPath: string) => void;
+    onInspectFile: (file: DbFile) => void;
+    allTags: string[];
+    onTagsChanged: () => void;
 }): JSX.Element {
     const [metadata, setMetadata] = useState<FolderMetadata | null>(null);
     const [editingMetadata, setEditingMetadata] = useState(false);
-    const [draftProfileImage, setDraftProfileImage] = useState<string | undefined>();
+    const [draftProfileImage, setDraftProfileImage] = useState<
+        string | undefined
+    >();
     const [draftName, setDraftName] = useState<string>("");
     const [renameError, setRenameError] = useState<string | null>(null);
+
+    // Persisted across folder changes
+    const [viewMode, setViewMode] = useState<ViewMode>("grid");
+    const [sortMode, setSortMode] = useState<SortMode>("default");
 
     useEffect(() => {
         if (!activeFolder) {
@@ -57,7 +170,10 @@ export default function BrowseView({
         setEditingMetadata(true);
     };
 
-    const handleMetadataSave = async (updated: FolderMetadata, newName: string) => {
+    const handleMetadataSave = async (
+        updated: FolderMetadata,
+        newName: string,
+    ) => {
         if (!activeFolder) return;
 
         const currentName = activeFolder.split("/").pop()!;
@@ -84,21 +200,130 @@ export default function BrowseView({
             setRenameError(null);
             setEditingMetadata(false);
         }
+
+        setDraftProfileImage(undefined);
     };
 
     const handleTileClick = (file: DbFile) => {
-        setDraftProfileImage((prev) =>
-            prev === file.content_hash ? undefined : file.content_hash
-        );
+        editingMetadata
+            ? setDraftProfileImage((prev) =>
+                  prev === file.content_hash ? undefined : file.content_hash,
+              )
+            : onInspectFile(file);
     };
+
+    const sortedFiles = [...files].sort((a, b) =>
+        sortMode === "rank"
+            ? b.elo_score - a.elo_score
+            : a.filename.localeCompare(b.filename),
+    );
 
     return (
         <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3">
                 <h2 className="text-sm font-medium text-neutral-300">
                     {activeFolder ?? "All Files"}
                 </h2>
-                <span className="text-xs text-neutral-600">{files.length} files</span>
+                <div className="flex items-center gap-3">
+                    {/* Tag all files in folder */}
+                    {activeFolder && (
+                        <TagAllButton
+                            activeFolder={activeFolder}
+                            allTags={allTags}
+                            onDone={onTagsChanged}
+                        />
+                    )}
+                    {/* Sort toggle */}
+                    <button
+                        onClick={() =>
+                            setSortMode((m) =>
+                                m === "default" ? "rank" : "default",
+                            )
+                        }
+                        title={
+                            sortMode === "rank"
+                                ? "Sorted by rank — click to reset"
+                                : "Sort by rank"
+                        }
+                        className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                            sortMode === "rank"
+                                ? "bg-neutral-700 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12"
+                            />
+                        </svg>
+                        {sortMode === "rank" ? "Ranked" : "Rank"}
+                    </button>
+
+                    {/* View mode toggle */}
+                    <div className="flex items-center rounded bg-neutral-800 p-0.5">
+                        <button
+                            onClick={() => setViewMode("grid")}
+                            title="Grid view"
+                            className={`rounded p-1 transition-colors ${
+                                viewMode === "grid"
+                                    ? "bg-neutral-600 text-neutral-200"
+                                    : "text-neutral-600 hover:text-neutral-400"
+                            }`}
+                        >
+                            {/* Grid icon */}
+                            <svg
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"
+                                />
+                            </svg>
+                        </button>
+                        <button
+                            onClick={() => setViewMode("rows")}
+                            title="Row view"
+                            className={`rounded p-1 transition-colors ${
+                                viewMode === "rows"
+                                    ? "bg-neutral-600 text-neutral-200"
+                                    : "text-neutral-600 hover:text-neutral-400"
+                            }`}
+                        >
+                            {/* List icon */}
+                            <svg
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <span className="text-xs text-neutral-600">
+                        {files.length} files
+                    </span>
+                </div>
             </div>
 
             {activeFolder && (
@@ -124,82 +349,171 @@ export default function BrowseView({
                 <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
                     No media found in this folder.
                 </div>
-            ) : (
-                <div className="relative flex-1 overflow-hidden">
-                    <div
-                        className="grid-media overflow-y-auto overflow-x-hidden p-4 h-full"
-                        style={{ scrollbarGutter: "stable" }}
-                    >
-                        {files.map((file) => (
-                            <MediaTile key={file.id} file={file} rootPath={rootPath} />
+            ) : viewMode === "grid" ? (
+                <div
+                    className="flex-1 overflow-y-auto overflow-x-hidden"
+                    style={{
+                        scrollbarGutter: "stable",
+                    }}
+                >
+                    <div className="grid-media p-4">
+                        {sortedFiles.map((file) => (
+                            <div
+                                key={file.id}
+                                className={`relative cursor-pointer rounded-lg overflow-hidden transition-all ${
+                                    draftProfileImage === file.content_hash
+                                        ? "ring-2 ring-blue-500 bg-blue-500/10"
+                                        : "ring-1 ring-transparent"
+                                }`}
+                                onClick={() => handleTileClick(file)}
+                            >
+                                <MediaTile file={file} rootPath={rootPath} />
+                                {draftProfileImage === file.content_hash && (
+                                    <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
+                                        <svg
+                                            className="w-3 h-3 text-white"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={3}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M4.5 12.75l6 6 9-13.5"
+                                            />
+                                        </svg>
+                                    </div>
+                                )}
+                            </div>
                         ))}
                     </div>
-
-                    {editingMetadata && (
-                        <div
-                            className="absolute inset-0 z-10"
-                            onClick={(e) => {
-                                const grid = e.currentTarget.previousElementSibling as HTMLElement;
-                                const children = Array.from(grid.children) as HTMLElement[];
-
-                                for (const child of children) {
-                                    const rect = child.getBoundingClientRect();
-                                    if (
-                                        e.clientX >= rect.left &&
-                                        e.clientX <= rect.right &&
-                                        e.clientY >= rect.top &&
-                                        e.clientY <= rect.bottom
-                                    ) {
-                                        const index = children.indexOf(child);
-                                        if (index >= 0 && index < files.length) {
-                                            handleTileClick(files[index]);
-                                        }
-                                        break;
-                                    }
-                                }
-                                e.stopPropagation();
-                            }}
-                        >
-                            <div
-                                className="grid-media p-4 h-full pointer-events-none"
-                                style={{ scrollbarGutter: "stable" }}
-                            >
-                                {files.map((file) => (
-                                    <div
-                                        key={file.id}
-                                        className={`rounded-lg transition-all ${
-                                            draftProfileImage === file.content_hash
-                                                ? "ring-2 ring-blue-500 bg-blue-500/10"
-                                                : "ring-1 ring-transparent"
-                                        }`}
-                                    >
-                                        {draftProfileImage === file.content_hash && (
-                                            <div className="relative h-full">
-                                                <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
-                                                    <svg
-                                                        className="w-3 h-3 text-white"
-                                                        fill="none"
-                                                        viewBox="0 0 24 24"
-                                                        stroke="currentColor"
-                                                        strokeWidth={3}
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M4.5 12.75l6 6 9-13.5"
-                                                        />
-                                                    </svg>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                </div>
+            ) : (
+                <div className="overflow-y-auto flex-1">
+                    {sortedFiles.map((file, index) => (
+                        <BrowseRow
+                            key={file.id}
+                            file={file}
+                            rank={sortMode === "rank" ? index + 1 : null}
+                            rootPath={rootPath}
+                            onClick={() => onInspectFile(file)}
+                        />
+                    ))}
                 </div>
             )}
         </div>
+    );
+}
+
+// ─── BrowseRow ────────────────────────────────────────────────────────────────
+
+function BrowseRow({
+    file,
+    rank,
+    rootPath,
+    onClick,
+}: {
+    file: DbFile;
+    rank: number | null;
+    rootPath: string;
+    onClick: () => void;
+}): JSX.Element {
+    const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+    const fullUrl = toMediaUrl(rootPath, file.path);
+
+    const {
+        elementRef,
+        layout,
+        preview,
+        handleMouseEnter,
+        handleMouseLeave,
+        handleNaturalSize,
+    } = useHoverPreview();
+
+    useEffect(() => {
+        window.api.getThumbnailPath(file.content_hash).then((absPath) => {
+            if (absPath) setThumbUrl(toThumbnailUrl(absPath));
+        });
+    }, [file.content_hash]);
+
+    const rankColor =
+        rank === 1
+            ? "text-yellow-400"
+            : rank === 2
+              ? "text-neutral-300"
+              : rank === 3
+                ? "text-amber-600"
+                : "text-neutral-600";
+
+    return (
+        <>
+            <div
+                ref={elementRef as React.RefObject<HTMLDivElement>}
+                className="flex items-center gap-4 border-b border-neutral-800/50 px-5 py-3 transition-colors cursor-default border-l-2 border-l-transparent hover:border-l-neutral-600 hover:bg-neutral-900/50"
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+                onClick={onClick}
+            >
+                {rank !== null && (
+                    <span
+                        className={`w-8 shrink-0 text-right text-sm font-bold tabular-nums ${rankColor}`}
+                    >
+                        {rank}
+                    </span>
+                )}
+
+                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-neutral-800">
+                    {thumbUrl ? (
+                        <img
+                            src={thumbUrl}
+                            alt={file.filename}
+                            className="h-full w-full object-cover"
+                        />
+                    ) : (
+                        <div className="flex h-full w-full items-center justify-center text-neutral-600 text-xs">
+                            {file.media_type === "video" ? "▶" : "?"}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex flex-1 flex-col min-w-0">
+                    <p className="truncate text-sm font-medium text-white">
+                        {file.filename}
+                    </p>
+                    <p className="text-xs text-neutral-500">
+                        {file.path.split("/")[0]}
+                    </p>
+                </div>
+
+                <div className="flex flex-col items-end shrink-0">
+                    <span className="text-sm font-semibold tabular-nums text-white">
+                        {Math.round(file.elo_score)}
+                    </span>
+                    <span className="text-xs text-neutral-600">
+                        {file.comparison_count} comparisons
+                    </span>
+                </div>
+
+                {file.media_type !== "photo" && (
+                    <span className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-400">
+                        {file.media_type === "video" ? "▶" : "GIF"}
+                    </span>
+                )}
+            </div>
+
+            {preview && layout && (
+                <HoverPreview
+                    file={file}
+                    fullUrl={fullUrl}
+                    x={layout.x}
+                    y={layout.y}
+                    width={layout.width}
+                    height={layout.height}
+                    onNaturalSize={handleNaturalSize}
+                />
+            )}
+        </>
     );
 }
 
@@ -224,12 +538,16 @@ function ThumbnailImage({
 
     if (!thumbUrl) {
         return (
-            <div className={`flex items-center justify-center bg-neutral-800 text-neutral-600 text-xs ${className}`}>
+            <div
+                className={`flex items-center justify-center bg-neutral-800 text-neutral-600 text-xs ${className}`}
+            >
                 {isVideo ? "▶" : "?"}
             </div>
         );
     }
-    return <img src={thumbUrl} alt="" className={`object-cover ${className}`} />;
+    return (
+        <img src={thumbUrl} alt="" className={`object-cover ${className}`} />
+    );
 }
 
 // ─── MetadataView ─────────────────────────────────────────────────────────────

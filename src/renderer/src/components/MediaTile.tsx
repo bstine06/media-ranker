@@ -12,17 +12,11 @@ export default function MediaTile({
   rootPath: string
 }): JSX.Element {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
+
+  const { elementRef, layout, preview, handleMouseEnter, handleMouseLeave, handleNaturalSize } = useHoverPreview()
+
   const isVideo = file.media_type === 'video'
   const fullUrl = toMediaUrl(rootPath, file.path)
-
-  const {
-    elementRef,
-    layout,
-    preview,
-    handleMouseEnter,
-    handleMouseLeave,
-    handleNaturalSize,
-  } = useHoverPreview()
 
   useEffect(() => {
     window.api.getThumbnailPath(file.content_hash).then((absPath) => {
@@ -34,7 +28,7 @@ export default function MediaTile({
     <>
       <div
         ref={elementRef as React.RefObject<HTMLDivElement>}
-        className="group relative overflow-hidden rounded-lg bg-neutral-800 cursor-pointer"
+        className="group relative overflow-hidden rounded-lg bg-neutral-800 cursor-pointer h-full"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >

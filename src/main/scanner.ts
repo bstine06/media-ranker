@@ -3,7 +3,7 @@ import { createReadStream, readdirSync, statSync, existsSync, mkdirSync } from '
 import { join, relative, extname, basename } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { upsertFile, getFileByPath } from './db'
+import { upsertFile, getFileByPath, getAllFiles, deleteFileByPath } from './db'
 import ffmpegPath from 'ffmpeg-static'
 
 const execFileAsync = promisify(execFile)
@@ -39,7 +39,7 @@ export interface FolderMetadata {
   description: string
 }
 
-function getMediaType(ext: string): MediaType | null {
+export function getMediaType(ext: string): MediaType | null {
   const e = ext.toLowerCase()
   if (PHOTO_EXTS.has(e)) return 'photo'
   if (GIF_EXTS.has(e)) return 'gif'
@@ -47,7 +47,7 @@ function getMediaType(ext: string): MediaType | null {
   return null
 }
 
-function hashFile(filePath: string): Promise<string> {
+export function hashFile(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash('sha256')
     const stream = createReadStream(filePath)
@@ -57,11 +57,11 @@ function hashFile(filePath: string): Promise<string> {
   })
 }
 
-function ensureDir(dirPath: string): void {
+export function ensureDir(dirPath: string): void {
   if (!existsSync(dirPath)) mkdirSync(dirPath)
 }
 
-async function generateSizedImage(
+export async function generateSizedImage(
   filePath: string,
   outPath: string,
   width: number,
@@ -140,7 +140,11 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
   let skipped = 0
   let unsupported = 0
 
+  // Track which paths actually exist on disk this scan
+  const scannedPaths = new Set<string>()
+
   for (const file of files) {
+    scannedPaths.add(file.relativePath)
     try {
       const stat = statSync(file.absolutePath)
       const mtime = stat.mtimeMs
@@ -186,6 +190,14 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
     } catch (err) {
       console.error(`Failed to process ${file.absolutePath}:`, err)
       unsupported++
+    }
+  }
+
+  // Remove DB records for files that no longer exist on disk
+  const allDbFiles = getAllFiles()
+  for (const dbFile of allDbFiles) {
+    if (!scannedPaths.has(dbFile.path)) {
+      deleteFileByPath(dbFile.path)
     }
   }
 

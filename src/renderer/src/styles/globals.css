@@ -5,6 +5,7 @@
 /* Base resets */
 *, *::before, *::after {
   box-sizing: border-box;
+  scrollbar-color: #666 #000
 }
 
 html, body, #root {

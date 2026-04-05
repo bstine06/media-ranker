@@ -5,8 +5,12 @@ import BrowseView from "./components/BrowseView";
 import CompareView from "./components/CompareView";
 import RankingsView from "./components/RankingsView";
 import Sidebar from "./components/Sidebar";
+import FileView from "./components/FileView";
+import { useKeyboardShortcut } from "./hooks/useKeyboard";
+import { useHoverPreview } from "./hooks/useHoverPreview";
+import { useSettings } from "./contexts/SettingsContext";
 
-type View = "browse" | "compare" | "rankings";
+type View = "browse" | "compare" | "file";
 
 function getAllPaths(nodes: FolderNode[]): string[] {
     const paths: string[] = [];
@@ -21,7 +25,11 @@ function getAllPaths(nodes: FolderNode[]): string[] {
 }
 
 // helper — walks the tree and renames the matching node
-function renameFolderNode(nodes: FolderNode[], oldPath: string, newPath: string): FolderNode[] {
+function renameFolderNode(
+    nodes: FolderNode[],
+    oldPath: string,
+    newPath: string,
+): FolderNode[] {
     return nodes.map((n) => {
         if (n.relativePath === oldPath) {
             return {
@@ -32,13 +40,20 @@ function renameFolderNode(nodes: FolderNode[], oldPath: string, newPath: string)
             };
         }
         if (oldPath.startsWith(n.relativePath + "/")) {
-            return { ...n, children: renameFolderNode(n.children, oldPath, newPath) };
+            return {
+                ...n,
+                children: renameFolderNode(n.children, oldPath, newPath),
+            };
         }
         return n;
     });
 }
 
-function rebaseChildren(nodes: FolderNode[], oldBase: string, newBase: string): FolderNode[] {
+function rebaseChildren(
+    nodes: FolderNode[],
+    oldBase: string,
+    newBase: string,
+): FolderNode[] {
     return nodes.map((n) => ({
         ...n,
         relativePath: newBase + n.relativePath.slice(oldBase.length),
@@ -79,7 +94,10 @@ function PlaceholderView({ label }: { label: string }): JSX.Element {
 
 export default function App(): JSX.Element {
     const [rootPath, setRootPath] = useState<string | null>(null);
-    const [appStatus, setAppStatus] = useState<AppStatus>({text: "idle", mood: "neutral"});
+    const [appStatus, setAppStatus] = useState<AppStatus>({
+        text: "idle",
+        mood: "neutral",
+    });
     const [view, setView] = useState<View>("browse");
     const [subfolders, setSubfolders] = useState<FolderNode[]>([]);
     const [activeFolder, setActiveFolder] = useState<string | null>(null);
@@ -91,6 +109,15 @@ export default function App(): JSX.Element {
     } | null>(null);
     const [checkedFolders, setCheckedFolders] = useState<Set<string>>(
         new Set(),
+    );
+    const [activeFile, setActiveFile] = useState<DbFile | null>(null);
+    const { toggleHoverPreview } = useSettings();
+
+    const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
+    const [tagMode, setTagMode] = useState<"and" | "or">("or");
+    const [allTags, setAllTags] = useState<string[]>([]);
+    const [tagFilteredIds, setTagFilteredIds] = useState<Set<number> | null>(
+        null,
     );
 
     const loadFolder = useCallback(
@@ -104,14 +131,21 @@ export default function App(): JSX.Element {
         [],
     );
 
+    const toggleHoverzoom = useCallback(() => {
+        console.log("z");
+        toggleHoverPreview();
+    }, []);
+
+    useKeyboardShortcut({ key: "z", onKeyPressed: toggleHoverzoom });
+
     const setAppStatusIdle = () => {
-        setAppStatus({text: "idle", mood: "neutral"})
-    }
+        setAppStatus({ text: "idle", mood: "neutral" });
+    };
 
     const openLibrary = useCallback(
         async (path: string) => {
             setIsScanning(true);
-            setAppStatus({text: "Opening library...", mood: "neutral"})
+            setAppStatus({ text: "Opening library...", mood: "neutral" });
             setRootPath(path);
             const result = await window.api.openLibrary(path);
             setScanResult({ scanned: result.scanned, added: result.added });
@@ -126,10 +160,42 @@ export default function App(): JSX.Element {
         [loadFolder],
     );
 
+    useEffect(() => {
+        const removeAdded = window.api.onMediaAdded(() => {
+            // Re-fetch whatever the current view is showing
+            if (rootPath) loadFolder(activeFolder, rootPath);
+        });
+
+        const removeRemoved = window.api.onMediaRemoved(() => {
+            if (rootPath) loadFolder(activeFolder, rootPath);
+        });
+
+        return () => {
+            removeAdded();
+            removeRemoved();
+        };
+    }, [rootPath, activeFolder, loadFolder]);
+
+    // Load all tags once on mount (and after any tag is added/removed)
+    useEffect(() => {
+        window.api.getAllTags().then(setAllTags);
+    }, [activeFile]);
+
+    // Re-query DB whenever activeTags or tagMode changes
+    useEffect(() => {
+        if (activeTags.size === 0) {
+            setTagFilteredIds(null);
+            return;
+        }
+        window.api.getFileIdsByTags([...activeTags], tagMode).then((ids) => {
+            setTagFilteredIds(new Set(ids));
+        });
+    }, [activeTags, tagMode]);
+
     const rescanLibrary = useCallback(
         async (path: string, activeFolder: string | null) => {
             setIsScanning(true);
-            setAppStatus({text: "Rescanning...", mood: "neutral"})
+            setAppStatus({ text: "Rescanning...", mood: "neutral" });
             setRootPath(path);
             const result = await window.api.openLibrary(path);
             setScanResult({ scanned: result.scanned, added: result.added });
@@ -152,7 +218,7 @@ export default function App(): JSX.Element {
     const handleRescanLibrary = async () => {
         const path = await window.api.getRootPath();
         if (path) await rescanLibrary(path, activeFolder);
-    }
+    };
 
     useEffect(() => {
         window.api.getRootPath().then((savedPath) => {
@@ -185,24 +251,34 @@ export default function App(): JSX.Element {
         });
     }, [subfolders]);
 
-    const handleFolderRenamed = useCallback((oldRelPath: string, newRelPath: string) => {
-    setSubfolders((prev) => renameFolderNode(prev, oldRelPath, newRelPath));
-    setActiveFolder(newRelPath);
-    setCheckedFolders((prev) => {
-        const next = new Set<string>();
-        for (const p of prev) {
-            if (p === oldRelPath) {
-                next.add(newRelPath);
-            } else if (p.startsWith(oldRelPath + "/")) {
-                // child path — rebase it
-                next.add(newRelPath + p.slice(oldRelPath.length));
-            } else {
-                next.add(p);
-            }
-        }
-        return next;
-    });
-}, []);
+    const handleFolderRenamed = useCallback(
+        (oldRelPath: string, newRelPath: string) => {
+            setSubfolders((prev) =>
+                renameFolderNode(prev, oldRelPath, newRelPath),
+            );
+            setActiveFolder(newRelPath);
+            setCheckedFolders((prev) => {
+                const next = new Set<string>();
+                for (const p of prev) {
+                    if (p === oldRelPath) {
+                        next.add(newRelPath);
+                    } else if (p.startsWith(oldRelPath + "/")) {
+                        // child path — rebase it
+                        next.add(newRelPath + p.slice(oldRelPath.length));
+                    } else {
+                        next.add(p);
+                    }
+                }
+                return next;
+            });
+        },
+        [],
+    );
+
+    const handleInspectFile = (file: DbFile) => {
+        setActiveFile(file);
+        setView("file");
+    };
 
     if (!rootPath) {
         return (
@@ -212,6 +288,19 @@ export default function App(): JSX.Element {
             />
         );
     }
+
+    const handleToggleTag = (tag: string) => {
+        setActiveTags((prev) => {
+            const next = new Set(prev);
+            next.has(tag) ? next.delete(tag) : next.add(tag);
+            return next;
+        });
+    };
+
+    // Apply tag filter on top of whatever files BrowseView already receives
+    const visibleFiles = tagFilteredIds
+        ? files.filter((f) => tagFilteredIds.has(f.id))
+        : files;
 
     const compareFolders =
         checkedFolders.size === 0 ? null : [...checkedFolders];
@@ -244,16 +333,26 @@ export default function App(): JSX.Element {
                     onCheckAll={handleCheckAll}
                     onChangeLibrary={handleSelectFolder}
                     onRescanLibrary={handleRescanLibrary}
-                    status = {appStatus}
+                    status={appStatus}
+                    allTags={allTags}
+                    activeTags={activeTags}
+                    tagMode={tagMode}
+                    onToggleTag={handleToggleTag}
+                    onSetTagMode={setTagMode}
                 />
 
                 <main className="flex flex-1 flex-col overflow-hidden bg-neutral-950 min-w-0">
                     {view === "browse" && (
                         <BrowseView
-                            files={files}
+                            files={visibleFiles}
                             rootPath={rootPath}
                             activeFolder={activeFolder}
                             onFolderRenamed={handleFolderRenamed}
+                            onInspectFile={handleInspectFile}
+                            allTags={allTags}
+                            onTagsChanged={() =>
+                                window.api.getAllTags().then(setAllTags)
+                            }
                         />
                     )}
                     {view === "compare" && (
@@ -262,11 +361,8 @@ export default function App(): JSX.Element {
                             folderPrefixes={compareFolders}
                         />
                     )}
-                    {view === "rankings" && (
-                        <RankingsView
-                            rootPath={rootPath}
-                            folderPrefixes={compareFolders}
-                        />
+                    {view === "file" && activeFile && (
+                        <FileView file={activeFile} rootPath={rootPath} />
                     )}
                 </main>
             </div>

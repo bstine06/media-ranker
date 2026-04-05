@@ -37,6 +37,15 @@ export function getDb(): Database.Database {
 
 export function initDb(rootPath: string): Database.Database {
   const dbPath = join(rootPath, '_media_index.db')
+  
+  // Already open on the same file — nothing to do
+  if (db && (db as any).name === dbPath) return db
+
+  // Different path (library switch) — close old connection first
+  if (db) {
+    db.close()
+    db = null
+  }
   db = new Database(dbPath)
 
   // Enable WAL mode for better concurrent read performance
@@ -159,6 +168,10 @@ export function renameFolderPaths(oldPrefix: string, newPrefix: string): void {
     })()
 }
 
+export function deleteFileByPath(relativePath: string): void {
+  getDb().prepare('DELETE FROM files WHERE path = ?').run(relativePath)
+}
+
 // ── Tag queries ─────────────────────────────────────────────────────────────
 
 export function getTagsForFile(fileId: number): string[] {
@@ -185,6 +198,36 @@ export function getAllTags(): string[] {
     .prepare('SELECT DISTINCT tag FROM tags ORDER BY tag')
     .all() as { tag: string }[]
   return rows.map((r) => r.tag)
+}
+
+export function getFileIdsByTags(tags: string[], mode: "and" | "or"): number[] {
+    const db = getDb();
+    if (tags.length === 0) return [];
+
+    const placeholders = tags.map(() => "?").join(", ");
+
+    if (mode === "or") {
+        const rows = db.prepare(
+            `SELECT DISTINCT file_id FROM tags WHERE tag IN (${placeholders})`
+        ).all(...tags) as { file_id: number }[];
+        return rows.map(r => r.file_id);
+    } else {
+        const rows = db.prepare(
+            `SELECT file_id FROM tags WHERE tag IN (${placeholders})
+             GROUP BY file_id HAVING COUNT(DISTINCT tag) = ?`
+        ).all(...tags, tags.length) as { file_id: number }[];
+        return rows.map(r => r.file_id);
+    }
+}
+
+export function addTagToFolder(folderRelPath: string, tag: string): number {
+    const db = getDb();
+    const pattern = `${folderRelPath.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+    const result = db.prepare(`
+        INSERT OR IGNORE INTO tags (file_id, tag)
+        SELECT id, ? FROM files WHERE path LIKE ?
+    `).run(tag, pattern);
+    return result.changes;
 }
 
 // ── Elo queries ─────────────────────────────────────────────────────────────

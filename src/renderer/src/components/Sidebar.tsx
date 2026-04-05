@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { AppStatus, FolderNode } from "../types";
 import NavItem from "./NavItem";
 
-type View = "browse" | "compare" | "rankings";
+type View = "browse" | "compare" | "file";
 
 // Collect all relativePaths from a tree
 function getAllPaths(nodes: FolderNode[]): string[] {
@@ -142,6 +142,98 @@ function FolderTreeNode({
     );
 }
 
+function TagFilterSection({
+    allTags,
+    activeTags,
+    tagMode,
+    onToggleTag,
+    onSetTagMode,
+}: {
+    allTags: string[];
+    activeTags: Set<string>;
+    tagMode: "and" | "or";
+    onToggleTag: (tag: string) => void;
+    onSetTagMode: (mode: "and" | "or") => void;
+}): JSX.Element {
+    const [search, setSearch] = useState("");
+    const [focused, setFocused] = useState(false);
+
+    const suggestions = search.trim()
+        ? allTags.filter((t) => t.toLowerCase().includes(search.toLowerCase()))
+        : [];
+
+    return (
+        <div className="px-3 mb-3 mt-1">
+            <div className="flex items-center justify-between mb-1.5">
+                <p className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
+                    Tags
+                </p>
+                {activeTags.size >= 2 && (
+                    <button
+                        onClick={() =>
+                            onSetTagMode(tagMode === "and" ? "or" : "and")
+                        }
+                        className="text-[10px] rounded px-1.5 py-0.5 bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
+                    >
+                        {tagMode.toUpperCase()}
+                    </button>
+                )}
+            </div>
+
+            {/* Active tag chips */}
+            {activeTags.size > 0 && (
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                    {[...activeTags].map((tag) => (
+                        <button
+                            key={tag}
+                            onClick={() => onToggleTag(tag)}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900 text-xs"
+                        >
+                            {tag}
+                            <span className="opacity-50 hover:opacity-100">
+                                ×
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {/* Search input + dropdown */}
+            <div className="relative">
+                <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setTimeout(() => setFocused(false), 150)}
+                    placeholder="Filter by tag…"
+                    className="w-full rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors"
+                />
+                {focused && suggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg max-h-40 overflow-y-auto">
+                        {suggestions.slice(0, 20).map((tag) => (
+                            <button
+                                key={tag}
+                                onMouseDown={() => {
+                                    onToggleTag(tag);
+                                    setSearch("");
+                                }}
+                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                                    activeTags.has(tag)
+                                        ? "text-white bg-neutral-700"
+                                        : "text-neutral-300 hover:bg-neutral-800"
+                                }`}
+                            >
+                                {tag}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export default function Sidebar({
     view,
     setView,
@@ -154,6 +246,11 @@ export default function Sidebar({
     onChangeLibrary,
     onRescanLibrary,
     status,
+    allTags,
+    activeTags,
+    tagMode,
+    onToggleTag,
+    onSetTagMode,
 }: {
     view: View;
     setView: (v: View) => void;
@@ -166,10 +263,15 @@ export default function Sidebar({
     onChangeLibrary: () => void;
     onRescanLibrary: () => void;
     status: AppStatus;
+    allTags: string[];
+    activeTags: Set<string>;
+    tagMode: "and" | "or";
+    onToggleTag: (tag: string) => void;
+    onSetTagMode: (mode: "and" | "or") => void;
 }): JSX.Element {
     const [search, setSearch] = useState("");
 
-    const isFilterable = view === "compare" || view === "rankings";
+    const isFilterable = view === "compare";
     const isSearching = search.trim().length > 0;
     const visibleFolders = isSearching
         ? filterTree(subfolders, search.trim())
@@ -201,11 +303,6 @@ export default function Sidebar({
                     label="Compare"
                     active={view === "compare"}
                     onClick={() => setView("compare")}
-                />
-                <NavItem
-                    label="Rankings"
-                    active={view === "rankings"}
-                    onClick={() => setView("rankings")}
                 />
             </div>
 
@@ -243,6 +340,17 @@ export default function Sidebar({
                             </button>
                         )}
                     </div>
+
+                    {/* Tags filter */}
+                    {allTags.length > 0 && (
+                        <TagFilterSection
+                            allTags={allTags}
+                            activeTags={activeTags}
+                            tagMode={tagMode}
+                            onToggleTag={onToggleTag}
+                            onSetTagMode={onSetTagMode}
+                        />
+                    )}
 
                     {/* "All" entry — hidden while searching */}
                     {!isSearching && (
