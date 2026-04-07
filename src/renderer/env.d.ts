@@ -1,3 +1,5 @@
+import { DbFile } from "./src/types";
+
 export {};
 
 export interface FolderNode {
@@ -11,9 +13,7 @@ declare global {
         api: {
             ping: () => Promise<string>;
             selectRootFolder: () => Promise<string | null>;
-            openLibrary: (
-                folderPath: string,
-            ) => Promise<{
+            openLibrary: (folderPath: string) => Promise<{
                 scanned: number;
                 added: number;
                 updated: number;
@@ -51,10 +51,15 @@ declare global {
             ) => Promise<number>;
             getPair: (
                 folderPrefixes: string[] | null,
-            ) => Promise<[DbFile, DbFile] | null>;
+                tagList: string[] | null,
+                tagMode: "and" | "or",
+            ) => Promise<
+                [import("./types").DbFile, import("./types").DbFile] | null
+            >;
             recordComparison: (
                 winnerId: number,
                 loserId: number,
+                margin: number,
             ) => Promise<{
                 newWinnerScore: number;
                 newLoserScore: number;
@@ -75,6 +80,10 @@ declare global {
                 { ok: true; newRelPath: string } | { ok: false; error: string }
             >;
             openExternal: (url: string) => Promise<void>;
+            showInFolder: (absolutePath: string) => Promise<void>;
+            moveFilesTo: (filePaths: string[], targetDir: string) => Promise<void>;
+            fileReplace: (oldRelPath: string, newAbsPath: string) => Promise<DbFile>;
+            openFile: (extensions: string[]) => Promise<string | null>;
         };
     }
 }

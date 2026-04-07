@@ -23,6 +23,7 @@ import {
     removeTag,
     getDb,
     updateEloScores,
+    getFileByPath,
 } from "./db";
 import type { DbFile } from "./db";
 import {
@@ -43,7 +44,9 @@ import {
 import { computeEloUpdate, getWeightedPair } from "./elo";
 import { promisify } from "util";
 import { renameFolderPaths } from "./db";
-import { watchFolder, unwatchAll } from "./watcher";
+import { watchFolder, unwatchAll, ignoredPaths } from './watcher'
+import { replaceTrackedFile } from './replaceFile'
+import fs from 'fs/promises'
 
 let rootPath: string | null = null;
 
@@ -104,10 +107,7 @@ function registerIpcHandlers(): void {
         initDb(folderPath);
         const result = await scanFolder(folderPath);
 
-        // Start watching — get mainWindow from the closure
-        console.log('about to call watchFolder with:', folderPath)
     const win = BrowserWindow.getAllWindows()[0];
-    console.log('win found:', !!win)
     if (win) watchFolder(folderPath, win);
 
         return result;
@@ -207,6 +207,35 @@ function registerIpcHandlers(): void {
         shell.openExternal(url);
     });
 
+    ipcMain.handle('show-in-folder', (_event, absolutePath: string) => {
+        shell.showItemInFolder(absolutePath)
+    });
+
+    ipcMain.handle('move-files-to', async (_event, filePaths: string[], targetDir: string) => {
+        await Promise.all(
+            filePaths.map((src) =>
+            fs.rename(src, path.join(targetDir, path.basename(src)))
+            )
+        )
+    })
+
+    ipcMain.handle('file:replace', async (_event, oldRelPath: string, newAbsPath: string) => {
+        if (!rootPath) throw new Error('No library open')
+  const win = BrowserWindow.getAllWindows()[0]
+  await replaceTrackedFile(rootPath, oldRelPath, newAbsPath, ignoredPaths)
+  const updated = getFileByPath(oldRelPath)  // fresh record with new hash
+  win?.webContents.send('media:updated', { relativePath: oldRelPath })
+  return updated
+    })
+
+    ipcMain.handle('dialog:open-file', async (_event, extensions: string[]) => {
+        const result = await dialog.showOpenDialog({
+            properties: ['openFile'],
+            filters: [{ name: 'Media', extensions }],
+        })
+        return result.canceled ? null : result.filePaths[0]
+    })
+
     // ── Tags ─────────────────────────────────────────────────────────────────
 
     ipcMain.handle("get-tags", (_event, fileId: number) => {
@@ -243,13 +272,13 @@ function registerIpcHandlers(): void {
 
     // -- Comparisons
 
-    ipcMain.handle("get-pair", (_event, folderPrefixes: string[] | null) => {
-        return getWeightedPair(folderPrefixes);
+    ipcMain.handle("get-pair", (_event, folderPrefixes: string[] | null, tagList: string[] | null, tagMode: "and" | "or") => {
+        return getWeightedPair(folderPrefixes, tagList, tagMode);
     });
 
     ipcMain.handle(
         "record-comparison",
-        (_event, winnerId: number, loserId: number) => {
+        (_event, winnerId: number, loserId: number, margin: number) => {
             const db = getDb();
             const winner = db
                 .prepare("SELECT * FROM files WHERE id = ?")
@@ -261,6 +290,7 @@ function registerIpcHandlers(): void {
             const { newWinnerScore, newLoserScore } = computeEloUpdate(
                 winner,
                 loser,
+                margin
             );
             updateEloScores(
                 winnerId,
@@ -308,10 +338,6 @@ app.whenReady().then(() => {
     protocol.handle("media", async (request) => {
         const url = request.url.replace("media://local", "");
         const filePath = decodeURIComponent(url);
-
-        console.log("protocol request:", request.url);
-        console.log("resolved path:", filePath);
-        console.log("exists:", existsSync(filePath));
 
         try {
             const stat = statSync(filePath);

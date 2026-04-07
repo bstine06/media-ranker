@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { DbFile } from "../types";
+import type { DbFile, File } from "../types";
 import { toThumbnailUrl, toMediaUrl } from "../lib/media";
 import MediaTile from "./MediaTile";
 import HoverPreview from "./HoverPreview";
 import { useHoverPreview } from "../hooks/useHoverPreview";
+import { useStatus } from "../contexts/StatusContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -144,6 +145,8 @@ export default function BrowseView({
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
     const [sortMode, setSortMode] = useState<SortMode>("default");
 
+    const { setStatus, resetStatus } = useStatus();
+
     useEffect(() => {
         if (!activeFolder) {
             setMetadata(null);
@@ -162,6 +165,17 @@ export default function BrowseView({
         setEditingMetadata(false);
         setRenameError(null);
     }, [rootPath, activeFolder]);
+
+    const handleDrop = async (e: React.DragEvent) => {
+        e.preventDefault()  // also move this to the top
+        setStatus("Adding files...")
+        const paths = Array.from(e.dataTransfer.files).map(
+            (f) => (f as unknown as { path: string }).path,
+        )
+        await window.api.moveFilesTo(paths, [rootPath, activeFolder].join("/"))
+        await new Promise(r => setTimeout(r, 1000))
+        resetStatus()
+    }
 
     const handleEditStart = (current: FolderMetadata) => {
         setDraftProfileImage(current.profileImage);
@@ -219,7 +233,12 @@ export default function BrowseView({
     );
 
     return (
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div
+            className="flex flex-1 flex-col overflow-hidden"
+            onDragOver={(e) => e.preventDefault()} // must prevent default to allow drop
+            onDragEnter={(e) => e.preventDefault()} // optional but good practice
+            onDrop={handleDrop}
+        >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3">
                 <h2 className="text-sm font-medium text-neutral-300">

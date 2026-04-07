@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import type { DbFile } from "../types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { useKeyboardShortcut } from "../hooks/useKeyboard";
+import { useSettings } from "../contexts/SettingsContext";
 
 // Held at module level so GC doesn't collect them before decode finishes
 const preloadCache = new Map<string, HTMLImageElement>();
@@ -11,54 +12,93 @@ function preloadImage(url: string): void {
     const img = new Image();
     img.src = url;
     preloadCache.set(url, img);
-    // Clean up after decode so the cache doesn't grow forever
     img.decode().finally(() => preloadCache.delete(url));
 }
 
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
     if (file.media_type === "video") return;
-    // Preload full res (thumbnail is tiny and fast enough not to need it)
     preloadImage(toMediaUrl(rootPath, file.path));
+}
+
+function xToScore(x: number, width: number, side: "a" | "b"): number {
+    // For card A: left edge = far (score 3), right edge = near center (score 1)
+    // For card B: right edge = far (score 3), left edge = near center (score 1)
+    const fraction = x / width; // 0 = left edge, 1 = right edge
+    const distFromInner = side === "a" ? 1 - fraction : fraction;
+    // distFromInner: 0 = inner edge (near center of view) = score 1
+    //                1 = outer edge (far from center)      = score 3
+    if (distFromInner < 1 / 3) return 1;
+    if (distFromInner < 2 / 3) return 2;
+    return 3;
+}
+
+function formatTime(seconds: number): string {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 export default function CompareView({
     rootPath,
     folderPrefixes,
+    active,
+    onInspectFile,
+    activeTags,
+    tagMode,
+    onGoToFolder
 }: {
     rootPath: string;
     folderPrefixes: string[] | null;
+    active: boolean;
+    onInspectFile: (file: DbFile) => void;
+    activeTags: Set<string>;
+    tagMode: "and" | "or";
+    onGoToFolder: (folderPath: string) => void;
 }): JSX.Element {
     const [pair, setPair] = useState<[DbFile, DbFile] | null>(null);
     const [loading, setLoading] = useState(true);
     const [comparing, setComparing] = useState(false);
     const [stats, setStats] = useState({ comparisons: 0 });
     const [hoveredSide, setHoveredSide] = useState<"a" | "b" | null>(null);
+    const [score, setScore] = useState(0);
+
+    const MAX_SCORE = 3;
+
+    const tagKey = useMemo(
+        () => [...activeTags].sort().join(","),
+        [activeTags],
+    );
 
     const loadPair = useCallback(async () => {
         setLoading(true);
-        const result = await window.api.getPair(folderPrefixes);
+        const tagList = activeTags.size > 0 ? [...activeTags] : null;
+        const result = await window.api.getPair(
+            folderPrefixes,
+            tagList,
+            tagMode,
+        );
         setPair(result);
         setLoading(false);
 
-        // Preload the next pair's full-res images in the background
-        window.api.getPair(folderPrefixes).then((next) => {
+        window.api.getPair(folderPrefixes, tagList, tagMode).then((next) => {
             if (next) {
                 preloadFile(rootPath, next[0]);
                 preloadFile(rootPath, next[1]);
             }
         });
-    }, [folderPrefixes, rootPath]);
+    }, [folderPrefixes, rootPath, tagKey, tagMode]);
 
     useEffect(() => {
         loadPair();
     }, [loadPair]);
 
     const handlePick = useCallback(
-        async (winnerId: number, loserId: number) => {
+        async (winnerId: number, loserId: number, margin: number) => {
             if (comparing) return;
             setComparing(true);
             setHoveredSide(null);
-            await window.api.recordComparison(winnerId, loserId);
+            setScore(0);
+            await window.api.recordComparison(winnerId, loserId, margin);
             setStats((s) => ({ comparisons: s.comparisons + 1 }));
             await loadPair();
             setComparing(false);
@@ -68,30 +108,68 @@ export default function CompareView({
 
     const handleSkip = useCallback(() => {
         setHoveredSide(null);
+        setScore(0);
         loadPair();
     }, [loadPair]);
 
     const handleLeft = useCallback(() => {
-        setHoveredSide("a");
-    }, []);
+        if (hoveredSide === "a" && score < MAX_SCORE) {
+            setScore((s) => s + 1);
+        } else if (hoveredSide === null) {
+            setScore((s) => s + 1);
+            setHoveredSide("a");
+        } else if (hoveredSide === "b") {
+            if (score === 1) {
+                setScore(0);
+                setHoveredSide(null);
+            } else {
+                setScore((s) => s - 1);
+            }
+        }
+    }, [hoveredSide, score]);
 
     const handleRight = useCallback(() => {
-        setHoveredSide("b");
-    }, []);
+        if (hoveredSide === "b" && score < MAX_SCORE) {
+            setScore((s) => s + 1);
+        } else if (hoveredSide === null) {
+            setScore((s) => s + 1);
+            setHoveredSide("b");
+        } else if (hoveredSide === "a") {
+            if (score === 1) {
+                setScore(0);
+                setHoveredSide(null);
+            } else {
+                setScore((s) => s - 1);
+            }
+        }
+    }, [hoveredSide, score]);
 
     const handleDown = useCallback(() => {
-        if (!pair || comparing) return;
+        if (!pair || comparing || hoveredSide === null) return;
         const [a, b] = pair;
         if (hoveredSide === "a") {
-            handlePick(a.id, b.id);
+            handlePick(a.id, b.id, score);
         } else {
-            handlePick(b.id, a.id);
+            handlePick(b.id, a.id, score);
         }
-    }, [pair, comparing, hoveredSide, handlePick]);
+        setScore(0);
+    }, [pair, comparing, hoveredSide, score, handlePick]);
 
-    useKeyboardShortcut({ key: "a", onKeyPressed: handleLeft });
-    useKeyboardShortcut({ key: "d", onKeyPressed: handleRight });
-    useKeyboardShortcut({ key: "s", onKeyPressed: handleDown });
+    useKeyboardShortcut({
+        key: "a",
+        onKeyPressed: handleLeft,
+        enabled: active,
+    });
+    useKeyboardShortcut({
+        key: "d",
+        onKeyPressed: handleRight,
+        enabled: active,
+    });
+    useKeyboardShortcut({
+        key: "s",
+        onKeyPressed: handleDown,
+        enabled: active,
+    });
 
     if (loading) {
         return (
@@ -113,7 +191,7 @@ export default function CompareView({
 
     return (
         <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3">
+            <div className="flex items-center justify-between border-sm border-neutral-800 px-5 py-3">
                 <h2 className="text-sm font-medium text-neutral-300">
                     Compare
                 </h2>
@@ -121,34 +199,59 @@ export default function CompareView({
                     <span className="text-xs text-neutral-600">
                         {stats.comparisons} comparisons this session
                     </span>
-                    <button
-                        onClick={handleSkip}
-                        className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-                    >
-                        Skip →
-                    </button>
                 </div>
             </div>
 
-            <div className="flex flex-1 gap-3 p-4 overflow-hidden">
-                <CompareCard
-                    file={a}
-                    rootPath={rootPath}
-                    onPick={() => handlePick(a.id, b.id)}
-                    disabled={comparing}
-                    forceHover={hoveredSide === "a"}
-                    onMouseEnter={() => setHoveredSide("a")}
-                    onMouseLeave={() => setHoveredSide(null)}
+            <div className="flex flex-col p-2 overflow-hidden flex-1 min-h-0">
+                <ScoreBar
+                    score={score}
+                    leader={hoveredSide}
+                    onSegmentHover={(newLeader, newScore) => {
+                        setHoveredSide(newLeader);
+                        setScore(newScore);
+                    }}
+                    onSegmentLeave={() => {
+                        setHoveredSide(null);
+                        setScore(0);
+                    }}
+                    onSegmentClick={handleDown}
                 />
-                <CompareCard
-                    file={b}
-                    rootPath={rootPath}
-                    onPick={() => handlePick(b.id, a.id)}
-                    disabled={comparing}
-                    forceHover={hoveredSide === "b"}
-                    onMouseEnter={() => setHoveredSide("b")}
-                    onMouseLeave={() => setHoveredSide(null)}
-                />
+                <div
+                    className="flex flex-1 overflow-hidden min-h-0"
+                    
+                >
+                    <CompareCard
+                        file={a}
+                        side="a"
+                        rootPath={rootPath}
+                        disabled={comparing}
+                        hoveredSide={hoveredSide}
+                        onScoreHover={(leader, s) => {
+                            setHoveredSide(leader);
+                            setScore(s);
+                        }}
+                        onScoreLeave={() => setScore(0)} // only clears score, not hoveredSide
+                        onCommit={handleDown}
+                        onInspectFile={onInspectFile}
+                        onGoToFolder={onGoToFolder}
+                    />
+                    <div className="w-8"/>
+                    <CompareCard
+                        file={b}
+                        side="b"
+                        rootPath={rootPath}
+                        disabled={comparing}
+                        hoveredSide={hoveredSide}
+                        onScoreHover={(leader, s) => {
+                            setHoveredSide(leader);
+                            setScore(s);
+                        }}
+                        onScoreLeave={() => setScore(0)} // only clears score, not hoveredSide
+                        onCommit={handleDown}
+                        onInspectFile={onInspectFile}
+                        onGoToFolder={onGoToFolder}
+                    />
+                </div>
             </div>
         </div>
     );
@@ -157,72 +260,206 @@ export default function CompareView({
 function LoadingCover(): JSX.Element {
     return (
         <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-neutral-800">
-    <div className="h-full bg-white/40 animate-[shimmer_1.5s_ease-in-out_infinite]" 
-         style={{ width: '60%' }} />
-  </div>
+            <div
+                className="h-full bg-white/40 animate-[shimmer_1.5s_ease-in-out_infinite]"
+                style={{ width: "60%" }}
+            />
+        </div>
+    );
+}
+
+function ScoreBar({
+    score,
+    leader,
+    onSegmentHover,
+    onSegmentLeave,
+    onSegmentClick,
+}: {
+    score: number;
+    leader: "a" | "b" | null;
+    onSegmentHover: (leader: "a" | "b" | null, score: number) => void;
+    onSegmentLeave: () => void;
+    onSegmentClick: () => void;
+}): JSX.Element {
+    const totalSegments = 6;
+
+    const isLit = (index: number): boolean => {
+        if (leader === "a") return index < 3 && index >= 3 - score;
+        if (leader === "b") return index >= 3 && index < 3 + score;
+        return false;
+    };
+
+    const segmentToState = (i: number) => {
+        if (i < 3) return { leader: "a" as const, score: 3 - i };
+        return { leader: "b" as const, score: i - 2 };
+    };
+
+    const scoreToColor = ["", "bg-neutral-300", "bg-neutral-200", "bg-neutral-100"]
+
+    return (
+        <div
+            className="flex justify-center w-full"
+            onMouseLeave={onSegmentLeave}
+        >
+            {/* Left group: only the leftmost segment gets a left-rounded cap */}
+            {Array.from({ length: totalSegments / 2 }, (_, i) => {
+                const isLast = i === totalSegments / 2 - 1;
+                return(
+                <div
+                    key={i}
+                    className={`h-3 w-1/6 cursor-pointer ${isLit(i) ? scoreToColor[score] : "bg-neutral-700"} transition-color duration-100 ${i === 0 ? "rounded-tl-full" : ""} ${isLast ? "rounded-tr-full" : ""}`}
+                    onMouseEnter={() => {
+                        const { leader, score } = segmentToState(i);
+                        onSegmentHover(leader, score);
+                    }}
+                    onClick={onSegmentClick}
+                />
+                )
+})}
+            <div className="w-8 shrink-0" />
+            {/* Right group: only the rightmost segment gets a right-rounded cap */}
+            {Array.from({ length: totalSegments / 2 }, (_, i) => {
+                const index = i + totalSegments / 2;
+                const isLast = i === totalSegments / 2 - 1;
+                return (
+                    <div
+                        key={index}
+                        className={`h-3 w-1/6 cursor-pointer ${isLit(index) ? scoreToColor[score] : "bg-neutral-700"} transition-color duration-100 ${i === 0 ? "rounded-tl-full" : ""} ${isLast ? "rounded-tr-full" : ""}`}
+                        onMouseEnter={() => {
+                            const { leader, score } = segmentToState(index);
+                            onSegmentHover(leader, score);
+                        }}
+                        onClick={onSegmentClick}
+                    />
+                );
+            })}
+        </div>
     );
 }
 
 function CompareCard({
     file,
+    side,
     rootPath,
-    onPick,
     disabled,
-    forceHover,
-    onMouseEnter,
-    onMouseLeave,
+    hoveredSide,
+    onScoreHover,
+    onScoreLeave,
+    onCommit,
+    onInspectFile,
+    onGoToFolder,
 }: {
     file: DbFile;
+    side: "a" | "b";
     rootPath: string;
-    onPick: () => void;
     disabled: boolean;
-    forceHover: boolean;
-    onMouseEnter: () => void;
-    onMouseLeave: () => void;
+    hoveredSide: "a" | "b" | null;
+    onScoreHover: (leader: "a" | "b" | null, score: number) => void;
+    onScoreLeave: () => void;
+    onCommit: () => void;
+    onInspectFile: (file: DbFile) => void;
+    onGoToFolder: (folderPath: string) => void;
 }): JSX.Element {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
     const [fullLoaded, setFullLoaded] = useState(false);
-    const [mouseHover, setMouseHover] = useState(false);
-    const hovered = forceHover || mouseHover;
+    const focusTagInput = useRef<(() => void) | null>(null);
     const isVideo = file.media_type === "video";
     const isGif = file.media_type === "gif";
     const fullUrl = toMediaUrl(rootPath, file.path);
+    const hovered = hoveredSide === side;
+
+    // Video state
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const [playing, setPlaying] = useState(true);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [scrubbing, setScrubbing] = useState(false);
 
     useEffect(() => {
         setThumbUrl(null);
         setFullLoaded(false);
-
+        setCurrentTime(0);
+        setDuration(0);
         window.api.getThumbnailPath(file.content_hash).then((absPath) => {
             if (absPath) setThumbUrl(toThumbnailUrl(absPath));
         });
     }, [file.content_hash]);
 
-    // LoadingCover shows until full res is done
+    // Video time ticker
+    useEffect(() => {
+        if (!isVideo) return;
+        let rafId: number;
+        const tick = () => {
+            if (videoRef.current && !scrubbing)
+                setCurrentTime(videoRef.current.currentTime);
+            rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafId);
+    }, [isVideo, scrubbing]);
+
     const showLoadingCover = !isVideo && !isGif && !fullLoaded;
+
+    const handleMediaMouseMove = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            if (disabled) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const relX = e.clientX - rect.left;
+            const s = xToScore(relX, rect.width, side);
+            onScoreHover(side, s);
+        },
+        [disabled, side, onScoreHover, onScoreLeave],
+    );
+
+    const handleMediaClick = useCallback(() => {
+        if (disabled) return;
+        onCommit();
+    }, [disabled, onCommit]);
+
+    const togglePlay = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!videoRef.current) return;
+        videoRef.current.paused
+            ? videoRef.current.play()
+            : videoRef.current.pause();
+    }, []);
+    const wasPlayingRef = useRef(false);
+
+    const handleScrubChange = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            e.stopPropagation();
+            const t = parseFloat(e.target.value);
+            setCurrentTime(t);
+            if (videoRef.current) videoRef.current.currentTime = t;
+        },
+        [],
+    );
+
+    const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
     return (
         <div
-            className={`relative flex flex-1 flex-col overflow-hidden rounded-xl border-2 transition-all cursor-pointer
+            className={`relative flex flex-1 flex-col overflow-hidden rounded-xl rounded-t-none border-2 transition-all
                 ${
                     disabled
                         ? "border-neutral-800 opacity-60"
                         : hovered
-                          ? "border-white"
+                          ? "border-neutral-500"
                           : "border-neutral-700"
                 }`}
-            onClick={onPick}
             onMouseEnter={() => {
-                setMouseHover(true);
-                onMouseEnter();
-            }}
-            onMouseLeave={() => {
-                setMouseHover(false);
-                onMouseLeave();
+                focusTagInput.current?.();
             }}
         >
-            <div className="relative flex-1 overflow-hidden bg-neutral-900">
+            {/* Media area */}
+            <div
+                className="relative flex-1 overflow-hidden bg-neutral-900 cursor-pointer select-none"
+                onMouseMove={handleMediaMouseMove}
+                onClick={handleMediaClick}
+            >
                 {isVideo ? (
                     <video
+                        ref={videoRef}
                         key={fullUrl}
                         src={fullUrl}
                         className="h-full w-full object-contain"
@@ -230,10 +467,16 @@ function CompareCard({
                         loop
                         playsInline
                         autoPlay
+                        onLoadedMetadata={() => {
+                            if (videoRef.current) {
+                                setDuration(videoRef.current.duration);
+                            }
+                        }}
+                        onPlay={() => setPlaying(true)}
+                        onPause={() => setPlaying(false)}
                     />
                 ) : (
                     <>
-                        {/* Blurred thumbnail shown instantly */}
                         {thumbUrl && (
                             <img
                                 src={thumbUrl}
@@ -241,44 +484,308 @@ function CompareCard({
                                 className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
                                 style={{
                                     filter: "blur(8px)",
-                                    transform: "scale(1.0)",
                                     opacity: fullLoaded ? 0 : 1,
                                 }}
                             />
                         )}
-                        {/* Full res fades in once loaded */}
                         <img
                             src={fullUrl}
                             alt={file.filename}
                             className="relative h-full w-full object-contain transition-opacity duration-300"
                             style={{ opacity: fullLoaded ? 1 : 0 }}
                             onLoad={() => setFullLoaded(true)}
+                            draggable={false}
                         />
-                        {/* LoadingCover overlay while waiting for full res */}
                         {showLoadingCover && <LoadingCover />}
                     </>
                 )}
 
-                {isVideo && (
-                    <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
-                        ▶
-                    </div>
-                )}
                 {isGif && (
                     <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
                         GIF
                     </div>
                 )}
+
+                {/* Minimal video controls — overlaid at bottom of media */}
+                {isVideo && (
+                    <div
+                        className="absolute bottom-0 left-0 right-0 flex items-center group/controls"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Progress bar, sits flush at the very bottom */}
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/5">
+                            <div
+                                className="h-full bg-white/40 transition-none"
+                                style={{ width: `${progress}%` }}
+                            />
+                            {/* Invisible wide hit target for scrubbing */}
+                            <input
+                                type="range"
+                                min={0}
+                                max={duration || 0}
+                                step={0.01}
+                                value={currentTime}
+                                onChange={handleScrubChange}
+                                onMouseDown={(e) => {
+                                    e.stopPropagation();
+                                    wasPlayingRef.current =
+                                        !videoRef.current?.paused;
+                                    setScrubbing(true);
+                                    videoRef.current?.pause();
+                                }}
+                                onMouseUp={(e) => {
+                                    e.stopPropagation();
+                                    setScrubbing(false);
+                                    if (wasPlayingRef.current)
+                                        videoRef.current?.play();
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                                style={{
+                                    height: "12px",
+                                    bottom: 0,
+                                    top: "auto",
+                                }}
+                            />
+                        </div>
+
+                        {/* Play/pause — fades in on hover */}
+                        <button
+                            onClick={togglePlay}
+                            className="relative mb-1.5 ml-2 flex items-center justify-center w-5 h-5 rounded text-white/0 group-hover/controls:text-white/60 hover:!text-white/90 transition-colors text-xs"
+                        >
+                            {playing ? "⏸" : "▶"}
+                        </button>
+                    </div>
+                )}
             </div>
 
-            <div className="shrink-0 border-t border-neutral-800 bg-neutral-900 px-4 py-3">
-                <p className="truncate text-sm font-medium text-white">
-                    {file.filename}
-                </p>
-                <p className="text-xs text-neutral-500">
-                    {Math.round(file.elo_score)} pts · {file.comparison_count}{" "}
-                    comparisons
-                </p>
+            <InlineTagEditor
+                file={file}
+                onFocusInput={(fn) => {
+                    focusTagInput.current = fn;
+                }}
+            />
+
+            {/* Footer */}
+            <div className="shrink-0 border-t border-neutral-800 bg-neutral-900 px-4 py-3 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                    <p
+                        className="cursor-pointer truncate text-sm font-medium text-neutral-300 hover:text-white transition-colors"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onInspectFile(file);
+                        }}
+                    >
+                        {file.filename}
+                    </p>
+                    <p className="text-xs text-neutral-500">
+                        {Math.round(file.elo_score)} pts ·{" "}
+                        {file.comparison_count} comparisons
+                    </p>
+                </div>
+                <button className="shrink-0 rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
+                        onClick={() => onGoToFolder(file.path.split("/").slice(0, -1).join("/"))}>
+                    Go to folder
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function InlineTagEditor({
+    file,
+    onFocusInput,
+}: {
+    file: DbFile;
+    onFocusInput?: (fn: () => void) => void;
+}): JSX.Element {
+    const [tags, setTags] = useState<string[]>([]);
+    const [input, setInput] = useState("");
+    const [allTags, setAllTags] = useState<string[]>([]);
+    const [focused, setFocused] = useState(false);
+    const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+    const [expanded, setExpanded] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        window.api.getTags(file.id).then(setTags);
+        window.api.getAllTags().then(setAllTags);
+    }, [file.id]);
+
+    // Expose focus function to parent for T hotkey
+    useEffect(() => {
+        onFocusInput?.(() => inputRef.current?.focus());
+    }, [onFocusInput]);
+
+    // Suggestions in natural order — we reverse only at render time
+    const filtered = input.trim()
+        ? allTags
+              .filter(
+                  (t) =>
+                      t.toLowerCase().includes(input.toLowerCase()) &&
+                      !tags.includes(t),
+              )
+              .slice(0, 6)
+        : [];
+
+    // visibleSuggestions matches what's rendered: reversed (bottom = closest to input)
+    const visibleSuggestions = [...filtered].reverse();
+
+    useEffect(() => {
+        setHighlightedIndex(-1);
+    }, [input]);
+
+    const addTag = useCallback(
+        async (tag: string) => {
+            const trimmed = tag.trim().toLowerCase();
+            if (!trimmed) return;
+            // Duplicate: just clear input, no-op otherwise
+            if (tags.includes(trimmed)) {
+                setInput("");
+                setHighlightedIndex(-1);
+                return;
+            }
+            const updated = await window.api.addTag(file.id, trimmed);
+            setTags(updated);
+            setAllTags((prev) =>
+                prev.includes(trimmed) ? prev : [...prev, trimmed],
+            );
+            setInput("");
+            setHighlightedIndex(-1);
+        },
+        [file.id, tags],
+    );
+
+    const removeTag = useCallback(
+        async (tag: string) => {
+            const updated = await window.api.removeTag(file.id, tag);
+            setTags(updated);
+        },
+        [file.id],
+    );
+
+    const handleKeyDown = useCallback(
+        (e: React.KeyboardEvent<HTMLInputElement>) => {
+            const num = visibleSuggestions.length;
+
+            if (e.key === "ArrowUp") {
+                // Up = move toward top of list visually (away from input)
+                e.preventDefault();
+                setHighlightedIndex((i) => (i < 0 ? num - 1 : i - 1));
+            } else if (e.key === "ArrowDown") {
+                // Down = move toward bottom of list visually (toward input)
+                e.preventDefault();
+                (highlightedIndex === num - 1) 
+                    ? setHighlightedIndex(-1)
+                    : setHighlightedIndex((i) => (i >= num - 1 ? 0 : i + 1));
+            } else if (e.key === "Tab") {
+                if (
+                    highlightedIndex >= 0 &&
+                    visibleSuggestions[highlightedIndex]
+                ) {
+                    e.preventDefault();
+                    setInput(visibleSuggestions[highlightedIndex]);
+                    setHighlightedIndex(-1);
+                }
+            } else if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                if (
+                    highlightedIndex >= 0 &&
+                    visibleSuggestions[highlightedIndex]
+                ) {
+                    addTag(visibleSuggestions[highlightedIndex]);
+                } else {
+                    addTag(input);
+                }
+            } else if (e.key === "Escape") {
+                if (highlightedIndex >= 0) {
+                    setHighlightedIndex(-1);
+                } else {
+                    inputRef.current?.blur();
+                }
+            }
+
+            
+
+        },
+        [visibleSuggestions, highlightedIndex, input, addTag],
+    );
+
+    const chipsPerRow = 3;
+    const maxVisible = 2 * chipsPerRow;
+    const showExpand = !expanded && tags.length > maxVisible;
+    const visibleTags = expanded ? tags : tags.slice(0, maxVisible);
+
+    return (
+        <div className="flex flex-col gap-2 px-3 py-2 border-t border-neutral-800 bg-neutral-950">
+            {/* Tag chips — max 2 rows with expand option */}
+            <div className="flex flex-wrap gap-1.5">
+                {visibleTags.map((tag) => (
+                    <span
+                        key={tag}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs"
+                    >
+                        {tag}
+                        <button
+                            onClick={() => removeTag(tag)}
+                            className="text-neutral-600 hover:text-neutral-300 transition-colors leading-none"
+                        >
+                            ×
+                        </button>
+                    </span>
+                ))}
+                {showExpand && (
+                    <button
+                        onClick={() => setExpanded(true)}
+                        className="px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-500 text-xs hover:text-neutral-300 transition-colors"
+                    >
+                        +{tags.length - maxVisible} more
+                    </button>
+                )}
+                {expanded && tags.length > maxVisible && (
+                    <button
+                        onClick={() => setExpanded(false)}
+                        className="px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-500 text-xs hover:text-neutral-300 transition-colors"
+                    >
+                        less
+                    </button>
+                )}
+            </div>
+
+            {/* Input + suggestions */}
+            <div className="relative">
+                {focused && visibleSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 bottom-full mb-1 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg">
+                        {visibleSuggestions.map((tag, i) => (
+                            <button
+                                key={tag}
+                                onMouseDown={() => addTag(tag)}
+                                onMouseEnter={() => setHighlightedIndex(i)}
+                                onMouseLeave={() => setHighlightedIndex(-1)}
+                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors
+                                    ${
+                                        i === highlightedIndex
+                                            ? "bg-neutral-700 text-white"
+                                            : "text-neutral-300 hover:bg-neutral-800"
+                                    }`}
+                            >
+                                {tag}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => setFocused(true)}
+                    
+                    placeholder="Add tag…"
+                    className="w-full bg-neutral-900 border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-neutral-500 transition-colors"
+                />
             </div>
         </div>
     );

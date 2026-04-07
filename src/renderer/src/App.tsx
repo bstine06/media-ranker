@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import type { AppStatus, DbFile, FolderNode } from "./types";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import type { DbFile, FolderNode } from "./types";
 import NavItem from "./components/NavItem";
 import BrowseView from "./components/BrowseView";
 import CompareView from "./components/CompareView";
@@ -9,6 +9,7 @@ import FileView from "./components/FileView";
 import { useKeyboardShortcut } from "./hooks/useKeyboard";
 import { useHoverPreview } from "./hooks/useHoverPreview";
 import { useSettings } from "./contexts/SettingsContext";
+import { useStatus } from "./contexts/StatusContext";
 
 type View = "browse" | "compare" | "file";
 
@@ -94,10 +95,6 @@ function PlaceholderView({ label }: { label: string }): JSX.Element {
 
 export default function App(): JSX.Element {
     const [rootPath, setRootPath] = useState<string | null>(null);
-    const [appStatus, setAppStatus] = useState<AppStatus>({
-        text: "idle",
-        mood: "neutral",
-    });
     const [view, setView] = useState<View>("browse");
     const [subfolders, setSubfolders] = useState<FolderNode[]>([]);
     const [activeFolder, setActiveFolder] = useState<string | null>(null);
@@ -111,7 +108,9 @@ export default function App(): JSX.Element {
         new Set(),
     );
     const [activeFile, setActiveFile] = useState<DbFile | null>(null);
-    const { toggleHoverPreview } = useSettings();
+
+    const { toggleHoverPreview, volume } = useSettings();
+    const volumeRef = useRef(volume / 100);
 
     const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
     const [tagMode, setTagMode] = useState<"and" | "or">("or");
@@ -119,6 +118,32 @@ export default function App(): JSX.Element {
     const [tagFilteredIds, setTagFilteredIds] = useState<Set<number> | null>(
         null,
     );
+
+    const { status, setStatus, resetStatus } = useStatus();
+
+    useEffect(() => {
+        volumeRef.current = volume / 100;
+        const apply = (el: HTMLMediaElement) => {
+            el.volume = volumeRef.current;
+        };
+        document
+            .querySelectorAll("audio, video")
+            .forEach((el) => apply(el as HTMLMediaElement));
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                mutation.addedNodes.forEach((node) => {
+                    if (node instanceof HTMLMediaElement) apply(node);
+                    if (node instanceof Element) {
+                        node.querySelectorAll("audio, video").forEach((el) =>
+                            apply(el as HTMLMediaElement),
+                        );
+                    }
+                });
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        return () => observer.disconnect();
+    }, [volume]);
 
     const loadFolder = useCallback(
         async (folder: string | null, root: string) => {
@@ -132,20 +157,15 @@ export default function App(): JSX.Element {
     );
 
     const toggleHoverzoom = useCallback(() => {
-        console.log("z");
         toggleHoverPreview();
     }, []);
 
     useKeyboardShortcut({ key: "z", onKeyPressed: toggleHoverzoom });
 
-    const setAppStatusIdle = () => {
-        setAppStatus({ text: "idle", mood: "neutral" });
-    };
-
     const openLibrary = useCallback(
         async (path: string) => {
             setIsScanning(true);
-            setAppStatus({ text: "Opening library...", mood: "neutral" });
+            setStatus("Opening library...");
             setRootPath(path);
             const result = await window.api.openLibrary(path);
             setScanResult({ scanned: result.scanned, added: result.added });
@@ -154,7 +174,7 @@ export default function App(): JSX.Element {
             // Check all folders by default
             setCheckedFolders(new Set(getAllPaths(folders)));
             await loadFolder(null, path);
-            setAppStatusIdle();
+            resetStatus();
             setIsScanning(false);
         },
         [loadFolder],
@@ -195,7 +215,7 @@ export default function App(): JSX.Element {
     const rescanLibrary = useCallback(
         async (path: string, activeFolder: string | null) => {
             setIsScanning(true);
-            setAppStatus({ text: "Rescanning...", mood: "neutral" });
+            setStatus("Rescanning...");
             setRootPath(path);
             const result = await window.api.openLibrary(path);
             setScanResult({ scanned: result.scanned, added: result.added });
@@ -204,7 +224,7 @@ export default function App(): JSX.Element {
             // Check all folders by default
             setCheckedFolders(new Set(getAllPaths(folders)));
             await loadFolder(activeFolder, path);
-            setAppStatusIdle();
+            resetStatus();
             setIsScanning(false);
         },
         [loadFolder],
@@ -275,9 +295,21 @@ export default function App(): JSX.Element {
         [],
     );
 
+    const compareFolders = useMemo(
+        () => (checkedFolders.size === 0 ? null : [...checkedFolders]),
+        [checkedFolders],
+    );
+
+    const previousView = useRef<"browse" | "compare">("browse");
+
     const handleInspectFile = (file: DbFile) => {
+        previousView.current = view as "browse" | "compare";
         setActiveFile(file);
         setView("file");
+    };
+
+    const handleBackFromFile = () => {
+        setView(previousView.current);
     };
 
     if (!rootPath) {
@@ -297,13 +329,15 @@ export default function App(): JSX.Element {
         });
     };
 
+    const handleGoToFolder = (folderPath: string) => {
+        setActiveFolder(folderPath);
+        setView("browse");
+    }
+
     // Apply tag filter on top of whatever files BrowseView already receives
     const visibleFiles = tagFilteredIds
         ? files.filter((f) => tagFilteredIds.has(f.id))
         : files;
-
-    const compareFolders =
-        checkedFolders.size === 0 ? null : [...checkedFolders];
 
     return (
         <div className="flex h-full flex-col">
@@ -333,7 +367,6 @@ export default function App(): JSX.Element {
                     onCheckAll={handleCheckAll}
                     onChangeLibrary={handleSelectFolder}
                     onRescanLibrary={handleRescanLibrary}
-                    status={appStatus}
                     allTags={allTags}
                     activeTags={activeTags}
                     tagMode={tagMode}
@@ -342,7 +375,13 @@ export default function App(): JSX.Element {
                 />
 
                 <main className="flex flex-1 flex-col overflow-hidden bg-neutral-950 min-w-0">
-                    {view === "browse" && (
+                    <div
+                        className={
+                            view === "browse"
+                                ? "flex flex-1 flex-col overflow-hidden"
+                                : "hidden"
+                        }
+                    >
                         <BrowseView
                             files={visibleFiles}
                             rootPath={rootPath}
@@ -354,15 +393,30 @@ export default function App(): JSX.Element {
                                 window.api.getAllTags().then(setAllTags)
                             }
                         />
-                    )}
-                    {view === "compare" && (
+                    </div>
+                    <div
+                        className={
+                            view === "compare"
+                                ? "flex flex-1 flex-col overflow-hidden"
+                                : "hidden"
+                        }
+                    >
                         <CompareView
                             rootPath={rootPath}
                             folderPrefixes={compareFolders}
+                            active={view === "compare"}
+                            onInspectFile={handleInspectFile}
+                            activeTags={activeTags}
+                            tagMode={tagMode}
+                            onGoToFolder={handleGoToFolder}
                         />
-                    )}
+                    </div>
                     {view === "file" && activeFile && (
-                        <FileView file={activeFile} rootPath={rootPath} />
+                        <FileView
+                            file={activeFile}
+                            rootPath={rootPath}
+                            onBack={handleBackFromFile}
+                        />
                     )}
                 </main>
             </div>

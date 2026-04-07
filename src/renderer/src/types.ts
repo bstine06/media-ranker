@@ -17,7 +17,6 @@ export interface FolderNode {
 
 export type AppStatusMood = "good" | "neutral" | "warn" | "bad";
 
-export interface AppStatus {
-  text: string
-  mood: AppStatusMood
+export interface File {
+  path: string
 }

@@ -1,6 +1,8 @@
-import { useState } from "react";
-import type { AppStatus, FolderNode } from "../types";
+import { useEffect, useRef, useState } from "react";
+import type { FolderNode } from "../types";
 import NavItem from "./NavItem";
+import { useSettings } from "../contexts/SettingsContext";
+import { useStatus } from "../contexts/StatusContext";
 
 type View = "browse" | "compare" | "file";
 
@@ -165,7 +167,7 @@ function TagFilterSection({
     return (
         <div className="px-3 mb-3 mt-1">
             <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
+                <p className="text-xs pl-3 font-semibold uppercase tracking-widest text-neutral-500">
                     Tags
                 </p>
                 {activeTags.size >= 2 && (
@@ -234,6 +236,104 @@ function TagFilterSection({
     );
 }
 
+function SettingsSection(): JSX.Element {
+    const {
+        hoverPreviewEnabled,
+        toggleHoverPreview,
+        volume,
+        handleVolumeChange,
+    } = useSettings();
+    const [open, setOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Close when clicking outside
+    useEffect(() => {
+        if (!open) return;
+        const handler = (e: MouseEvent) => {
+            if (!containerRef.current?.contains(e.target as Node)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, [open]);
+
+    return (
+        <div ref={containerRef} className="relative">
+            <button
+                onClick={() => setOpen((p) => !p)}
+                className="flex items-center justify-between w-full mb-1 px-2 group"
+            >
+                <p className="w-full rounded-md px-1 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+                   ⚙ Settings
+                </p>
+            </button>
+
+            {open && (
+                <div className="absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-neutral-700 bg-neutral-900 shadow-lg p-3 z-50">
+                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
+                        <p className="text-xs text-neutral-500">Toggle Hover Preview (Z)</p>
+                        <button
+                            onClick={toggleHoverPreview}
+                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
+                                hoverPreviewEnabled
+                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                            }`}
+                        >
+                            {hoverPreviewEnabled ? "on" : "off"}
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-between py-2">
+                        <p className="text-xs text-neutral-500">Volume</p>
+                        <div className="flex items-center gap-2">
+                            <div
+                                className="relative w-24 h-1 bg-neutral-700 rounded cursor-pointer"
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    const el = e.currentTarget;
+                                    const calc = (clientX: number) => {
+                                        const rect = el.getBoundingClientRect();
+                                        const pct = Math.min(
+                                            100,
+                                            Math.max(
+                                                0,
+                                                Math.round(
+                                                    ((clientX - rect.left) /
+                                                        rect.width) *
+                                                        100,
+                                                ),
+                                            ),
+                                        );
+                                        handleVolumeChange(pct);
+                                    };
+                                    calc(e.clientX);
+                                    const onMove = (e: MouseEvent) => calc(e.clientX);
+                                    const onUp = () => {
+                                        document.removeEventListener("mousemove", onMove);
+                                        document.removeEventListener("mouseup", onUp);
+                                    };
+                                    document.addEventListener("mousemove", onMove);
+                                    document.addEventListener("mouseup", onUp);
+                                }}
+                            >
+                                <div
+                                    className="absolute inset-y-0 left-0 bg-neutral-300 rounded"
+                                    style={{ width: `${volume}%` }}
+                                />
+                            </div>
+                            <span className="text-xs text-neutral-500 w-7 text-right tabular-nums">
+                                {volume}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function Sidebar({
     view,
     setView,
@@ -245,7 +345,6 @@ export default function Sidebar({
     onCheckAll,
     onChangeLibrary,
     onRescanLibrary,
-    status,
     allTags,
     activeTags,
     tagMode,
@@ -262,7 +361,6 @@ export default function Sidebar({
     onCheckAll: () => void;
     onChangeLibrary: () => void;
     onRescanLibrary: () => void;
-    status: AppStatus;
     allTags: string[];
     activeTags: Set<string>;
     tagMode: "and" | "or";
@@ -282,14 +380,12 @@ export default function Sidebar({
     const someChecked = allPaths.some((p) => checkedFolders.has(p));
     const isIndeterminate = someChecked && !allChecked;
 
+    const { status } = useStatus();
+
     return (
-        <aside className="flex w-52 shrink-0 flex-col border-r border-neutral-800 bg-neutral-900 overflow-hidden">
-            <div className="flex gap-1 p-3 pb-0 shrink-0">
-                <p className="mb-1 px-2 text-xs text-neutral-500">Status:</p>
-                <p className="mb-1 px-2 text-xs text-neutral-500">
-                    {status.text}
-                </p>
-            </div>
+        <aside className="flex w-52 shrink-0 flex-col border-r border-neutral-800 bg-neutral-900  h-full">
+            
+
             <div className="flex flex-col gap-1 p-3 shrink-0">
                 <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-widest text-neutral-500">
                     Views
@@ -305,11 +401,13 @@ export default function Sidebar({
                     onClick={() => setView("compare")}
                 />
             </div>
+            
+            
 
             {subfolders.length > 0 && (
-                <div className="flex flex-col flex-1 overflow-y-auto pb-3">
+                <div className="flex flex-col flex-1 pb-3 min-h-0">
                     <div className="flex items-center justify-between px-3 mb-1">
-                        <p className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
+                        <p className="text-xs pl-3 font-semibold uppercase tracking-widest text-neutral-500">
                             Folders
                         </p>
                         {isFilterable && (
@@ -340,17 +438,6 @@ export default function Sidebar({
                             </button>
                         )}
                     </div>
-
-                    {/* Tags filter */}
-                    {allTags.length > 0 && (
-                        <TagFilterSection
-                            allTags={allTags}
-                            activeTags={activeTags}
-                            tagMode={tagMode}
-                            onToggleTag={onToggleTag}
-                            onSetTagMode={onSetTagMode}
-                        />
-                    )}
 
                     {/* "All" entry — hidden while searching */}
                     {!isSearching && (
@@ -386,30 +473,49 @@ export default function Sidebar({
                             </button>
                         </div>
                     )}
-
-                    {visibleFolders.length > 0 ? (
-                        visibleFolders.map((node) => (
-                            <FolderTreeNode
-                                key={node.relativePath}
-                                node={node}
-                                activeFolder={activeFolder}
-                                depth={0}
-                                mode={isFilterable ? "compare" : "browse"}
-                                checkedFolders={checkedFolders}
-                                onSelectFolder={(path) => onSelectFolder(path)}
-                                onToggleFolder={onToggleFolder}
-                                forceExpanded={isSearching ? true : undefined}
-                            />
-                        ))
-                    ) : (
-                        <p className="px-5 py-2 text-xs text-neutral-600">
-                            No folders match
-                        </p>
-                    )}
+                    <div className="overflow-y-auto flex-1 min-h-0">
+                        {visibleFolders.length > 0 ? (
+                            visibleFolders.map((node) => (
+                                <FolderTreeNode
+                                    key={node.relativePath}
+                                    node={node}
+                                    activeFolder={activeFolder}
+                                    depth={0}
+                                    mode={isFilterable ? "compare" : "browse"}
+                                    checkedFolders={checkedFolders}
+                                    onSelectFolder={(path) =>
+                                        onSelectFolder(path)
+                                    }
+                                    onToggleFolder={onToggleFolder}
+                                    forceExpanded={
+                                        isSearching ? true : undefined
+                                    }
+                                />
+                            ))
+                        ) : (
+                            <p className="px-5 py-2 text-xs text-neutral-600">
+                                No folders match
+                            </p>
+                        )}
+                    </div>
                 </div>
+            )}
+            {/* Tags filter */}
+            {allTags.length > 0 && (
+                <TagFilterSection
+                    allTags={allTags}
+                    activeTags={activeTags}
+                    tagMode={tagMode}
+                    onToggleTag={onToggleTag}
+                    onSetTagMode={onSetTagMode}
+                />
             )}
 
             <div className="shrink-0 p-3 border-t border-neutral-800">
+
+                <div className="flex gap-1 p-3 pb-0 shrink-0">
+                <p className="w-full rounded-md px-3 py-2 text-left text-xs text-neutral-500 ">Status: {status}</p>
+            </div>
                 <button
                     onClick={onRescanLibrary}
                     className="w-full rounded-md px-3 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
@@ -422,6 +528,7 @@ export default function Sidebar({
                 >
                     ⌂ Change library
                 </button>
+                <SettingsSection />
             </div>
         </aside>
     );

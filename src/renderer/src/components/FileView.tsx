@@ -29,12 +29,12 @@ function TagPanel({ file }: { file: DbFile }): JSX.Element {
     }, []);
 
     const filtered = input.trim()
-    ? allTags.filter(
-          (t) =>
-              t.toLowerCase().includes(input.toLowerCase()) &&
-              !tags.includes(t),
-      )
-    : [];
+        ? allTags.filter(
+              (t) =>
+                  t.toLowerCase().includes(input.toLowerCase()) &&
+                  !tags.includes(t),
+          )
+        : [];
 
     const addTag = useCallback(
         async (tag: string) => {
@@ -63,7 +63,11 @@ function TagPanel({ file }: { file: DbFile }): JSX.Element {
             if (e.key === "Enter" || e.key === ",") {
                 e.preventDefault();
                 addTag(input);
-            } else if (e.key === "Backspace" && input === "" && tags.length > 0) {
+            } else if (
+                e.key === "Backspace" &&
+                input === "" &&
+                tags.length > 0
+            ) {
                 removeTag(tags[tags.length - 1]);
             } else if (e.key === "Escape") {
                 setInput("");
@@ -74,7 +78,7 @@ function TagPanel({ file }: { file: DbFile }): JSX.Element {
     );
 
     return (
-        <div className="flex flex-col w-56 shrink-0 border-r border-neutral-800 bg-neutral-950 overflow-y-auto">
+        <div className="flex flex-col w-56 shrink-0 border-r border-neutral-800 bg-neutral-950 overflow-y-auto flex-grow">
             <div className="px-4 py-3 border-b border-neutral-800">
                 <p className="text-xs font-medium text-neutral-400 uppercase tracking-wider">
                     Tags
@@ -138,17 +142,70 @@ function TagPanel({ file }: { file: DbFile }): JSX.Element {
     );
 }
 
+// ── FileReplacer ─────────────────────────────────────────────────────────────
+
+function FileReplacer({ file, onReplaced }: { file: DbFile, onReplaced: (updated: DbFile) => void }): JSX.Element {
+  const [status, setStatus] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
+
+  async function handleReplace() {
+    const newPath = await window.api.openFile(['jpg', 'jpeg', 'png', 'gif', 'mp4', 'mov', 'm4v'])
+    if (!newPath) return
+    setStatus('busy')
+    try {
+        const updated = await window.api.fileReplace(file.path, newPath)
+        setStatus('done')
+        onReplaced(updated)
+    } catch (err) {
+        console.error(err)
+        setStatus('error')
+    }
+}
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    if (e.dataTransfer.files.length !== 1) return
+    const newPath = (e.dataTransfer.files[0] as any).path as string
+    if (!newPath) return
+    setStatus('busy')
+    window.api.fileReplace(file.path, newPath)
+        .then((updated) => { setStatus('done'); onReplaced(updated) })
+        .catch((err) => { console.error(err); setStatus('error') })
+    
+}
+
+  const label = { idle: 'Drop file or click here', busy: 'Replacing…', done: 'Replaced!', error: 'Failed — try again' }[status]
+  const border = { idle: 'border-neutral-700', busy: 'border-yellow-600', done: 'border-green-600', error: 'border-red-600' }[status]
+
+  return (
+    <div className="w-56 border-r border-neutral-800">
+    <div
+      className={`cursor-pointer flex flex-col gap-0 p-2 m-2 bg-neutral-900 text-center rounded-xl border-2 border-dashed hover:bg-neutral-800 hover:border-neutral-500 ${border}`}
+      onClick={status === 'busy' ? undefined : handleReplace}
+      onDragOver={e => e.preventDefault()}
+      onDrop={status === 'busy' ? undefined : handleDrop}
+    >
+      <h1 className="text-neutral-400 text-sm font-bold">Replace File</h1>
+      <p className="text-neutral-500 text-xs">{label}</p>
+    </div>
+    </div>
+  )
+}
+
 // ── FileView ─────────────────────────────────────────────────────────────────
 
 export default function FileView({
-    file,
+    file: initialFile,
     rootPath,
+    onBack,
 }: {
     file: DbFile;
     rootPath: string;
+    onBack: () => void;
 }): JSX.Element {
-    const isVideo = file.media_type === "video";
-    const fullUrl = toMediaUrl(rootPath, file.path);
+    const [currentFile, setCurrentFile] = useState<DbFile>(initialFile)
+
+    const isVideo = currentFile.media_type === "video";
+    const fullUrl = toMediaUrl(rootPath, currentFile.path);
 
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
     const [fullLoaded, setFullLoaded] = useState(false);
@@ -160,43 +217,27 @@ export default function FileView({
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [scrubbing, setScrubbing] = useState(false);
-    const [showControls, setShowControls] = useState(true);
-    const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Zoom/pan
     const [zoom, setZoom] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const isPanning = useRef(false);
     const lastPointer = useRef({ x: 0, y: 0 });
+    const zoomRef = useRef(zoom);
+    useEffect(() => {
+        zoomRef.current = zoom;
+    }, [zoom]);
 
     useEffect(() => {
         setThumbUrl(null);
         setFullLoaded(false);
         setZoom(1);
         setPan({ x: 0, y: 0 });
-        window.api.getThumbnailPath(file.content_hash).then((absPath) => {
+        window.api.getThumbnailPath(currentFile.content_hash).then((absPath) => {
             if (absPath) setThumbUrl(toThumbnailUrl(absPath));
         });
-    }, [file.content_hash]);
+    }, [currentFile.content_hash]);
 
-    // Auto-hide video controls
-    const resetControlsTimer = useCallback(() => {
-        setShowControls(true);
-        if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-        controlsTimerRef.current = setTimeout(
-            () => setShowControls(false),
-            2500,
-        );
-    }, []);
-
-    useEffect(() => {
-        if (isVideo) resetControlsTimer();
-        return () => {
-            if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-        };
-    }, [isVideo, resetControlsTimer]);
-
-    // Fullscreen — target document.documentElement, not a div
     const toggleFullscreen = useCallback(() => {
         if (!document.fullscreenElement) {
             document.documentElement.requestFullscreen();
@@ -206,17 +247,13 @@ export default function FileView({
     }, []);
 
     useEffect(() => {
-        const handler = () =>
-            setIsFullscreen(!!document.fullscreenElement);
+        const handler = () => setIsFullscreen(!!document.fullscreenElement);
         document.addEventListener("fullscreenchange", handler);
-        return () =>
-            document.removeEventListener("fullscreenchange", handler);
+        return () => document.removeEventListener("fullscreenchange", handler);
     }, []);
 
-    // Keyboard shortcuts
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            // Don't steal keypresses when typing in the tag input
             if (
                 document.activeElement?.tagName === "INPUT" ||
                 document.activeElement?.tagName === "TEXTAREA"
@@ -251,19 +288,58 @@ export default function FileView({
         return () => window.removeEventListener("keydown", handler);
     }, [isVideo, toggleFullscreen, zoom]);
 
-    // Pinch-to-zoom (trackpad sends ctrlKey+wheel)
-    const handleWheel = useCallback((e: React.WheelEvent) => {
-        if (!e.ctrlKey && !e.metaKey) return;
-        e.preventDefault();
-        const delta = -e.deltaY * 0.01;
-        setZoom((z) => {
-            const next = Math.max(1, Math.min(8, z + delta * z));
-            if (next === 1) setPan({ x: 0, y: 0 });
-            return next;
-        });
+    useEffect(() => {
+        if (!isVideo) return;
+        let rafId: number;
+        const tick = () => {
+            if (videoRef.current && !scrubbing) {
+                setCurrentTime(videoRef.current.currentTime);
+            }
+            rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafId);
+    }, [isVideo, scrubbing]);
+
+    const handleScrubChange = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            const t = parseFloat(e.target.value);
+            setCurrentTime(t);
+            if (videoRef.current) videoRef.current.currentTime = t;
+        },
+        [],
+    );
+
+    const togglePlay = useCallback(() => {
+        if (!videoRef.current) return;
+        videoRef.current.paused
+            ? videoRef.current.play()
+            : videoRef.current.pause();
     }, []);
 
-    // Drag to pan
+    const mediaAreaRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const el = mediaAreaRef.current;
+        if (!el) return;
+        const handler = (e: WheelEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const delta = -e.deltaY * 0.01;
+                setZoom((z) => {
+                    const next = Math.max(1, Math.min(8, z + delta * z));
+                    if (next === 1) setPan({ x: 0, y: 0 });
+                    return next;
+                });
+            } else if (zoomRef.current > 1) {
+                e.preventDefault();
+                setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+            }
+        };
+        el.addEventListener("wheel", handler, { passive: false });
+        return () => el.removeEventListener("wheel", handler);
+    }, []);
+
     const handlePointerDown = useCallback(
         (e: React.PointerEvent) => {
             if (zoom <= 1) return;
@@ -286,30 +362,6 @@ export default function FileView({
         isPanning.current = false;
     }, []);
 
-    // Video handlers
-    const handleVideoTimeUpdate = useCallback(() => {
-        if (!scrubbing && videoRef.current) {
-            setCurrentTime(videoRef.current.currentTime);
-        }
-    }, [scrubbing]);
-
-    const handleScrubChange = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            const t = parseFloat(e.target.value);
-            setCurrentTime(t);
-            if (videoRef.current) videoRef.current.currentTime = t;
-        },
-        [],
-    );
-
-    const togglePlay = useCallback(() => {
-        if (!videoRef.current) return;
-        videoRef.current.paused
-            ? videoRef.current.play()
-            : videoRef.current.pause();
-        resetControlsTimer();
-    }, [resetControlsTimer]);
-
     const mediaStyle: React.CSSProperties = {
         transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
         transformOrigin: "center center",
@@ -317,104 +369,133 @@ export default function FileView({
     };
 
     return (
-        <div className="flex flex-1 overflow-hidden">
-            {/* Left tag panel */}
-            <TagPanel file={file} />
-
-            {/* Main viewer */}
-            <div className="flex flex-1 flex-col overflow-hidden bg-black">
-                {/* Header */}
-                <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3 shrink-0">
-                    <h2 className="text-sm font-medium text-neutral-300 truncate max-w-[70%]">
-                        {file.filename}
-                    </h2>
-                    <div className="flex items-center gap-3">
-                        {zoom > 1 && (
-                            <button
-                                onClick={() => {
-                                    setZoom(1);
-                                    setPan({ x: 0, y: 0 });
-                                }}
-                                className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-                            >
-                                {Math.round(zoom * 100)}% · Reset
-                            </button>
-                        )}
-                        <button
-                            onClick={toggleFullscreen}
-                            className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-                            title="Fullscreen (F)"
+        <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                    <button
+                        onClick={onBack}
+                        className="shrink-0 text-neutral-500 hover:text-neutral-200 transition-colors"
+                        title="Back"
+                    >
+                        <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
                         >
-                            {isFullscreen ? "⊠ Exit fullscreen" : "⊡ Fullscreen"}
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M15.75 19.5L8.25 12l7.5-7.5"
+                            />
+                        </svg>
+                    </button>
+                    <h2 className="text-sm font-medium text-neutral-300 truncate">
+                        {currentFile.filename}
+                    </h2>
+                </div>
+                <div className="flex items-center gap-3">
+                    {zoom > 1 && (
+                        <button
+                            onClick={() => {
+                                setZoom(1);
+                                setPan({ x: 0, y: 0 });
+                            }}
+                            className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+                        >
+                            {Math.round(zoom * 100)}% · Reset
                         </button>
-                    </div>
+                    )}
+                    <button
+                        onClick={toggleFullscreen}
+                        className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+                        title="Fullscreen (F)"
+                    >
+                        {isFullscreen ? "⊠ Exit fullscreen" : "⊡ Fullscreen"}
+                    </button>
+                </div>
+            </div>
+
+            {/* Body */}
+            <div className="flex flex-1 overflow-hidden">
+                <div className="flex flex-col justify-between">
+                    <TagPanel file={currentFile} />
+                    <FileReplacer file={currentFile} onReplaced={setCurrentFile} />
                 </div>
 
-                {/* Media area */}
-                <div
-                    className="relative flex flex-1 items-center justify-center overflow-hidden"
-                    onWheel={handleWheel}
-                    onPointerDown={handlePointerDown}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onMouseMove={isVideo ? resetControlsTimer : undefined}
-                >
-                    {isVideo ? (
-                        <video
-                            ref={videoRef}
-                            key={fullUrl}
-                            src={fullUrl}
-                            style={mediaStyle}
-                            className="max-h-full max-w-full object-contain select-none"
-                            loop
-                            playsInline
-                            autoPlay
-                            onTimeUpdate={handleVideoTimeUpdate}
-                            onLoadedMetadata={() => {
-                                if (videoRef.current)
-                                    setDuration(videoRef.current.duration);
-                            }}
-                            onPlay={() => setPlaying(true)}
-                            onPause={() => setPlaying(false)}
-                            onClick={togglePlay}
-                        />
-                    ) : (
-                        <>
-                            {thumbUrl && !fullLoaded && (
-                                <img
-                                    src={thumbUrl}
-                                    alt={file.filename}
-                                    className="absolute inset-0 h-full w-full object-contain"
-                                    style={{
-                                        filter: "blur(8px)",
-                                        transform: "scale(1.05)",
-                                    }}
-                                />
-                            )}
-                            <img
+                <div className="flex flex-1 flex-col overflow-hidden bg-black">
+                    <div
+                        ref={mediaAreaRef}
+                        className="relative flex flex-1 items-center justify-center overflow-hidden"
+                        onPointerDown={handlePointerDown}
+                        onPointerMove={handlePointerMove}
+                        onPointerUp={handlePointerUp}
+                    >
+                        {isVideo ? (
+                            <video
+                                ref={videoRef}
+                                key={fullUrl}
                                 src={fullUrl}
-                                alt={file.filename}
-                                style={{
-                                    ...mediaStyle,
-                                    opacity: fullLoaded ? 1 : 0,
+                                style={mediaStyle}
+                                className="max-h-full max-w-full object-contain select-none"
+                                loop
+                                playsInline
+                                autoPlay
+                                onLoadedMetadata={() => {
+                                    if (videoRef.current)
+                                        setDuration(videoRef.current.duration);
                                 }}
-                                className="max-h-full max-w-full object-contain select-none transition-opacity duration-300"
-                                onLoad={() => setFullLoaded(true)}
-                                draggable={false}
+                                onPlay={() => setPlaying(true)}
+                                onPause={() => setPlaying(false)}
+                                onClick={togglePlay}
                             />
-                        </>
-                    )}
+                        ) : (
+                            <>
+                                {thumbUrl && !fullLoaded && (
+                                    <img
+                                        src={thumbUrl}
+                                        alt={currentFile.filename}
+                                        className="absolute inset-0 h-full w-full object-contain"
+                                        style={{
+                                            filter: "blur(8px)",
+                                            transform: "scale(1.05)",
+                                        }}
+                                    />
+                                )}
+                                <img
+                                    src={fullUrl}
+                                    alt={currentFile.filename}
+                                    style={{
+                                        ...mediaStyle,
+                                        opacity: fullLoaded ? 1 : 0,
+                                    }}
+                                    className="max-h-full max-w-full object-contain select-none transition-opacity duration-300"
+                                    onLoad={() => setFullLoaded(true)}
+                                    draggable={false}
+                                />
+                            </>
+                        )}
 
-                    {/* Video controls overlay */}
+                        {!isVideo && zoom === 1 && fullLoaded && (
+                            <div className="absolute bottom-3 right-3 text-xs text-neutral-700 pointer-events-none select-none">
+                                Pinch to zoom · scroll to pan
+                            </div>
+                        )}
+                    </div>
+
                     {isVideo && (
-                        <div
-                            className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}
-                            style={{
-                                background:
-                                    "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)",
-                                padding: "32px 16px 12px",
-                            }}
-                        >
+                        <div className="shrink-0 border-t border-neutral-800 bg-neutral-950 px-4 py-2 flex items-center gap-3">
+                            <button
+                                onClick={togglePlay}
+                                className="text-white text-base w-6 h-6 flex items-center justify-center hover:text-neutral-300 transition-colors shrink-0"
+                            >
+                                {playing ? "⏸" : "▶"}
+                            </button>
+                            <span className="text-xs text-neutral-400 tabular-nums shrink-0">
+                                {formatTime(currentTime)} / {formatTime(duration)}
+                            </span>
                             <input
                                 type="range"
                                 min={0}
@@ -422,45 +503,28 @@ export default function FileView({
                                 step={0.01}
                                 value={currentTime}
                                 onChange={handleScrubChange}
-                                onMouseDown={() => setScrubbing(true)}
+                                onMouseDown={() => {
+                                    setScrubbing(true);
+                                    videoRef.current?.pause();
+                                }}
                                 onMouseUp={() => setScrubbing(false)}
-                                className="w-full mb-2"
+                                className="flex-1"
                                 style={{ accentColor: "white", cursor: "pointer" }}
                             />
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={togglePlay}
-                                    className="text-white text-base w-6 h-6 flex items-center justify-center hover:text-neutral-300 transition-colors"
-                                >
-                                    {playing ? "⏸" : "▶"}
-                                </button>
-                                <span className="text-xs text-neutral-300 tabular-nums">
-                                    {formatTime(currentTime)} /{" "}
-                                    {formatTime(duration)}
-                                </span>
-                            </div>
                         </div>
                     )}
 
-                    {/* Zoom hint */}
-                    {!isVideo && zoom === 1 && fullLoaded && (
-                        <div className="absolute bottom-3 right-3 text-xs text-neutral-700 pointer-events-none select-none">
-                            Ctrl+scroll to zoom
-                        </div>
-                    )}
-                </div>
-
-                {/* Footer */}
-                <div className="shrink-0 border-t border-neutral-800 px-5 py-2 flex items-center gap-4">
-                    <p className="text-xs text-neutral-500">
-                        {Math.round(file.elo_score)} pts
-                    </p>
-                    <p className="text-xs text-neutral-500">
-                        {file.comparison_count} comparisons
-                    </p>
-                    <p className="text-xs text-neutral-500 uppercase tracking-wide">
-                        {file.media_type}
-                    </p>
+                    <div className="shrink-0 border-t border-neutral-800 px-5 py-2 flex items-center gap-4">
+                        <p className="text-xs text-neutral-500">
+                            {Math.round(currentFile.elo_score)} pts
+                        </p>
+                        <p className="text-xs text-neutral-500">
+                            {currentFile.comparison_count} comparisons
+                        </p>
+                        <p className="text-xs text-neutral-600 uppercase tracking-wide">
+                            {currentFile.media_type}
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>

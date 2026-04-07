@@ -10,6 +10,8 @@ import { hashFile } from './scanner'
 const DEBOUNCE_MS = 1500
 const watchers = new Map<string, FSWatcher>()
 
+export const ignoredPaths = new Set<string>()
+
 async function waitUntilFileStable(filePath: string, intervalMs = 200, maxWaitMs = 300_000): Promise<void> {
     let lastSize = -1
     let waited = 0
@@ -28,9 +30,7 @@ async function waitUntilFileStable(filePath: string, intervalMs = 200, maxWaitMs
 }
 
 export function watchFolder(rootPath: string, win: BrowserWindow): void {
-    console.log('watchFolder called with:', rootPath)
   if (watchers.has(rootPath)) {
-    console.log('already watching, returning early')
     return
   }
 
@@ -43,9 +43,10 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
 
   const watcher = chokidar.watch(rootPath, {
     ignored: (filePath: string) => {
-      const seg = filePath.replace(rootPath, '').split(/[\\/]/)
-      return seg.some(s => s.startsWith('.') || s.startsWith('_'))
-    },
+  if (ignoredPaths.has(filePath)) return true
+  const seg = filePath.replace(rootPath, '').split(/[\\/]/)
+  return seg.some(s => s.startsWith('.') || s.startsWith('_'))
+},
     persistent: true,
     ignoreInitial: true,   // don't re-fire for files found on startup
   })

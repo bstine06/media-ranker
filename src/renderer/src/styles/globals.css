@@ -5,7 +5,8 @@
 /* Base resets */
 *, *::before, *::after {
   box-sizing: border-box;
-  scrollbar-color: #666 #000
+  scrollbar-color: #666 #000;
+  outline: none !important;
 }
 
 html, body, #root {
@@ -37,4 +38,20 @@ html, body, #root {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.range-no-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 0;
+    height: 0;
+}
+
+.range-no-thumb::-moz-range-thumb {
+    width: 0;
+    height: 0;
+    border: none;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
 }

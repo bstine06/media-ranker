@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
+import { DbFile } from "@main/db";
 
 export interface FolderNode {
     name: string;
@@ -50,6 +51,16 @@ const api = {
 
     openExternal: (url: string) => ipcRenderer.invoke("open-external", url),
 
+    showInFolder: (absolutePath: string) => ipcRenderer.invoke("show-in-folder", absolutePath),
+
+    moveFilesTo: (filePaths: string[], targetDir: string) => 
+        ipcRenderer.invoke('move-files-to', filePaths, targetDir),
+
+    fileReplace: (oldRelPath: string, newAbsPath: string): Promise<DbFile> =>
+        ipcRenderer.invoke('file:replace', oldRelPath, newAbsPath),
+
+    openFile: (extensions: string[]) => ipcRenderer.invoke('dialog:open-file', extensions),
+
     // ── File watching ──────────────────────────────────────────────────────
     onMediaAdded: (
         callback: (file: {
@@ -93,15 +104,18 @@ const api = {
 
     // ── Comparisons ────────────────────────────────────────────────────────
     getPair: (
-        folderPrefixes: string[] | null,
-    ): Promise<[unknown, unknown] | null> =>
-        ipcRenderer.invoke("get-pair", folderPrefixes),
+    folderPrefixes: string[] | null,
+    tagList: string[] | null,
+    tagMode: "and" | "or",
+): Promise<[unknown, unknown] | null> =>
+    ipcRenderer.invoke("get-pair", folderPrefixes, tagList, tagMode),
 
     recordComparison: (
         winnerId: number,
         loserId: number,
+        margin: number
     ): Promise<{ newWinnerScore: number; newLoserScore: number } | null> =>
-        ipcRenderer.invoke("record-comparison", winnerId, loserId),
+        ipcRenderer.invoke("record-comparison", winnerId, loserId, margin),
 };
 
 if (process.contextIsolated) {
