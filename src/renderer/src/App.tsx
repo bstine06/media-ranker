@@ -121,8 +121,6 @@ export default function App(): JSX.Element {
 
     const { status, setStatus, resetStatus } = useStatus();
 
-    console.log(rootPath);
-
     useEffect(() => {
         volumeRef.current = volume / 100;
         const apply = (el: HTMLMediaElement) => {

@@ -127,7 +127,7 @@ export default function MetadataView({
                 {/* Avatar */}
                 <div className="shrink-0">
                     <div
-                        className={`w-20 h-20 rounded-xl overflow-hidden ring-1 bg-neutral-800 flex items-center justify-center ${
+                        className={`cursor-pointer w-20 h-20 rounded-xl overflow-hidden ring-1 bg-neutral-800 flex items-center justify-center ${
                             editing ? "ring-neutral-600" : "ring-neutral-700"
                         }`}
                         onClick={() => !editing && onEditStart(metadata)}
@@ -140,25 +140,21 @@ export default function MetadataView({
                             />
                         ) : (
                             <svg
-                                className="w-7 h-7 text-neutral-600"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-10 h-10 m-1 text-neutral-500"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
-                                />
+                                <path d="M2 4a2 2 0 012-2h3l2 2h7a2 2 0 012 2v1H2V4z" />
+                                <path d="M2 7h16v7a2 2 0 01-2 2H4a2 2 0 01-2-2V7z" />
                             </svg>
                         )}
                     </div>
                     {editing && (
                         <p className="mt-1.5 text-[10px] text-neutral-600 text-center w-20 leading-tight">
                             {draftProfileImage
-                                ? "click to clear"
-                                : "click a tile"}
+                                ? "click selection to clear"
+                                : "click a file to assign"}
                         </p>
                     )}
                 </div>

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { FolderNode } from "../shared/types/types";
+import type { DbFile, FolderNode } from "../shared/types/types";
 import NavItem from "./NavItem";
 import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
+import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
+import { FolderMetadata } from "@renderer/browse/types/browserTypes";
 
 type View = "browse" | "compare" | "file";
 
@@ -24,8 +26,23 @@ function FolderItem({
     const isActive = activeFolder === node.relativePath;
     const isChecked = checkedFolders.has(node.relativePath);
 
+    const [profileImageHash, setProfileImageHash] = useState<string | null>();
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const raw = await window.api.readFolderMetadata(node.name);
+                console.log(raw.profileImage);
+                setProfileImageHash(raw.profileImage ?? null);
+            } catch {
+                setProfileImageHash(null);
+            }
+        };
+        load();
+    }, [node]);
+
     return (
-        <div className="flex items-center px-2">
+        <div className="flex items-center px-2 hover:bg-neutral-800 transition-colors">
             <span className="mr-1 w-4" />
             {mode === "compare" && (
                 <input
@@ -42,7 +59,7 @@ function FolderItem({
                 onClick={() =>
                     mode === "browse" && onSelectFolder(node.relativePath)
                 }
-                className={`flex-1 truncate rounded-md py-1.5 pr-2 text-left text-sm transition-colors ${
+                className={`flex-1 truncate rounded-md py-1 pr-2 text-left text-sm transition-colors ${
                     mode === "browse"
                         ? isActive
                             ? "text-white font-medium"
@@ -52,7 +69,27 @@ function FolderItem({
                           : "text-neutral-300"
                 }`}
             >
-                {node.name}
+                <div className="flex items-center">
+                    {profileImageHash ? (
+                        <ThumbnailImage
+                            contentHash={profileImageHash}
+                            className="w-6 h-6 rounded-full mr-2"
+                        />
+                    ) : (
+                        <div className="bg-neutral-700 rounded-full mr-2">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-4 h-4 m-1 text-neutral-500"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                            >
+                                <path d="M2 4a2 2 0 012-2h3l2 2h7a2 2 0 012 2v1H2V4z" />
+                                <path d="M2 7h16v7a2 2 0 01-2 2H4a2 2 0 01-2-2V7z" />
+                            </svg>
+                        </div>
+                    )}
+                    {node.name}
+                </div>
             </button>
         </div>
     );
@@ -275,7 +312,7 @@ export default function Sidebar({
     onToggleTag,
     onSetTagMode,
 }: {
-    rootPath: string,
+    rootPath: string;
     view: View;
     setView: (v: View) => void;
     subfolders: FolderNode[];
@@ -311,15 +348,12 @@ export default function Sidebar({
 
     return (
         <aside className="flex w-52 shrink-0 flex-col border-r border-neutral-800 bg-neutral-900 h-full">
-            
-
             {subfolders.length > 0 && (
                 <div className="flex flex-col flex-1 pb-3 min-h-0">
-                    
-                        <h1 className="text-lg px-3 font-semibold tracking-wide text-neutral-300">
-                            {rootPath.split("/").pop()}
-                        </h1>
-                    <div className="flex items-center justify-between px-3 mt-3 mb-2"> 
+                    <h1 className="text-lg px-3 font-semibold tracking-wide text-neutral-300">
+                        {rootPath.split("/").pop()}
+                    </h1>
+                    <div className="flex items-center justify-between px-3 mt-3 mb-2">
                         <p className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
                             Collections
                         </p>
