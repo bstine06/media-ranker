@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { DbFile } from '../types'
+import { DbFile } from '@renderer/shared/types/types'
 
 export default function HoverPreview({
   file,

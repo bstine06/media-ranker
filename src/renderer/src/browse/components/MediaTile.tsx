@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { DbFile } from "../types";
-import { toMediaUrl, toThumbnailUrl } from "../lib/media";
+import type { DbFile } from "../../shared/types/types";
+import { toMediaUrl, toThumbnailUrl } from "../../lib/media";
 import HoverPreview from "./HoverPreview";
 import { useHoverPreview } from "../hooks/useHoverPreview";
 

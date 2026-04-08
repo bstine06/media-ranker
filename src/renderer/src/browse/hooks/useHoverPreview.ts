@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { useSettings } from "../contexts/SettingsContext";
+import { useSettings } from "../../contexts/SettingsContext";
 
 export interface PreviewState {
     anchorY: number;

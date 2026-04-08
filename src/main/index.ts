@@ -186,7 +186,10 @@ function registerIpcHandlers(): void {
             const newAbsPath = path.join(rootPath, newRelPath);
 
             // Conflict check — refuse if sibling with that name already exists
-            if (existsSync(newAbsPath)) {
+            if (
+                existsSync(newAbsPath) &&
+                oldAbsPath.toLowerCase() !== newAbsPath.toLowerCase()
+            ) {
                 return {
                     ok: false,
                     error: `A folder named "${newName}" already exists here`,

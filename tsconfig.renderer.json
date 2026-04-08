@@ -5,10 +5,11 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
+    "rootDir": "src/renderer/src",
     "outDir": "out/renderer",
-    "baseUrl": ".",
+    "ignoreDeprecations": "5.0",
     "paths": {
-      "@renderer/*": ["src/renderer/*"]
+      "@renderer/*": ["./src/renderer/src/*"]
     },
     "strict": true,
     "esModuleInterop": true,

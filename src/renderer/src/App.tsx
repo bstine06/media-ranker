@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import type { DbFile, FolderNode } from "./types";
+import type { DbFile, FolderNode } from "./shared/types/types";
 import NavItem from "./components/NavItem";
-import BrowseView from "./components/BrowseView";
+import BrowseView from "./browse/components/BrowseView";
 import CompareView from "./components/CompareView";
 import RankingsView from "./components/RankingsView";
 import Sidebar from "./components/Sidebar";
 import FileView from "./components/FileView";
 import { useKeyboardShortcut } from "./hooks/useKeyboard";
-import { useHoverPreview } from "./hooks/useHoverPreview";
+import { useHoverPreview } from "./browse/hooks/useHoverPreview";
 import { useSettings } from "./contexts/SettingsContext";
 import { useStatus } from "./contexts/StatusContext";
 
@@ -120,6 +120,8 @@ export default function App(): JSX.Element {
     );
 
     const { status, setStatus, resetStatus } = useStatus();
+
+    console.log(rootPath);
 
     useEffect(() => {
         volumeRef.current = volume / 100;
@@ -354,6 +356,7 @@ export default function App(): JSX.Element {
 
             <div className="flex flex-1 overflow-hidden">
                 <Sidebar
+                    rootPath={rootPath}
                     view={view}
                     setView={setView}
                     subfolders={subfolders}

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { DbFile } from "../types";
+import { DbFile } from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 
 function formatTime(seconds: number): string {

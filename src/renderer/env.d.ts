@@ -1,4 +1,4 @@
-import { DbFile } from "./src/types";
+import { DbFile } from "./src/shared/types/types";
 
 export {};
 

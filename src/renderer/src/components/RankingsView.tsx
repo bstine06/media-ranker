@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { DbFile } from "../types";
+import type { DbFile } from "../shared/types/types";
 import { toThumbnailUrl, toMediaUrl } from "../lib/media";
 import HoverPreview from "./HoverPreview";
-import { useHoverPreview } from "../hooks/useHoverPreview";
+import { useHoverPreview } from "../browse/hooks/useHoverPreview";
 import { useKeyboardShortcut } from "../hooks/useKeyboard";
 
 export default function RankingsView({

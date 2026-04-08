@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import type { DbFile } from "../types";
+import type { DbFile } from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { useKeyboardShortcut } from "../hooks/useKeyboard";
 import { useSettings } from "../contexts/SettingsContext";
