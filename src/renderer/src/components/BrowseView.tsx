@@ -10,7 +10,8 @@ import { useStatus } from "../contexts/StatusContext";
 
 export interface FolderMetadata {
     profileImage?: string;
-    fields: { key: string; value: string }[];
+    fields?: { key: string; value: string }[];
+    tags?: string[];
 }
 
 const URL_RE = /^https?:\/\//i;
@@ -141,45 +142,81 @@ export default function BrowseView({
     const [draftName, setDraftName] = useState<string>("");
     const [renameError, setRenameError] = useState<string | null>(null);
 
+    // Subfolder tags
+    const [subfolderMetadata, setSubfolderMetadata] =
+        useState<FolderMetadata | null>(null);
+    const [showSubfolderTagEditor, setShowSubfolderTagEditor] = useState(false);
+    const [subfolderTagInput, setSubfolderTagInput] = useState("");
+
     // Persisted across folder changes
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
     const [sortMode, setSortMode] = useState<SortMode>("default");
 
+    // displayFolder lags behind activeFolder intentionally — it only updates
+    // after metadata has been fetched, so MetadataView, the subfolder label,
+    // and the files prop all land on the same render with no flicker.
+    const [displayFolder, setDisplayFolder] = useState<string | null>(
+        activeFolder,
+    );
+
     const { setStatus, resetStatus } = useStatus();
+
+    const topLevelFolder = displayFolder ? displayFolder.split("/")[0] : null;
+    const isSubfolder = displayFolder ? displayFolder.includes("/") : false;
 
     useEffect(() => {
         if (!activeFolder) {
             setMetadata(null);
+            setSubfolderMetadata(null);
             setEditingMetadata(false);
+            setRenameError(null);
+            setShowSubfolderTagEditor(false);
+            setDisplayFolder(null);
             return;
         }
+
         const load = async () => {
             try {
-                const raw = await window.api.readFolderMetadata(activeFolder);
-                setMetadata(raw ?? { fields: [] });
+                const topLevel = activeFolder.split("/")[0];
+                const topRaw = await window.api.readFolderMetadata(topLevel);
+                setMetadata(topRaw ?? { fields: [] });
+
+                // If we're in a subfolder, also load its metadata (tags only)
+                if (activeFolder.includes("/")) {
+                    const subRaw =
+                        await window.api.readFolderMetadata(activeFolder);
+                    setSubfolderMetadata(subRaw ?? {});
+                } else {
+                    setSubfolderMetadata(null);
+                }
             } catch {
                 setMetadata({ fields: [] });
+                setSubfolderMetadata(null);
+            } finally {
+                setDisplayFolder(activeFolder);
             }
         };
+
         load();
         setEditingMetadata(false);
         setRenameError(null);
+        setShowSubfolderTagEditor(false);
     }, [rootPath, activeFolder]);
 
     const handleDrop = async (e: React.DragEvent) => {
-        e.preventDefault()  // also move this to the top
-        setStatus("Adding files...")
+        e.preventDefault();
+        setStatus("Adding files...");
         const paths = Array.from(e.dataTransfer.files).map(
             (f) => (f as unknown as { path: string }).path,
-        )
-        await window.api.moveFilesTo(paths, [rootPath, activeFolder].join("/"))
-        await new Promise(r => setTimeout(r, 1000))
-        resetStatus()
-    }
+        );
+        await window.api.moveFilesTo(paths, [rootPath, activeFolder].join("/"));
+        await new Promise((r) => setTimeout(r, 1000));
+        resetStatus();
+    };
 
     const handleEditStart = (current: FolderMetadata) => {
         setDraftProfileImage(current.profileImage);
-        setDraftName(activeFolder ? activeFolder.split("/").pop()! : "");
+        setDraftName(topLevelFolder ?? "");
         setRenameError(null);
         setEditingMetadata(true);
     };
@@ -188,9 +225,9 @@ export default function BrowseView({
         updated: FolderMetadata,
         newName: string,
     ) => {
-        if (!activeFolder) return;
+        if (!topLevelFolder) return;
 
-        const currentName = activeFolder.split("/").pop()!;
+        const currentName = topLevelFolder;
 
         if (newName.trim() === "") {
             setRenameError("Folder name cannot be empty");
@@ -198,7 +235,10 @@ export default function BrowseView({
         }
 
         if (newName !== currentName) {
-            const result = await window.api.renameFolder(activeFolder, newName);
+            const result = await window.api.renameFolder(
+                topLevelFolder,
+                newName,
+            );
             if (!result.ok) {
                 setRenameError(result.error);
                 return;
@@ -207,9 +247,9 @@ export default function BrowseView({
             setMetadata(updated);
             setRenameError(null);
             setEditingMetadata(false);
-            onFolderRenamed(activeFolder, result.newRelPath);
+            onFolderRenamed(topLevelFolder, result.newRelPath);
         } else {
-            await window.api.writeFolderMetadata(activeFolder, updated);
+            await window.api.writeFolderMetadata(topLevelFolder, updated);
             setMetadata(updated);
             setRenameError(null);
             setEditingMetadata(false);
@@ -217,6 +257,40 @@ export default function BrowseView({
 
         setDraftProfileImage(undefined);
     };
+
+    // ── Subfolder tag handlers ───────────────────────────────────────────────
+
+    const handleAddSubfolderTag = async (tag: string) => {
+        if (!displayFolder || !tag.trim()) return;
+        const existing = subfolderMetadata ?? {};
+        const currentTags = existing.tags ?? [];
+        if (currentTags.includes(tag)) return;
+        const updatedTags = [...currentTags, tag];
+        // Merge write — never clobbers other fields that may exist
+        const onDisk =
+            (await window.api.readFolderMetadata(displayFolder)) ?? {};
+        await window.api.writeFolderMetadata(displayFolder, {
+            ...onDisk,
+            tags: updatedTags,
+        });
+        setSubfolderMetadata({ ...existing, tags: updatedTags });
+        setSubfolderTagInput("");
+    };
+
+    const handleRemoveSubfolderTag = async (tag: string) => {
+        if (!displayFolder) return;
+        const existing = subfolderMetadata ?? {};
+        const updatedTags = (existing.tags ?? []).filter((t) => t !== tag);
+        const onDisk =
+            (await window.api.readFolderMetadata(displayFolder)) ?? {};
+        await window.api.writeFolderMetadata(displayFolder, {
+            ...onDisk,
+            tags: updatedTags,
+        });
+        setSubfolderMetadata({ ...existing, tags: updatedTags });
+    };
+
+    // ── Misc ─────────────────────────────────────────────────────────────────
 
     const handleTileClick = (file: DbFile) => {
         editingMetadata
@@ -232,11 +306,19 @@ export default function BrowseView({
             : a.filename.localeCompare(b.filename),
     );
 
+    const subfolderTags = subfolderMetadata?.tags ?? [];
+    const subfolderName = displayFolder?.split("/").pop();
+    const filteredTagSuggestions = allTags.filter(
+        (t) =>
+            !subfolderTags.includes(t) &&
+            t.toLowerCase().includes(subfolderTagInput.toLowerCase()),
+    );
+
     return (
         <div
             className="flex flex-1 flex-col overflow-hidden"
-            onDragOver={(e) => e.preventDefault()} // must prevent default to allow drop
-            onDragEnter={(e) => e.preventDefault()} // optional but good practice
+            onDragOver={(e) => e.preventDefault()}
+            onDragEnter={(e) => e.preventDefault()}
             onDrop={handleDrop}
         >
             {/* Header */}
@@ -245,7 +327,6 @@ export default function BrowseView({
                     {activeFolder ?? "All Files"}
                 </h2>
                 <div className="flex items-center gap-3">
-                    {/* Tag all files in folder */}
                     {activeFolder && (
                         <TagAllButton
                             activeFolder={activeFolder}
@@ -253,7 +334,6 @@ export default function BrowseView({
                             onDone={onTagsChanged}
                         />
                     )}
-                    {/* Sort toggle */}
                     <button
                         onClick={() =>
                             setSortMode((m) =>
@@ -287,7 +367,6 @@ export default function BrowseView({
                         {sortMode === "rank" ? "Ranked" : "Rank"}
                     </button>
 
-                    {/* View mode toggle */}
                     <div className="flex items-center rounded bg-neutral-800 p-0.5">
                         <button
                             onClick={() => setViewMode("grid")}
@@ -298,7 +377,6 @@ export default function BrowseView({
                                     : "text-neutral-600 hover:text-neutral-400"
                             }`}
                         >
-                            {/* Grid icon */}
                             <svg
                                 className="w-3.5 h-3.5"
                                 fill="none"
@@ -322,7 +400,6 @@ export default function BrowseView({
                                     : "text-neutral-600 hover:text-neutral-400"
                             }`}
                         >
-                            {/* List icon */}
                             <svg
                                 className="w-3.5 h-3.5"
                                 fill="none"
@@ -345,82 +422,207 @@ export default function BrowseView({
                 </div>
             </div>
 
-            {activeFolder && (
-                <MetadataView
-                    folderName={activeFolder.split("/").pop()!}
-                    metadata={metadata ?? { fields: [] }}
-                    files={files}
-                    editing={editingMetadata}
-                    draftProfileImage={draftProfileImage}
-                    draftName={draftName}
-                    renameError={renameError}
-                    onDraftNameChange={setDraftName}
-                    onEditStart={handleEditStart}
-                    onSave={handleMetadataSave}
-                    onCancel={() => {
-                        setEditingMetadata(false);
-                        setRenameError(null);
-                    }}
-                />
-            )}
+            {/* Body */}
+            <div className="flex flex-1 flex-col overflow-hidden">
+                {/* Top-level folder metadata */}
+                {topLevelFolder && (
+                    <MetadataView
+                        folderName={topLevelFolder}
+                        metadata={metadata ?? { fields: [] }}
+                        files={files}
+                        editing={editingMetadata}
+                        draftProfileImage={draftProfileImage}
+                        draftName={draftName}
+                        renameError={renameError}
+                        onDraftNameChange={setDraftName}
+                        onEditStart={handleEditStart}
+                        onSave={handleMetadataSave}
+                        onCancel={() => {
+                            setEditingMetadata(false);
+                            setRenameError(null);
+                        }}
+                        allTags={allTags}
+                    />
+                )}
 
-            {files.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
-                    No media found in this folder.
-                </div>
-            ) : viewMode === "grid" ? (
-                <div
-                    className="flex-1 overflow-y-auto overflow-x-hidden"
-                    style={{
-                        scrollbarGutter: "stable",
-                    }}
-                >
-                    <div className="grid-media p-4">
-                        {sortedFiles.map((file) => (
-                            <div
-                                key={file.id}
-                                className={`relative cursor-pointer rounded-lg overflow-hidden transition-all ${
-                                    draftProfileImage === file.content_hash
-                                        ? "ring-2 ring-blue-500 bg-blue-500/10"
-                                        : "ring-1 ring-transparent"
+                {/* Subfolder label + tag editor */}
+                {isSubfolder && displayFolder && (
+                    <div className="px-5 pt-3 pb-2">
+                        {/* Folder name + tag toggle button */}
+                        <div className="flex items-center gap-2">
+                            <p className="text-neutral-300 font-medium text-sm">
+                                {subfolderName}
+                            </p>
+                            <button
+                                onClick={() =>
+                                    setShowSubfolderTagEditor((v) => !v)
+                                }
+                                title="Edit folder tags"
+                                className={`flex items-center gap-1 text-xs rounded px-1.5 py-0.5 transition-colors ${
+                                    showSubfolderTagEditor
+                                        ? "bg-neutral-700 text-neutral-300"
+                                        : "text-neutral-600 hover:text-neutral-400"
                                 }`}
-                                onClick={() => handleTileClick(file)}
                             >
-                                <MediaTile file={file} rootPath={rootPath} />
-                                {draftProfileImage === file.content_hash && (
-                                    <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
-                                        <svg
-                                            className="w-3 h-3 text-white"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={3}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M4.5 12.75l6 6 9-13.5"
-                                            />
-                                        </svg>
+                                <svg
+                                    className="w-3 h-3"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"
+                                    />
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M6 6h.008v.008H6V6z"
+                                    />
+                                </svg>
+                                Tags
+                                {subfolderTags.length > 0 && (
+                                    <span className="ml-0.5 text-neutral-400">
+                                        ({subfolderTags.length})
+                                    </span>
+                                )}
+                            </button>
+                        </div>
+
+                        {/* Expanded tag editor */}
+                        {showSubfolderTagEditor && (
+                            <div className="mt-2 flex flex-col gap-2">
+                                {/* Current tags as chips */}
+                                {subfolderTags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {subfolderTags.map((tag) => (
+                                            <span
+                                                key={tag}
+                                                className="flex items-center gap-1 text-xs bg-neutral-800 text-neutral-300 rounded px-2 py-0.5"
+                                            >
+                                                {tag}
+                                                <button
+                                                    onClick={() =>
+                                                        handleRemoveSubfolderTag(
+                                                            tag,
+                                                        )
+                                                    }
+                                                    className="text-neutral-500 hover:text-neutral-300 transition-colors"
+                                                >
+                                                    ×
+                                                </button>
+                                            </span>
+                                        ))}
                                     </div>
                                 )}
+
+                                {/* Input + autocomplete suggestions */}
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={subfolderTagInput}
+                                        onChange={(e) =>
+                                            setSubfolderTagInput(e.target.value)
+                                        }
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                handleAddSubfolderTag(
+                                                    subfolderTagInput.trim(),
+                                                );
+                                            }
+                                        }}
+                                        placeholder="Add tag..."
+                                        className="w-full bg-neutral-800 text-neutral-300 text-xs rounded px-2.5 py-1.5 outline-none placeholder:text-neutral-600 focus:ring-1 focus:ring-neutral-600"
+                                    />
+                                    {subfolderTagInput &&
+                                        filteredTagSuggestions.length > 0 && (
+                                            <div className="absolute top-full mt-1 left-0 right-0 bg-neutral-800 border border-neutral-700 rounded shadow-lg z-10 max-h-40 overflow-y-auto">
+                                                {filteredTagSuggestions.map(
+                                                    (tag) => (
+                                                        <button
+                                                            key={tag}
+                                                            onClick={() =>
+                                                                handleAddSubfolderTag(
+                                                                    tag,
+                                                                )
+                                                            }
+                                                            className="w-full text-left text-xs text-neutral-300 px-2.5 py-1.5 hover:bg-neutral-700 transition-colors"
+                                                        >
+                                                            {tag}
+                                                        </button>
+                                                    ),
+                                                )}
+                                            </div>
+                                        )}
+                                </div>
                             </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Files */}
+                {files.length === 0 ? (
+                    <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
+                        No media found in this folder.
+                    </div>
+                ) : viewMode === "grid" ? (
+                    <div
+                        className="flex-1 overflow-y-auto overflow-x-hidden"
+                        style={{ scrollbarGutter: "stable" }}
+                    >
+                        <div className="grid-media p-4">
+                            {sortedFiles.map((file) => (
+                                <div
+                                    key={file.id}
+                                    className={`relative cursor-pointer rounded-lg overflow-hidden transition-all ${
+                                        draftProfileImage === file.content_hash
+                                            ? "ring-2 ring-blue-500 bg-blue-500/10"
+                                            : "ring-1 ring-transparent"
+                                    }`}
+                                    onClick={() => handleTileClick(file)}
+                                >
+                                    <MediaTile
+                                        file={file}
+                                        rootPath={rootPath}
+                                    />
+                                    {draftProfileImage ===
+                                        file.content_hash && (
+                                        <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
+                                            <svg
+                                                className="w-3 h-3 text-white"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={3}
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M4.5 12.75l6 6 9-13.5"
+                                                />
+                                            </svg>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="overflow-y-auto flex-1">
+                        {sortedFiles.map((file, index) => (
+                            <BrowseRow
+                                key={file.id}
+                                file={file}
+                                rank={sortMode === "rank" ? index + 1 : null}
+                                rootPath={rootPath}
+                                onClick={() => onInspectFile(file)}
+                            />
                         ))}
                     </div>
-                </div>
-            ) : (
-                <div className="overflow-y-auto flex-1">
-                    {sortedFiles.map((file, index) => (
-                        <BrowseRow
-                            key={file.id}
-                            file={file}
-                            rank={sortMode === "rank" ? index + 1 : null}
-                            rootPath={rootPath}
-                            onClick={() => onInspectFile(file)}
-                        />
-                    ))}
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 }
@@ -583,6 +785,7 @@ export function MetadataView({
     onEditStart,
     onSave,
     onCancel,
+    allTags,
 }: {
     folderName: string;
     metadata: FolderMetadata;
@@ -595,10 +798,20 @@ export function MetadataView({
     onEditStart: (draft: FolderMetadata) => void;
     onSave: (updated: FolderMetadata, newName: string) => void;
     onCancel: () => void;
+    allTags: string[];
 }): JSX.Element {
     const [draftFields, setDraftFields] = useState<FolderMetadata["fields"]>(
         [],
     );
+
+    // folder tags
+    const [folderMetadata, setFolderMetadata] =
+        useState<FolderMetadata | null>(null);
+    const [folderTagInput, setFolderTagInput] = useState("");
+
+    useEffect(() => {
+        setFolderMetadata(metadata);
+    }, [metadata])
 
     useEffect(() => {
         if (editing) setDraftFields(metadata.fields);
@@ -608,26 +821,26 @@ export function MetadataView({
         onSave(
             {
                 profileImage: draftProfileImage,
-                fields: draftFields.filter(
-                    (f) => f.key.trim() || f.value.trim(),
-                ),
+                fields: draftFields
+                    ? draftFields.filter((f) => f.key.trim() || f.value.trim())
+                    : [],
             },
             draftName,
         );
     };
 
     const addField = () =>
-        setDraftFields((f) => [...f, { key: "", value: "" }]);
+        setDraftFields((f) => [...(f ?? []), { key: "", value: "" }]);
 
     const updateField = (i: number, part: "key" | "value", val: string) =>
         setDraftFields((fields) => {
-            const next = [...fields];
+            const next = [...(fields ?? [])];
             next[i] = { ...next[i], [part]: val };
             return next;
         });
 
     const removeField = (i: number) =>
-        setDraftFields((fields) => fields.filter((_, j) => j !== i));
+        setDraftFields((fields) => (fields ?? []).filter((_, j) => j !== i));
 
     const activeHash = editing ? draftProfileImage : metadata.profileImage;
     const profileFile = activeHash
@@ -635,7 +848,46 @@ export function MetadataView({
         : null;
     const activeFields = editing
         ? draftFields
-        : metadata.fields.filter((f) => f.key || f.value);
+        : (metadata.fields ?? []).filter((f) => f.key || f.value);
+
+
+    const handleAddFolderTag = async (tag: string) => {
+        if (!folderName || !tag.trim()) return;
+        const existing = folderMetadata ?? {};
+        const currentTags = existing.tags ?? [];
+        if (currentTags.includes(tag)) return;
+        const updatedTags = [...currentTags, tag];
+        // Merge write — never clobbers other fields that may exist
+        const onDisk =
+            (await window.api.readFolderMetadata(folderName)) ?? {};
+        await window.api.writeFolderMetadata(folderName, {
+            ...onDisk,
+            tags: updatedTags,
+        });
+        await window.api.addTagToFolder(folderName, tag.trim().toLowerCase());
+        setFolderMetadata({ ...existing, tags: updatedTags });
+        setFolderTagInput("");
+    };
+
+    const handleRemoveFolderTag = async (tag: string) => {
+        if (!folderName) return;
+        const existing = folderMetadata ?? {};
+        const updatedTags = (existing.tags ?? []).filter((t) => t !== tag);
+        const onDisk =
+            (await window.api.readFolderMetadata(folderName)) ?? {};
+        await window.api.writeFolderMetadata(folderName, {
+            ...onDisk,
+            tags: updatedTags,
+        });
+        setFolderMetadata({ ...existing, tags: updatedTags });
+    };
+
+    const folderTags = folderMetadata?.tags ?? [];
+    const filteredTagSuggestions = allTags.filter(
+        (t) =>
+            !folderTags.includes(t) &&
+            t.toLowerCase().includes(folderTagInput.toLowerCase()),
+    );
 
     return (
         <div className="border-b border-neutral-800 px-5 py-4">
@@ -679,7 +931,7 @@ export function MetadataView({
                     )}
                 </div>
 
-                {/* Right column */}
+                {/* Center column */}
                 <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                     {/* Folder name */}
                     {editing ? (
@@ -705,68 +957,85 @@ export function MetadataView({
                     )}
 
                     {/* Fields */}
-                    {activeFields.map((field, i) =>
-                        editing ? (
-                            <div key={i} className="flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    placeholder="key"
-                                    value={field.key}
-                                    onChange={(e) =>
-                                        updateField(i, "key", e.target.value)
-                                    }
-                                    className="w-24 shrink-0 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-400 placeholder-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-600"
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="value"
-                                    value={field.value}
-                                    onChange={(e) =>
-                                        updateField(i, "value", e.target.value)
-                                    }
-                                    className="flex-1 min-w-0 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 placeholder-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-600"
-                                />
-                                <button
-                                    onClick={() => removeField(i)}
-                                    className="text-neutral-700 hover:text-neutral-400 transition-colors shrink-0"
+                    {activeFields &&
+                        activeFields.map((field, i) =>
+                            editing ? (
+                                <div
+                                    key={i}
+                                    className="flex items-center gap-2"
                                 >
-                                    <svg
-                                        className="w-3.5 h-3.5"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M6 18L18 6M6 6l12 12"
-                                        />
-                                    </svg>
-                                </button>
-                            </div>
-                        ) : (
-                            <div key={i} className="flex items-baseline gap-3">
-                                <span className="text-xs text-neutral-500 text-right w-24 shrink-0 truncate">
-                                    {field.key}
-                                </span>
-                                {URL_RE.test(field.value) ? (
-                                    <button
-                                        className="text-xs text-blue-400 hover:text-blue-300 hover:underline transition-colors truncate"
-                                        onClick={() =>
-                                            window.api.openExternal(field.value)
+                                    <input
+                                        type="text"
+                                        placeholder="key"
+                                        value={field.key}
+                                        onChange={(e) =>
+                                            updateField(
+                                                i,
+                                                "key",
+                                                e.target.value,
+                                            )
                                         }
+                                        className="w-24 shrink-0 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-400 placeholder-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="value"
+                                        value={field.value}
+                                        onChange={(e) =>
+                                            updateField(
+                                                i,
+                                                "value",
+                                                e.target.value,
+                                            )
+                                        }
+                                        className="flex-1 min-w-0 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 placeholder-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-600"
+                                    />
+                                    <button
+                                        onClick={() => removeField(i)}
+                                        className="text-neutral-700 hover:text-neutral-400 transition-colors shrink-0"
                                     >
-                                        {field.value}
+                                        <svg
+                                            className="w-3.5 h-3.5"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M6 18L18 6M6 6l12 12"
+                                            />
+                                        </svg>
                                     </button>
-                                ) : (
-                                    <span className="text-xs text-neutral-400 truncate">
-                                        {field.value}
+                                </div>
+                            ) : (
+                                <div
+                                    key={i}
+                                    className="flex items-baseline gap-3"
+                                >
+                                    <span className="text-xs text-neutral-500 text-right w-24 shrink-0 truncate">
+                                        {field.key}
                                     </span>
-                                )}
-                            </div>
-                        ),
-                    )}
+                                    {URL_RE.test(field.value) ? (
+                                        <button
+                                            className="text-xs text-blue-400 hover:text-blue-300 hover:underline transition-colors truncate"
+                                            onClick={() =>
+                                                window.api.openExternal(
+                                                    field.value,
+                                                )
+                                            }
+                                        >
+                                            {field.value}
+                                        </button>
+                                    ) : (
+                                        <span className="text-xs text-neutral-400 truncate">
+                                            {field.value}
+                                        </span>
+                                    )}
+                                </div>
+                            ),
+                        )}
 
                     {editing && (
                         <button
@@ -814,6 +1083,61 @@ export function MetadataView({
                                 Edit
                             </button>
                         )}
+                    </div>
+                </div>
+                <div className="mt-2 flex flex-col gap-2">
+                    {/* Current tags as chips */}
+                    {folderTags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                            {folderTags.map((tag) => (
+                                <span
+                                    key={tag}
+                                    className="flex items-center gap-1 text-xs bg-neutral-800 text-neutral-300 rounded px-2 py-0.5"
+                                >
+                                    {tag}
+                                    <button
+                                        onClick={() =>
+                                            handleRemoveFolderTag(tag)
+                                        }
+                                        className="text-neutral-500 hover:text-neutral-300 transition-colors"
+                                    >
+                                        ×
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Input + autocomplete suggestions */}
+                    <div className="relative">
+                        <input
+                            type="text"
+                            value={folderTagInput}
+                            onChange={(e) => setFolderTagInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    handleAddFolderTag(folderTagInput.trim());
+                                }
+                            }}
+                            placeholder="Add tag..."
+                            className="w-full bg-neutral-800 text-neutral-300 text-xs rounded px-2.5 py-1.5 outline-none placeholder:text-neutral-600 focus:ring-1 focus:ring-neutral-600"
+                        />
+                        {folderTagInput &&
+                            filteredTagSuggestions.length > 0 && (
+                                <div className="absolute top-full mt-1 left-0 right-0 bg-neutral-800 border border-neutral-700 rounded shadow-lg z-10 max-h-40 overflow-y-auto">
+                                    {filteredTagSuggestions.map((tag) => (
+                                        <button
+                                            key={tag}
+                                            onClick={() =>
+                                                handleAddFolderTag(tag)
+                                            }
+                                            className="w-full text-left text-xs text-neutral-300 px-2.5 py-1.5 hover:bg-neutral-700 transition-colors"
+                                        >
+                                            {tag}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                     </div>
                 </div>
             </div>
