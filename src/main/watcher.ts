@@ -11,6 +11,10 @@ import {
     updateFilePath,
     getFilesByPathPrefix,
     renameFolderPaths,
+    markFileMissing,
+    getFileByPathAny,
+    getFileByHashAny,
+    setFileStatus,
 } from "./db";
 import {
     generateSizedImage,
@@ -18,6 +22,7 @@ import {
     ensureDir,
     hashFile,
 } from "./scanner";
+import { saveRootPath } from "./config";
 
 const RENAME_WINDOW_MS = 2000;
 const watchers = new Map<string, FSWatcher>();
@@ -91,9 +96,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
     if (watchers.has(rootPath)) return;
 
     const thumbDir = join(rootPath, "_thumbnails");
-    const previewDir = join(rootPath, "_previews");
     ensureDir(thumbDir);
-    ensureDir(previewDir);
 
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -170,8 +173,23 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                         return;
                     }
 
-                    // ── Case 2: add fires first (macOS) ─────────────────────────────
-                    const existingRecord = getFileByHash(hash);
+                    const existingRecord = getFileByHashAny(hash);
+
+                    // ── Case 2: file returning from trash (same path, was missing) ───
+                    if (
+                        existingRecord?.status === "missing" &&
+                        existingRecord.path === relativePath
+                    ) {
+                        setFileStatus(hash, "active");
+                        win.webContents.send("media:added", {
+                            relativePath,
+                            hash,
+                            mediaType,
+                        });
+                        return;
+                    }
+
+                    // ── Case 3: add fires first (macOS rename) ───────────────────────
                     if (
                         existingRecord &&
                         existingRecord.path !== relativePath
@@ -184,12 +202,21 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                                 basename(filePath),
                                 stat.mtimeMs,
                             );
-                            win.webContents.send("media:renamed", {
-                                oldRelativePath: existingRecord.path,
-                                relativePath,
-                                hash,
-                                mediaType,
-                            });
+                            if (existingRecord.status === "missing") {
+                                setFileStatus(hash, "active");
+                                win.webContents.send("media:added", {
+                                    relativePath,
+                                    hash,
+                                    mediaType,
+                                });
+                            } else {
+                                win.webContents.send("media:renamed", {
+                                    oldRelativePath: existingRecord.path,
+                                    relativePath,
+                                    hash,
+                                    mediaType,
+                                });
+                            }
                         }, RENAME_WINDOW_MS);
 
                         pendingAdds.set(hash, {
@@ -202,19 +229,12 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                         return;
                     }
 
-                    // ── Case 3: genuinely new file ───────────────────────────────────
+                    // ── Case 4: genuinely new file ───────────────────────────────────
                     const thumbPath = join(thumbDir, `${hash}.jpg`);
-                    const previewPath = join(previewDir, `${hash}.jpg`);
                     await generateSizedImage(
                         filePath,
                         thumbPath,
                         400,
-                        mediaType,
-                    ).catch(() => {});
-                    await generateSizedImage(
-                        filePath,
-                        previewPath,
-                        1200,
                         mediaType,
                     ).catch(() => {});
 
@@ -225,6 +245,8 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                         media_type: mediaType,
                         mtime: stat.mtimeMs,
                         size: stat.size,
+                        status: "active",
+                        missing_since: null,
                     });
 
                     win.webContents.send("media:added", {
@@ -242,12 +264,13 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
     // ── File removed ──────────────────────────────────────────────────────────
     watcher.on("unlink", (filePath) => {
         const relativePath = relative(rootPath, filePath);
-        const record = getFileByPath(relativePath);
+        const record = getFileByPathAny(relativePath);
 
         if (!record) {
-            win.webContents.send("media:removed", { relativePath });
             return;
         }
+
+        if (record.status === "missing") return;
 
         // ── Case 1: add fired first (macOS) ─────────────────────────────────
         const pendingAdd = pendingAdds.get(record.content_hash);
@@ -272,7 +295,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         // ── Case 2: unlink fires first (Windows/Linux) ──────────────────────
         const timer = setTimeout(() => {
             pendingUnlinks.delete(record.content_hash);
-            deleteFileByPath(relativePath);
+            markFileMissing(relativePath);
             win.webContents.send("media:removed", { relativePath });
         }, RENAME_WINDOW_MS);
 
@@ -282,6 +305,14 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
     // ── Folder removed ────────────────────────────────────────────────────────
     watcher.on("unlinkDir", (dirPath) => {
         const oldRelativeDir = relative(rootPath, dirPath);
+
+        // Root folder itself was renamed/moved — signal the frontend to reset
+        if (oldRelativeDir === "") {
+            saveRootPath(null);
+            win.webContents.send("library:invalid");
+            return;
+        }
+
         const dirName = basename(dirPath);
 
         // ── Case 1: addDir fired first (macOS) ──────────────────────────────
@@ -300,7 +331,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
             pendingDirUnlinks.delete(oldRelativeDir);
             const affected = getFilesByPathPrefix(oldRelativeDir);
             for (const record of affected) {
-                deleteFileByPath(record.path);
+                markFileMissing(record.path);
                 win.webContents.send("media:removed", {
                     relativePath: record.path,
                 });
@@ -338,9 +369,11 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         // the window it's a genuinely new folder; individual `add` events for
         // its contents will handle any files inside.
         const timer = setTimeout(() => {
-            pendingDirAdds.delete(dirName)
-            win.webContents.send('folder:added', { relativePath: newRelativeDir })
-        }, RENAME_WINDOW_MS)
+            pendingDirAdds.delete(dirName);
+            win.webContents.send("folder:added", {
+                relativePath: newRelativeDir,
+            });
+        }, RENAME_WINDOW_MS);
 
         pendingDirAdds.set(dirName, { newRelativeDir, timer });
     });

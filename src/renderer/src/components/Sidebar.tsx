@@ -5,6 +5,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderMetadata } from "@renderer/browse/types/browserTypes";
+import { FolderIcon } from "./icons/FolderIcon";
 
 type View = "browse" | "compare" | "file" | "scroll";
 
@@ -76,15 +77,7 @@ function FolderItem({
                         />
                     ) : (
                         <div className="bg-neutral-700 rounded-full mr-2">
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                className="w-4 h-4 m-1 text-neutral-500"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                            >
-                                <path d="M2 4a2 2 0 012-2h3l2 2h7a2 2 0 012 2v1H2V4z" />
-                                <path d="M2 7h16v7a2 2 0 01-2 2H4a2 2 0 01-2-2V7z" />
-                            </svg>
+                            <FolderIcon className="w-4 h-4 m-1 text-neutral-500" />
                         </div>
                     )}
                     {node.name}
@@ -373,17 +366,23 @@ export default function Sidebar({
     const someChecked = allPaths.some((p) => checkedFolders.has(p));
     const isIndeterminate = someChecked && !allChecked;
 
+    const handleShowInFolder = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        // file.path is relative, so reconstruct the absolute path
+        window.api.showInFolder(`${rootPath}`);
+    };
+
     return (
         <aside className="flex w-52 shrink-0 flex-col border-r border-neutral-800 bg-neutral-900 h-full">
             {subfolders.length > 0 && (
                 <div className="flex flex-col flex-1 pb-3 min-h-0">
-                    <h1 className="text-lg px-3 font-semibold tracking-wide text-neutral-300">
+                    <h1 className="cursor-pointer text-lg px-3 font-semibold tracking-wide text-neutral-300"
+                        onClick={handleShowInFolder}
+                        title={"Show in file browser"}
+                    >
                         {rootPath.split("/").pop()}
                     </h1>
-                    <div className="flex items-center justify-between px-3 mt-3 mb-2">
-                        <p className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
-                            Collections
-                        </p>
+                    <div className="flex items-center justify-between px-3 mb-2">
                         {isFilterable && (
                             <button
                                 onClick={onCheckAll}

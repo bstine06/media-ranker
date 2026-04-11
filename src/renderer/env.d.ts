@@ -20,8 +20,10 @@ declare global {
                 unsupported: number;
             }>;
             getRootPath: () => Promise<string | null>;
+            onLibraryInvalid: (callback: () => void) => void;
             getSubfolders: () => Promise<FolderNode[]>;
             getAllFiles: () => Promise<import("./types").DbFile[]>;
+            getAllActiveFiles: () => Promise<import("./types").DbFile[]>;
             getFilesInFolder: (
                 folderRelPath: string,
             ) => Promise<import("./types").DbFile[]>;

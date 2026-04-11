@@ -192,16 +192,7 @@ export default function CompareView({
 
     return (
         <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex items-center justify-between border-sm border-neutral-800 px-5 py-3">
-                <h2 className="text-sm font-medium text-neutral-300">
-                    Compare
-                </h2>
-                <div className="flex items-center gap-4">
-                    <span className="text-xs text-neutral-600">
-                        {stats.comparisons} comparisons this session
-                    </span>
-                </div>
-            </div>
+            
 
             <div className="flex flex-col p-2 overflow-hidden flex-1 min-h-0">
                 <ScoreBar

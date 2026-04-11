@@ -29,11 +29,15 @@ const api = {
     getRootPath: (): Promise<string | null> =>
         ipcRenderer.invoke("get-root-path"),
 
+    onLibraryInvalid: (callback: () => void) =>
+        ipcRenderer.on("library:invalid", () => callback()),
+
     // ── Folders & files ────────────────────────────────────────────────────
     getSubfolders: (): Promise<FolderNode[]> =>
         ipcRenderer.invoke("get-subfolders"),
 
     getAllFiles: (): Promise<unknown[]> => ipcRenderer.invoke("get-all-files"),
+    getAllActiveFiles: (): Promise<unknown[]> => ipcRenderer.invoke("get-all-active-files"),
 
     getFilesInFolder: (folderRelPath: string): Promise<unknown[]> =>
         ipcRenderer.invoke("get-files-in-folder", folderRelPath),

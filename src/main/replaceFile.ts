@@ -35,13 +35,10 @@ export async function replaceTrackedFile(
   }
 
   const thumbDir = join(rootPath, '_thumbnails')
-  const previewDir = join(rootPath, '_previews')
   ensureDir(thumbDir)
-  ensureDir(previewDir)
 
   await Promise.allSettled([
     generateSizedImage(oldAbsPath, join(thumbDir, `${newHash}.jpg`), 400, mediaType),
-    generateSizedImage(oldAbsPath, join(previewDir, `${newHash}.jpg`), 1200, mediaType),
   ])
 
   getDb()

@@ -8,6 +8,7 @@ import { useKeyboardShortcut } from "./hooks/useKeyboard";
 import { useSettings } from "./contexts/SettingsContext";
 import { useStatus } from "./contexts/StatusContext";
 import ScrollView from "./components/ScrollView";
+import WelcomeScreen from "./components/WelcomeScreen";
 
 type View = "browse" | "compare" | "file" | "scroll";
 
@@ -60,37 +61,6 @@ function rebaseChildren(
     }));
 }
 
-function WelcomeScreen({
-    onSelect,
-    isLoading,
-}: {
-    onSelect: () => void;
-    isLoading: boolean;
-}): JSX.Element {
-    return (
-        <div className="flex h-full flex-col items-center justify-center gap-6 bg-neutral-950">
-            <div className="titlebar-drag absolute inset-x-0 top-0 h-10" />
-            <h1 className="text-3xl font-bold text-white">Media Ranker</h1>
-            <p className="text-neutral-400">Choose a folder to begin.</p>
-            <button
-                onClick={onSelect}
-                disabled={isLoading}
-                className="rounded-lg bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-neutral-200 disabled:opacity-50"
-            >
-                {isLoading ? "Scanning…" : "Open Library Folder"}
-            </button>
-        </div>
-    );
-}
-
-function PlaceholderView({ label }: { label: string }): JSX.Element {
-    return (
-        <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
-            {label}
-        </div>
-    );
-}
-
 export default function App(): JSX.Element {
     const [rootPath, setRootPath] = useState<string | null>(null);
     const [view, setView] = useState<View>("browse");
@@ -116,8 +86,31 @@ export default function App(): JSX.Element {
     const [tagFilteredIds, setTagFilteredIds] = useState<Set<number> | null>(
         null,
     );
+    const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null)
 
     const { status, setStatus, resetStatus } = useStatus();
+
+    useEffect(() => {
+        window.api.onLibraryInvalid(() => {
+            setRootPath(null);
+            setView("browse");
+            setSubfolders([]);
+            setActiveFolder(null);
+            setFiles([]);
+            setIsScanning(false);
+            setScanResult(null);
+            setCheckedFolders(new Set());
+            setActiveFile(null);
+            setActiveTags(new Set());
+            setTagMode("or");
+            setAllTags([]);
+            setTagFilteredIds(null);
+            setStatus(
+                "Library folder was moved or renamed. Please select a new location.",
+            );
+            setWelcomeMessage("Library folder was moved or renamed. Please select a new location.")
+        });
+    }, []);
 
     useEffect(() => {
         volumeRef.current = volume / 100;
@@ -145,10 +138,11 @@ export default function App(): JSX.Element {
 
     const loadFolder = useCallback(
         async (folder: string | null, root: string) => {
+            console.log("LKLKLK")
             setActiveFolder(folder);
             const result = folder
                 ? await window.api.getFilesInFolder(folder)
-                : await window.api.getAllFiles();
+                : await window.api.getAllActiveFiles();
             setFiles(result);
         },
         [],
@@ -161,17 +155,29 @@ export default function App(): JSX.Element {
     useKeyboardShortcut({ key: "z", onKeyPressed: toggleHoverzoom });
 
     const openLibrary = useCallback(
-        async (path: string) => {
+        async (path: string, activeFolder: string | null = null) => {
             setIsScanning(true);
-            setStatus("Opening library...");
+            setStatus(activeFolder ? "Rescanning..." : "Opening library...");
             setRootPath(path);
-            const result = await window.api.openLibrary(path);
+
+            let result;
+            try {
+                result = await window.api.openLibrary(path);
+            } catch (e) {
+                setStatus(
+                    "Library not found. Change library to select a valid folder.",
+                );
+                setIsScanning(false);
+                return;
+            }
+
             setScanResult({ scanned: result.scanned, added: result.added });
             const folders = await window.api.getSubfolders();
             setSubfolders(folders);
-            // Check all folders by default
             setCheckedFolders(new Set(getAllPaths(folders)));
-            await loadFolder(null, path);
+            await loadFolder(activeFolder, path);
+            const tags = await window.api.getAllTags();
+            setAllTags(tags);
             resetStatus();
             setIsScanning(false);
         },
@@ -179,17 +185,25 @@ export default function App(): JSX.Element {
     );
 
     useEffect(() => {
-        const handleAdded = window.api.onMediaAdded(() => {
-            if (rootPath) loadFolder(activeFolder, rootPath);
-        });
+        const handleAdded = window.api.onMediaAdded(({ relativePath, hash, mediaType }) => {
+    // only matters if it belongs to the active folder (or we're in all-files view)
+    const folderPath = relativePath.split("/").slice(0, -1).join("/");
+    if (activeFolder && folderPath !== activeFolder) return;
+    if (rootPath) loadFolder(activeFolder, rootPath); // still reload for adds — need full DbFile
+});
 
-        const handleRemoved = window.api.onMediaRemoved(() => {
-            if (rootPath) loadFolder(activeFolder, rootPath);
-        });
+const handleRemoved = window.api.onMediaRemoved(({ relativePath }) => {
+    // always remove from state regardless of which folder is active
+    setFiles((prev) => prev.filter((f) => f.path !== relativePath));
+});
 
-        const handleRenamed = window.api.onMediaRenamed(() => {
-            if (rootPath) loadFolder(activeFolder, rootPath);
-        });
+const handleRenamed = window.api.onMediaRenamed(({ oldRelativePath, relativePath }) => {
+    setFiles((prev) =>
+        prev.map((f) =>
+            f.path === oldRelativePath ? { ...f, path: relativePath, filename: relativePath.split("/").pop() ?? f.filename } : f
+        )
+    );
+});
 
         const handleFolderRenamed = window.api.onFolderRenamed(
             ({ oldRelativePath, relativePath }) => {
@@ -248,6 +262,7 @@ export default function App(): JSX.Element {
 
     // Load all tags once on mount (and after any tag is added/removed)
     useEffect(() => {
+        if (!activeFile) return;
         window.api.getAllTags().then(setAllTags);
     }, [activeFile]);
 
@@ -271,24 +286,6 @@ export default function App(): JSX.Element {
         }
     }, [files]);
 
-    const rescanLibrary = useCallback(
-        async (path: string, activeFolder: string | null) => {
-            setIsScanning(true);
-            setStatus("Rescanning...");
-            setRootPath(path);
-            const result = await window.api.openLibrary(path);
-            setScanResult({ scanned: result.scanned, added: result.added });
-            const folders = await window.api.getSubfolders();
-            setSubfolders(folders);
-            // Check all folders by default
-            setCheckedFolders(new Set(getAllPaths(folders)));
-            await loadFolder(activeFolder, path);
-            resetStatus();
-            setIsScanning(false);
-        },
-        [loadFolder],
-    );
-
     const handleSelectFolder = async () => {
         const path = await window.api.selectRootFolder();
         if (path) await openLibrary(path);
@@ -296,12 +293,16 @@ export default function App(): JSX.Element {
 
     const handleRescanLibrary = async () => {
         const path = await window.api.getRootPath();
-        if (path) await rescanLibrary(path, activeFolder);
+        if (path) await openLibrary(path, activeFolder);
     };
 
     useEffect(() => {
         window.api.getRootPath().then((savedPath) => {
-            if (savedPath) openLibrary(savedPath);
+            if (savedPath) {
+                openLibrary(savedPath).then(() => {
+                    window.api.getAllTags().then(setAllTags);
+                });
+            }
         });
     }, []);
 
@@ -376,6 +377,7 @@ export default function App(): JSX.Element {
             <WelcomeScreen
                 onSelect={handleSelectFolder}
                 isLoading={isScanning}
+                message={welcomeMessage}
             />
         );
     }

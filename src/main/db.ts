@@ -1,55 +1,57 @@
-import Database from 'better-sqlite3'
-import { join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import Database from "better-sqlite3";
+import { join } from "path";
+import { existsSync, mkdirSync, statSync } from "fs";
 
 export interface DbFile {
-  id: number
-  content_hash: string
-  path: string
-  filename: string
-  media_type: 'photo' | 'gif' | 'video'
-  elo_score: number
-  comparison_count: number
-  date_indexed: string
-  mtime: number
-  size: number
+    id: number;
+    content_hash: string;
+    path: string;
+    filename: string;
+    media_type: "photo" | "gif" | "video";
+    elo_score: number;
+    comparison_count: number;
+    date_indexed: string;
+    mtime: number;
+    size: number;
+    status: "active" | "missing";
+    missing_since: string | null;
 }
 
 export interface DbTag {
-  file_id: number
-  tag: string
+    file_id: number;
+    tag: string;
 }
 
 export interface DbComparison {
-  id: number
-  winner_id: number
-  loser_id: number
-  domain_path: string
-  timestamp: string
+    id: number;
+    winner_id: number;
+    loser_id: number;
+    domain_path: string;
+    timestamp: string;
 }
 
-let db: Database.Database | null = null
+let db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
-  if (!db) throw new Error('Database not initialized. Call initDb() first.')
-  return db
+    if (!db) throw new Error("Database not initialized. Call initDb() first.");
+    return db;
 }
 
 export function initDb(rootPath: string): Database.Database {
-  const dbPath = join(rootPath, '_media_index.db')
+    const dbPath = join(rootPath, "_media_index.db");
 
-  if (db && (db as any).name === dbPath) return db
+    if (db && (db as any).name === dbPath) return db;
 
-  if (db) {
-    db.close()
-    db = null
-  }
-  db = new Database(dbPath)
+    if (db) {
+        db.close();
+        db = null;
+    }
+    db = new Database(dbPath);
 
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
 
-  db.exec(`
+    db.exec(`
     CREATE TABLE IF NOT EXISTS files (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       content_hash    TEXT    NOT NULL UNIQUE,
@@ -81,201 +83,365 @@ export function initDb(rootPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
     CREATE INDEX IF NOT EXISTS idx_tags_file  ON tags(file_id);
     CREATE INDEX IF NOT EXISTS idx_tags_tag   ON tags(tag);
-  `)
+  `);
 
-  return db
+    // Migration — safe to run on every startup
+    const cols = db.prepare(`PRAGMA table_info(files)`).all() as {
+        name: string;
+    }[];
+    const colNames = new Set(cols.map((c) => c.name));
+
+    if (!colNames.has("status")) {
+        db.exec(`ALTER TABLE files ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
+    CHECK(status IN ('active', 'missing'))`);
+    }
+    if (!colNames.has("missing_since")) {
+        db.exec(`ALTER TABLE files ADD COLUMN missing_since TEXT`);
+    }
+
+    return db;
 }
 
 export function closeDb(): void {
-  if (db) {
-    db.close()
-    db = null
-  }
+    if (db) {
+        db.close();
+        db = null;
+    }
 }
 
 // ── File queries ────────────────────────────────────────────────────────────
 
-export function upsertFile(file: Omit<DbFile, 'id' | 'elo_score' | 'comparison_count' | 'date_indexed'>): DbFile {
-  const db = getDb()
-  const existing = db.prepare('SELECT * FROM files WHERE content_hash = ?').get(file.content_hash) as DbFile | undefined
+export function upsertFile(
+    file: Omit<
+        DbFile,
+        "id" | "elo_score" | "comparison_count" | "date_indexed"
+    >,
+): DbFile {
+    const db = getDb();
+    const existing = db
+        .prepare("SELECT * FROM files WHERE content_hash = ?")
+        .get(file.content_hash) as DbFile | undefined;
 
-  if (existing) {
-    if (
-      existing.path !== file.path ||
-      existing.filename !== file.filename ||
-      existing.mtime !== file.mtime ||
-      existing.size !== file.size
-    ) {
-      db.prepare('UPDATE files SET path = ?, filename = ?, mtime = ?, size = ? WHERE content_hash = ?')
-        .run(file.path, file.filename, file.mtime, file.size, file.content_hash)
+    if (existing) {
+        if (
+            existing.path !== file.path ||
+            existing.filename !== file.filename ||
+            existing.mtime !== file.mtime ||
+            existing.size !== file.size ||
+            existing.status !== file.status // ← add this
+        ) {
+            db.prepare(
+                "UPDATE files SET path = ?, filename = ?, mtime = ?, size = ?, status = ?, missing_since = ? WHERE content_hash = ?",
+            ).run(
+                file.path,
+                file.filename,
+                file.mtime,
+                file.size,
+                file.status, // ← add this
+                file.missing_since, // ← add this
+                file.content_hash,
+            );
+        }
+        return {
+            ...existing,
+            path: file.path,
+            filename: file.filename,
+            mtime: file.mtime,
+            size: file.size,
+            status: file.status,
+            missing_since: file.missing_since,
+        };
     }
-    return { ...existing, path: file.path, filename: file.filename, mtime: file.mtime, size: file.size }
-  }
 
-  const result = db.prepare(`
+    const result = db
+        .prepare(
+            `
     INSERT INTO files (content_hash, path, filename, media_type, mtime, size)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(file.content_hash, file.path, file.filename, file.media_type, file.mtime, file.size)
+  `,
+        )
+        .run(
+            file.content_hash,
+            file.path,
+            file.filename,
+            file.media_type,
+            file.mtime,
+            file.size,
+        );
 
-  return db.prepare('SELECT * FROM files WHERE id = ?').get(result.lastInsertRowid) as DbFile
+    return db
+        .prepare("SELECT * FROM files WHERE id = ?")
+        .get(result.lastInsertRowid) as DbFile;
 }
 
 export function getFileByPath(relativePath: string): DbFile | undefined {
-  return getDb().prepare('SELECT * FROM files WHERE path = ?').get(relativePath) as DbFile | undefined
+    return getDb()
+        .prepare("SELECT * FROM files WHERE path = ? AND status = 'active'")
+        .get(relativePath) as DbFile | undefined;
 }
 
 export function getFileByHash(hash: string): DbFile | undefined {
-  return getDb().prepare('SELECT * FROM files WHERE content_hash = ?').get(hash) as DbFile | undefined
+    return getDb()
+        .prepare(
+            "SELECT * FROM files WHERE content_hash = ? AND status = 'active'",
+        )
+        .get(hash) as DbFile | undefined;
+}
+
+export function getFileByPathAny(relativePath: string): DbFile | undefined {
+    return getDb()
+        .prepare("SELECT * FROM files WHERE path = ?")
+        .get(relativePath) as DbFile | undefined;
+}
+
+export function getFileByHashAny(hash: string): DbFile | undefined {
+    return getDb()
+        .prepare("SELECT * FROM files WHERE content_hash = ?")
+        .get(hash) as DbFile | undefined;
 }
 
 // Used by the watcher to update path/filename after a rename, without
 // touching elo_score, tags, comparisons, or any other fields.
 export function updateFilePath(
-  hash: string,
-  newRelativePath: string,
-  newFilename: string,
-  mtime: number
+    hash: string,
+    newRelativePath: string,
+    newFilename: string,
+    mtime: number,
 ): void {
-  getDb()
-    .prepare('UPDATE files SET path = ?, filename = ?, mtime = ? WHERE content_hash = ?')
-    .run(newRelativePath, newFilename, mtime, hash)
+    getDb()
+        .prepare(
+            "UPDATE files SET path = ?, filename = ?, mtime = ? WHERE content_hash = ?",
+        )
+        .run(newRelativePath, newFilename, mtime, hash);
 }
 
 export function getAllFiles(): DbFile[] {
-  return getDb().prepare('SELECT * FROM files ORDER BY elo_score DESC').all() as DbFile[]
+    return getDb()
+        .prepare("SELECT * FROM files ORDER BY elo_score DESC")
+        .all() as DbFile[];
+}
+
+export function getAllActiveFiles(): DbFile[] {
+    return getDb()
+        .prepare("SELECT * FROM files WHERE status = 'active' ORDER BY elo_score DESC")
+        .all() as DbFile[];
 }
 
 export function getFilesByFolder(folderRelPath: string): DbFile[] {
-  return getDb()
-    .prepare("SELECT * FROM files WHERE path LIKE ? ORDER BY elo_score DESC")
-    .all(`${folderRelPath.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`) as DbFile[]
+    return getDb()
+        .prepare(
+            `SELECT * FROM files WHERE path LIKE ? AND status = 'active' ORDER BY elo_score DESC`,
+        )
+        .all(
+            `${folderRelPath.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`,
+        ) as DbFile[];
 }
 export function getFilesByPathPrefix(prefix: string): DbFile[] {
-  const escaped = prefix.replace(/%/g, '\\%').replace(/_/g, '\\_')
-  return getDb()
-    .prepare(`SELECT * FROM files WHERE path = ? OR path LIKE ? ESCAPE '\\'`)
-    .all(prefix, `${escaped}/%`) as DbFile[]
+    const escaped = prefix.replace(/%/g, "\\%").replace(/_/g, "\\_");
+    return getDb()
+        .prepare(
+            `SELECT * FROM files WHERE (path = ? OR path LIKE ? ESCAPE '\\') AND status = 'active'`,
+        )
+        .all(prefix, `${escaped}/%`) as DbFile[];
 }
 
 export function getUnindexedCount(): number {
-  const result = getDb()
-    .prepare('SELECT COUNT(*) as count FROM files WHERE comparison_count = 0')
-    .get() as { count: number }
-  return result.count
+    const result = getDb()
+        .prepare(
+            "SELECT COUNT(*) as count FROM files WHERE comparison_count = 0 AND status = 'active'",
+        )
+        .get() as { count: number };
+    return result.count;
 }
 
 export function renameFolderPaths(oldPrefix: string, newPrefix: string): void {
-  const db = getDb()
-  db.transaction(() => {
-    db.prepare(`
+    const db = getDb();
+    db.transaction(() => {
+        db.prepare(
+            `
       UPDATE files
       SET path = ? || substr(path, ?)
       WHERE path = ? OR path LIKE ?
-    `).run(
-      newPrefix,
-      oldPrefix.length + 1,
-      oldPrefix,
-      `${oldPrefix.replace(/%/g, '\\%').replace(/_/g, '\\_')}/%`
-    )
-  })()
+    `,
+        ).run(
+            newPrefix,
+            oldPrefix.length + 1,
+            oldPrefix,
+            `${oldPrefix.replace(/%/g, "\\%").replace(/_/g, "\\_")}/%`,
+        );
+    })();
 }
 
 export function deleteFileByPath(relativePath: string): void {
-  getDb().prepare('DELETE FROM files WHERE path = ?').run(relativePath)
+    getDb().prepare("DELETE FROM files WHERE path = ?").run(relativePath);
 }
 
 // ── Tag queries ─────────────────────────────────────────────────────────────
 
 export function getTagsForFile(fileId: number): string[] {
-  const rows = getDb()
-    .prepare('SELECT tag FROM tags WHERE file_id = ?')
-    .all(fileId) as { tag: string }[]
-  return rows.map((r) => r.tag)
+    const rows = getDb()
+        .prepare("SELECT tag FROM tags WHERE file_id = ?")
+        .all(fileId) as { tag: string }[];
+    return rows.map((r) => r.tag);
 }
 
 export function addTag(fileId: number, tag: string): void {
-  getDb()
-    .prepare('INSERT OR IGNORE INTO tags (file_id, tag) VALUES (?, ?)')
-    .run(fileId, tag)
+    getDb()
+        .prepare("INSERT OR IGNORE INTO tags (file_id, tag) VALUES (?, ?)")
+        .run(fileId, tag);
 }
 
 export function removeTag(fileId: number, tag: string): void {
-  getDb()
-    .prepare('DELETE FROM tags WHERE file_id = ? AND tag = ?')
-    .run(fileId, tag)
+    getDb()
+        .prepare("DELETE FROM tags WHERE file_id = ? AND tag = ?")
+        .run(fileId, tag);
 }
 
 export function getAllTags(): string[] {
-  const rows = getDb()
-    .prepare('SELECT DISTINCT tag FROM tags ORDER BY tag')
-    .all() as { tag: string }[]
-  return rows.map((r) => r.tag)
+    const rows = getDb()
+        .prepare("SELECT DISTINCT tag FROM tags ORDER BY tag")
+        .all() as { tag: string }[];
+    return rows.map((r) => r.tag);
 }
 
 export function getFileIdsByTags(tags: string[], mode: "and" | "or"): number[] {
-  const db = getDb()
-  if (tags.length === 0) return []
+    const db = getDb();
+    if (tags.length === 0) return [];
 
-  const placeholders = tags.map(() => "?").join(", ")
+    const placeholders = tags.map(() => "?").join(", ");
 
-  if (mode === "or") {
-    const rows = db.prepare(
-      `SELECT DISTINCT file_id FROM tags WHERE tag IN (${placeholders})`
-    ).all(...tags) as { file_id: number }[]
-    return rows.map(r => r.file_id)
-  } else {
-    const rows = db.prepare(
-      `SELECT file_id FROM tags WHERE tag IN (${placeholders})
-       GROUP BY file_id HAVING COUNT(DISTINCT tag) = ?`
-    ).all(...tags, tags.length) as { file_id: number }[]
-    return rows.map(r => r.file_id)
-  }
+    if (mode === "or") {
+        const rows = db
+            .prepare(
+                `SELECT DISTINCT file_id FROM tags WHERE tag IN (${placeholders})`,
+            )
+            .all(...tags) as { file_id: number }[];
+        return rows.map((r) => r.file_id);
+    } else {
+        const rows = db
+            .prepare(
+                `SELECT file_id FROM tags WHERE tag IN (${placeholders})
+       GROUP BY file_id HAVING COUNT(DISTINCT tag) = ?`,
+            )
+            .all(...tags, tags.length) as { file_id: number }[];
+        return rows.map((r) => r.file_id);
+    }
 }
 
 export function addTagToFolder(folderRelPath: string, tag: string): number {
-  const db = getDb()
-  const pattern = `${folderRelPath.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`
-  const result = db.prepare(`
+    const db = getDb();
+    const pattern = `${folderRelPath.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
+    const result = db
+        .prepare(
+            `
     INSERT OR IGNORE INTO tags (file_id, tag)
     SELECT id, ? FROM files WHERE path LIKE ?
-  `).run(tag, pattern)
-  return result.changes
+  `,
+        )
+        .run(tag, pattern);
+    return result.changes;
 }
 
 // ── Elo queries ─────────────────────────────────────────────────────────────
 
 export function updateEloScores(
-  winnerId: number,
-  loserId: number,
-  newWinnerScore: number,
-  newLoserScore: number,
-  domainPath: string
+    winnerId: number,
+    loserId: number,
+    newWinnerScore: number,
+    newLoserScore: number,
+    domainPath: string,
 ): void {
-  const db = getDb()
+    const db = getDb();
 
-  const updateScore = db.prepare(`
+    const updateScore = db.prepare(`
     UPDATE files
     SET elo_score = ?, comparison_count = comparison_count + 1
     WHERE id = ?
-  `)
+  `);
 
-  const insertComparison = db.prepare(`
+    const insertComparison = db.prepare(`
     INSERT INTO comparisons (winner_id, loser_id, domain_path)
     VALUES (?, ?, ?)
-  `)
+  `);
 
-  db.transaction(() => {
-    updateScore.run(newWinnerScore, winnerId)
-    updateScore.run(newLoserScore, loserId)
-    insertComparison.run(winnerId, loserId, domainPath)
-  })()
+    db.transaction(() => {
+        updateScore.run(newWinnerScore, winnerId);
+        updateScore.run(newLoserScore, loserId);
+        insertComparison.run(winnerId, loserId, domainPath);
+    })();
 }
 
 export function getRankedFiles(folderRelPath?: string): DbFile[] {
-  if (folderRelPath) {
+    if (folderRelPath) {
+        return getDb()
+            .prepare(
+                "SELECT * FROM files WHERE path LIKE ? AND status = 'active' ORDER BY elo_score DESC",
+            )
+            .all(`${folderRelPath}%`) as DbFile[];
+    }
     return getDb()
-      .prepare("SELECT * FROM files WHERE path LIKE ? ORDER BY elo_score DESC")
-      .all(`${folderRelPath}%`) as DbFile[]
-  }
-  return getDb().prepare('SELECT * FROM files ORDER BY elo_score DESC').all() as DbFile[]
+        .prepare("SELECT * FROM files WHERE status = 'active' ORDER BY elo_score DESC")
+        .all() as DbFile[];
+}
+
+// -----file status + cleanup -------
+
+export function setFileStatus(
+    hash: string,
+    status: "active" | "missing",
+): void {
+    getDb()
+        .prepare(
+            `
+    UPDATE files 
+    SET status = ?, missing_since = CASE WHEN ? = 'missing' THEN datetime('now') ELSE NULL END
+    WHERE content_hash = ?
+  `,
+        )
+        .run(status, status, hash);
+}
+
+export function markFileMissing(relativePath: string): void {
+    getDb()
+        .prepare(
+            `
+    UPDATE files 
+    SET status = 'missing', missing_since = datetime('now')
+    WHERE path = ? AND status = 'active'
+  `,
+        )
+        .run(relativePath);
+}
+
+export function getMissingFiles(): DbFile[] {
+    return getDb()
+        .prepare("SELECT * FROM files WHERE status = 'missing'")
+        .all() as DbFile[];
+}
+
+export function pruneOldMissingFiles(olderThanDays = 30): void {
+    getDb()
+        .prepare(
+            `
+        DELETE FROM files 
+        WHERE status = 'missing' 
+          AND missing_since < datetime('now', '-' || ? || ' days')
+    `,
+        )
+        .run(olderThanDays);
+}
+
+export function reconcileMissingFiles(rootPath: string): void {
+    const active = getDb()
+        .prepare("SELECT * FROM files WHERE status = 'active'")
+        .all() as DbFile[];
+
+    for (const file of active) {
+        const absPath = join(rootPath, file.path);
+        try {
+            statSync(absPath);
+        } catch {
+            markFileMissing(file.path);
+        }
+    }
 }

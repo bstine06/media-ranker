@@ -24,6 +24,9 @@ import {
     getDb,
     updateEloScores,
     getFileByPath,
+    getMissingFiles,
+    reconcileMissingFiles,
+    getAllActiveFiles,
 } from "./db";
 import type { DbFile } from "./db";
 import {
@@ -48,44 +51,11 @@ import { watchFolder, unwatchAll, ignoredPaths } from "./watcher";
 import { replaceTrackedFile } from "./replaceFile";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
+import { loadSavedRootPath, saveRootPath } from "./config";
 
 let rootPath: string | null = null;
 
 const renameAsync = promisify(rename);
-
-function getConfigPath(): string {
-    return join(app.getPath("userData"), "config.json");
-}
-
-function loadSavedRootPath(): string | null {
-    try {
-        const raw = readFileSync(getConfigPath(), "utf-8");
-        const config = JSON.parse(raw);
-        return config.rootPath ?? null;
-    } catch {
-        return null;
-    }
-}
-
-function saveRootPath(path: string): void {
-    try {
-        writeFileSync(
-            getConfigPath(),
-            JSON.stringify({ rootPath: path }),
-            "utf-8",
-        );
-    } catch (err) {
-        console.error("Failed to save config:", err);
-    }
-}
-
-function saveFolderMetadata(path: string, metadata: FolderMetadata): void {
-    try {
-        writeFileSync(path + ".meta.json", JSON.stringify(metadata), "utf-8");
-    } catch (err) {
-        console.error("Failed to save metadata:", err);
-    }
-}
 
 function registerIpcHandlers(): void {
     // ── Utility ──────────────────────────────────────────────────────────────
@@ -106,9 +76,17 @@ function registerIpcHandlers(): void {
         rootPath = folderPath;
         saveRootPath(folderPath);
         initDb(folderPath);
+        reconcileMissingFiles(folderPath);
         const result = await scanFolder(folderPath);
 
         const win = BrowserWindow.getAllWindows()[0];
+
+        // Tell renderer about any missing files (trashed, moved externally, etc.)
+        const missing = getMissingFiles();
+        for (const file of missing) {
+            win?.webContents.send("media:removed", { relativePath: file.path });
+        }
+
         if (win) watchFolder(folderPath, win);
 
         return result;
@@ -138,6 +116,10 @@ function registerIpcHandlers(): void {
 
     ipcMain.handle("get-all-files", () => {
         return getAllFiles();
+    });
+
+    ipcMain.handle("get-all-active-files", () => {
+        return getAllActiveFiles();
     });
 
     ipcMain.handle("get-files-in-folder", (_event, folderRelPath: string) => {
