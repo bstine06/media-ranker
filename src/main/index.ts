@@ -44,9 +44,10 @@ import {
 import { computeEloUpdate, getWeightedPair } from "./elo";
 import { promisify } from "util";
 import { renameFolderPaths } from "./db";
-import { watchFolder, unwatchAll, ignoredPaths } from './watcher'
-import { replaceTrackedFile } from './replaceFile'
-import fs from 'fs/promises'
+import { watchFolder, unwatchAll, ignoredPaths } from "./watcher";
+import { replaceTrackedFile } from "./replaceFile";
+import fs from "fs/promises";
+import { getRandomFile } from "./random";
 
 let rootPath: string | null = null;
 
@@ -107,8 +108,8 @@ function registerIpcHandlers(): void {
         initDb(folderPath);
         const result = await scanFolder(folderPath);
 
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) watchFolder(folderPath, win);
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win) watchFolder(folderPath, win);
 
         return result;
     });
@@ -117,16 +118,16 @@ function registerIpcHandlers(): void {
     app.on("before-quit", () => unwatchAll());
 
     ipcMain.handle("get-root-path", () => {
-    if (!rootPath) {
-        rootPath = loadSavedRootPath();
-        if (rootPath) {
-            initDb(rootPath);  // ← add this
-            const win = BrowserWindow.getAllWindows()[0];
-            if (win) watchFolder(rootPath, win);
+        if (!rootPath) {
+            rootPath = loadSavedRootPath();
+            if (rootPath) {
+                initDb(rootPath); // ← add this
+                const win = BrowserWindow.getAllWindows()[0];
+                if (win) watchFolder(rootPath, win);
+            }
         }
-    }
-    return rootPath;
-});
+        return rootPath;
+    });
 
     // ── Folders & files ──────────────────────────────────────────────────────
 
@@ -210,34 +211,47 @@ function registerIpcHandlers(): void {
         shell.openExternal(url);
     });
 
-    ipcMain.handle('show-in-folder', (_event, absolutePath: string) => {
-        shell.showItemInFolder(absolutePath)
+    ipcMain.handle("show-in-folder", (_event, absolutePath: string) => {
+        shell.showItemInFolder(absolutePath);
     });
 
-    ipcMain.handle('move-files-to', async (_event, filePaths: string[], targetDir: string) => {
-        await Promise.all(
-            filePaths.map((src) =>
-            fs.rename(src, path.join(targetDir, path.basename(src)))
-            )
-        )
-    })
+    ipcMain.handle(
+        "move-files-to",
+        async (_event, filePaths: string[], targetDir: string) => {
+            await Promise.all(
+                filePaths.map((src) =>
+                    fs.rename(src, path.join(targetDir, path.basename(src))),
+                ),
+            );
+        },
+    );
 
-    ipcMain.handle('file:replace', async (_event, oldRelPath: string, newAbsPath: string) => {
-        if (!rootPath) throw new Error('No library open')
-  const win = BrowserWindow.getAllWindows()[0]
-  await replaceTrackedFile(rootPath, oldRelPath, newAbsPath, ignoredPaths)
-  const updated = getFileByPath(oldRelPath)  // fresh record with new hash
-  win?.webContents.send('media:updated', { relativePath: oldRelPath })
-  return updated
-    })
+    ipcMain.handle(
+        "file:replace",
+        async (_event, oldRelPath: string, newAbsPath: string) => {
+            if (!rootPath) throw new Error("No library open");
+            const win = BrowserWindow.getAllWindows()[0];
+            await replaceTrackedFile(
+                rootPath,
+                oldRelPath,
+                newAbsPath,
+                ignoredPaths,
+            );
+            const updated = getFileByPath(oldRelPath); // fresh record with new hash
+            win?.webContents.send("media:updated", {
+                relativePath: oldRelPath,
+            });
+            return updated;
+        },
+    );
 
-    ipcMain.handle('dialog:open-file', async (_event, extensions: string[]) => {
+    ipcMain.handle("dialog:open-file", async (_event, extensions: string[]) => {
         const result = await dialog.showOpenDialog({
-            properties: ['openFile'],
-            filters: [{ name: 'Media', extensions }],
-        })
-        return result.canceled ? null : result.filePaths[0]
-    })
+            properties: ["openFile"],
+            filters: [{ name: "Media", extensions }],
+        });
+        return result.canceled ? null : result.filePaths[0];
+    });
 
     // ── Tags ─────────────────────────────────────────────────────────────────
 
@@ -273,11 +287,34 @@ function registerIpcHandlers(): void {
         },
     );
 
+    // -- Scroll
+
+    ipcMain.handle(
+        "get-random-file",
+        (
+            _event,
+            folderPrefixes: string[] | null,
+            tagList: string[] | null,
+            tagMode: "and" | "or",
+            excludeIds: number[] = [],
+        ) => {
+            return getRandomFile(folderPrefixes, tagList, tagMode, excludeIds);
+        },
+    );
+
     // -- Comparisons
 
-    ipcMain.handle("get-pair", (_event, folderPrefixes: string[] | null, tagList: string[] | null, tagMode: "and" | "or") => {
-        return getWeightedPair(folderPrefixes, tagList, tagMode);
-    });
+    ipcMain.handle(
+        "get-pair",
+        (
+            _event,
+            folderPrefixes: string[] | null,
+            tagList: string[] | null,
+            tagMode: "and" | "or",
+        ) => {
+            return getWeightedPair(folderPrefixes, tagList, tagMode);
+        },
+    );
 
     ipcMain.handle(
         "record-comparison",
@@ -293,7 +330,7 @@ function registerIpcHandlers(): void {
             const { newWinnerScore, newLoserScore } = computeEloUpdate(
                 winner,
                 loser,
-                margin
+                margin,
             );
             updateEloScores(
                 winnerId,

@@ -14,9 +14,3 @@ export interface FolderNode {
   relativePath: string
   children: FolderNode[]
 }
-
-export type AppStatusMood = "good" | "neutral" | "warn" | "bad";
-
-export interface File {
-  path: string
-}

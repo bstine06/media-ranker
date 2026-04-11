@@ -10,7 +10,7 @@ function formatTime(seconds: number): string {
 
 // ── Tag Panel ────────────────────────────────────────────────────────────────
 
-function TagPanel({ file }: { file: DbFile }): JSX.Element {
+export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     const [tags, setTags] = useState<string[]>([]);
     const [input, setInput] = useState("");
     const [allTags, setAllTags] = useState<string[]>([]);
@@ -78,7 +78,7 @@ function TagPanel({ file }: { file: DbFile }): JSX.Element {
     );
 
     return (
-        <div className="flex flex-col w-56 shrink-0 border-r border-neutral-800 bg-neutral-950 overflow-y-auto flex-grow">
+        <div className="flex flex-col w-56 shrink-0 border-neutral-800 bg-neutral-900 overflow-y-auto flex-grow">
             <div className="px-4 py-3 border-b border-neutral-800">
                 <p className="text-xs font-medium text-neutral-400 uppercase tracking-wider">
                     Tags
@@ -203,6 +203,9 @@ export default function FileView({
     onBack: () => void;
 }): JSX.Element {
     const [currentFile, setCurrentFile] = useState<DbFile>(initialFile)
+    useEffect(() => {
+        setCurrentFile(initialFile)
+    }, [initialFile.content_hash, initialFile.filename, initialFile.path])
 
     const isVideo = currentFile.media_type === "video";
     const fullUrl = toMediaUrl(rootPath, currentFile.path);
@@ -453,15 +456,12 @@ export default function FileView({
                             />
                         ) : (
                             <>
-                                {thumbUrl && !fullLoaded && (
+                                {thumbUrl && (
                                     <img
                                         src={thumbUrl}
                                         alt={currentFile.filename}
-                                        className="absolute inset-0 h-full w-full object-contain"
-                                        style={{
-                                            filter: "blur(8px)",
-                                            transform: "scale(1.05)",
-                                        }}
+                                        className="absolute inset-0 h-full w-full object-contain transition-opacity duration-500"
+                                        style={{ opacity: thumbUrl && !fullLoaded ? 1 : 0 }}
                                     />
                                 )}
                                 <img

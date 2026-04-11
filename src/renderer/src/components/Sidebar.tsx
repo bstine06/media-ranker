@@ -6,19 +6,19 @@ import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderMetadata } from "@renderer/browse/types/browserTypes";
 
-type View = "browse" | "compare" | "file";
+type View = "browse" | "compare" | "file" | "scroll";
 
 function FolderItem({
     node,
     activeFolder,
-    mode,
+    isFilterable,
     checkedFolders,
     onSelectFolder,
     onToggleFolder,
 }: {
     node: FolderNode;
     activeFolder: string | null;
-    mode: "browse" | "compare";
+    isFilterable: boolean;
     checkedFolders: Set<string>;
     onSelectFolder: (relativePath: string) => void;
     onToggleFolder: (relativePath: string, allPaths: string[]) => void;
@@ -32,7 +32,6 @@ function FolderItem({
         const load = async () => {
             try {
                 const raw = await window.api.readFolderMetadata(node.name);
-                console.log(raw.profileImage);
                 setProfileImageHash(raw.profileImage ?? null);
             } catch {
                 setProfileImageHash(null);
@@ -42,9 +41,9 @@ function FolderItem({
     }, [node]);
 
     return (
-        <div className="flex items-center px-2 hover:bg-neutral-800 transition-colors">
+        <div className="flex items-center pr-4 hover:bg-neutral-800 transition-colors">
             <span className="mr-1 w-4" />
-            {mode === "compare" && (
+            {isFilterable && (
                 <input
                     type="checkbox"
                     checked={isChecked}
@@ -57,10 +56,10 @@ function FolderItem({
             )}
             <button
                 onClick={() =>
-                    mode === "browse" && onSelectFolder(node.relativePath)
+                    !isFilterable && onSelectFolder(node.relativePath)
                 }
                 className={`flex-1 truncate rounded-md py-1 pr-2 text-left text-sm transition-colors ${
-                    mode === "browse"
+                    !isFilterable
                         ? isActive
                             ? "text-white font-medium"
                             : "text-neutral-400 hover:text-white"
@@ -191,6 +190,8 @@ function SettingsSection(): JSX.Element {
         toggleHoverPreview,
         volume,
         handleVolumeChange,
+        scrollTime,
+        handleScrollTimeChange
     } = useSettings();
     const [open, setOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -235,8 +236,37 @@ function SettingsSection(): JSX.Element {
                         </button>
                     </div>
 
-                    <div className="flex items-center justify-between py-2">
-                        <p className="text-xs text-neutral-500">Volume</p>
+                    <SliderInput name="volume" min={0} max={100} value={volume} onChange={handleVolumeChange}/>
+                    <SliderInput name="scroll time" min={0} max={2000} value={scrollTime} onChange={handleScrollTimeChange}/>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function SliderInput({
+    name,
+    min,
+    max,
+    value,
+    unit,
+    onChange
+}: {
+    name: string,
+    min: number,
+    max: number,
+    value: number,
+    unit?: string,
+    onChange: (newValue: number) => void;
+}): JSX.Element {
+
+    const factor = 100 / (max - min);
+    const offset = min;
+
+    return (
+        
+        <div className="flex items-center justify-between py-2">
+                        <p className="text-xs text-neutral-500">{name}</p>
                         <div className="flex items-center gap-2">
                             <div
                                 className="relative w-24 h-1 bg-neutral-700 rounded cursor-pointer"
@@ -246,17 +276,17 @@ function SettingsSection(): JSX.Element {
                                     const calc = (clientX: number) => {
                                         const rect = el.getBoundingClientRect();
                                         const pct = Math.min(
-                                            100,
+                                            max,
                                             Math.max(
-                                                0,
+                                                min,
                                                 Math.round(
                                                     ((clientX - rect.left) /
                                                         rect.width) *
-                                                        100,
+                                                        100 / factor,
                                                 ),
                                             ),
                                         );
-                                        handleVolumeChange(pct);
+                                        onChange(pct);
                                     };
                                     calc(e.clientX);
                                     const onMove = (e: MouseEvent) =>
@@ -280,18 +310,15 @@ function SettingsSection(): JSX.Element {
                             >
                                 <div
                                     className="absolute inset-y-0 left-0 bg-neutral-300 rounded"
-                                    style={{ width: `${volume}%` }}
+                                    style={{ width: `${(value * factor) + offset}%` }}
                                 />
                             </div>
                             <span className="text-xs text-neutral-500 w-7 text-right tabular-nums">
-                                {volume}
+                                {value + (unit??"")}
                             </span>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
-    );
+    )
 }
 
 export default function Sidebar({
@@ -332,7 +359,7 @@ export default function Sidebar({
     const [search, setSearch] = useState("");
     const { status } = useStatus();
 
-    const isFilterable = view === "compare";
+    const isFilterable = view !== "browse";
     const isSearching = search.trim().length > 0;
 
     const visibleFolders = isSearching
@@ -386,7 +413,7 @@ export default function Sidebar({
                     </div>
 
                     {!isSearching && (
-                        <div className="flex items-center px-2">
+                        <div className="flex items-center">
                             <span className="mr-1 w-4" />
                             {isFilterable && (
                                 <input
@@ -404,7 +431,7 @@ export default function Sidebar({
                                 onClick={() =>
                                     !isFilterable && onSelectFolder(null)
                                 }
-                                className={`flex-1 truncate rounded-md py-1.5 pr-2 text-left text-sm transition-colors ${
+                                className={`flex-1 truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
                                     !isFilterable && activeFolder === null
                                         ? "text-white font-medium"
                                         : isFilterable && allChecked
@@ -414,7 +441,7 @@ export default function Sidebar({
                                             : "text-neutral-400 hover:text-white"
                                 }`}
                             >
-                                All
+                                All Collections
                             </button>
                         </div>
                     )}
@@ -426,7 +453,7 @@ export default function Sidebar({
                                     key={node.relativePath}
                                     node={node}
                                     activeFolder={activeFolder}
-                                    mode={isFilterable ? "compare" : "browse"}
+                                    isFilterable={isFilterable}
                                     checkedFolders={checkedFolders}
                                     onSelectFolder={onSelectFolder}
                                     onToggleFolder={onToggleFolder}
@@ -451,6 +478,11 @@ export default function Sidebar({
                     label="Compare"
                     active={view === "compare"}
                     onClick={() => setView("compare")}
+                />
+                <NavItem
+                    label="Scroll"
+                    active={view === "scroll"}
+                    onClick={() => setView("scroll")}
                 />
             </div>
 

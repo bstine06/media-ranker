@@ -3,6 +3,7 @@ import type { DbFile } from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { useKeyboardShortcut } from "../hooks/useKeyboard";
 import { useSettings } from "../contexts/SettingsContext";
+import { MediaPlayer } from "./MediaPlayer";
 
 // Held at module level so GC doesn't collect them before decode finishes
 const preloadCache = new Map<string, HTMLImageElement>();
@@ -45,7 +46,7 @@ export default function CompareView({
     onInspectFile,
     activeTags,
     tagMode,
-    onGoToFolder
+    onGoToFolder,
 }: {
     rootPath: string;
     folderPrefixes: string[] | null;
@@ -216,54 +217,51 @@ export default function CompareView({
                     }}
                     onSegmentClick={handleDown}
                 />
-                <div
-                    className="flex flex-1 overflow-hidden min-h-0"
-                    
+                <div className="flex flex-1 overflow-hidden min-h-0"
+                    onMouseLeave={() => {
+                        setScore(0);
+                        setHoveredSide(null);
+                    }}
                 >
                     <CompareCard
                         file={a}
                         side="a"
                         rootPath={rootPath}
-                        disabled={comparing}
+                        disabled={comparing || !active}
                         hoveredSide={hoveredSide}
                         onScoreHover={(leader, s) => {
                             setHoveredSide(leader);
                             setScore(s);
                         }}
-                        onScoreLeave={() => setScore(0)} // only clears score, not hoveredSide
+                        onScoreLeave={() => {
+                            setScore(0);
+                            setHoveredSide(null);
+                        }}
                         onCommit={handleDown}
                         onInspectFile={onInspectFile}
                         onGoToFolder={onGoToFolder}
                     />
-                    <div className="w-8"/>
+                    <div className="w-8" />
                     <CompareCard
                         file={b}
                         side="b"
                         rootPath={rootPath}
-                        disabled={comparing}
+                        disabled={comparing || !active}
                         hoveredSide={hoveredSide}
                         onScoreHover={(leader, s) => {
                             setHoveredSide(leader);
                             setScore(s);
                         }}
-                        onScoreLeave={() => setScore(0)} // only clears score, not hoveredSide
+                        onScoreLeave={() => {
+                            setScore(0);
+                            setHoveredSide(null);
+                        }}
                         onCommit={handleDown}
                         onInspectFile={onInspectFile}
                         onGoToFolder={onGoToFolder}
                     />
                 </div>
             </div>
-        </div>
-    );
-}
-
-function LoadingCover(): JSX.Element {
-    return (
-        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-neutral-800">
-            <div
-                className="h-full bg-white/40 animate-[shimmer_1.5s_ease-in-out_infinite]"
-                style={{ width: "60%" }}
-            />
         </div>
     );
 }
@@ -294,7 +292,12 @@ function ScoreBar({
         return { leader: "b" as const, score: i - 2 };
     };
 
-    const scoreToColor = ["", "bg-neutral-300", "bg-neutral-200", "bg-neutral-100"]
+    const scoreToColor = [
+        "",
+        "bg-neutral-300",
+        "bg-neutral-200",
+        "bg-neutral-100",
+    ];
 
     return (
         <div
@@ -304,18 +307,18 @@ function ScoreBar({
             {/* Left group: only the leftmost segment gets a left-rounded cap */}
             {Array.from({ length: totalSegments / 2 }, (_, i) => {
                 const isLast = i === totalSegments / 2 - 1;
-                return(
-                <div
-                    key={i}
-                    className={`h-3 w-1/6 cursor-pointer ${isLit(i) ? scoreToColor[score] : "bg-neutral-700"} transition-color duration-100 ${i === 0 ? "rounded-tl-full" : ""} ${isLast ? "rounded-tr-full" : ""}`}
-                    onMouseEnter={() => {
-                        const { leader, score } = segmentToState(i);
-                        onSegmentHover(leader, score);
-                    }}
-                    onClick={onSegmentClick}
-                />
-                )
-})}
+                return (
+                    <div
+                        key={i}
+                        className={`h-3 w-1/6 cursor-pointer ${isLit(i) ? scoreToColor[score] : "bg-neutral-700"} transition-color duration-100 ${i === 0 ? "rounded-tl-full" : ""} ${isLast ? "rounded-tr-full" : ""}`}
+                        onMouseEnter={() => {
+                            const { leader, score } = segmentToState(i);
+                            onSegmentHover(leader, score);
+                        }}
+                        onClick={onSegmentClick}
+                    />
+                );
+            })}
             <div className="w-8 shrink-0" />
             {/* Right group: only the rightmost segment gets a right-rounded cap */}
             {Array.from({ length: totalSegments / 2 }, (_, i) => {
@@ -360,205 +363,33 @@ function CompareCard({
     onInspectFile: (file: DbFile) => void;
     onGoToFolder: (folderPath: string) => void;
 }): JSX.Element {
-    const [thumbUrl, setThumbUrl] = useState<string | null>(null);
-    const [fullLoaded, setFullLoaded] = useState(false);
     const focusTagInput = useRef<(() => void) | null>(null);
-    const isVideo = file.media_type === "video";
-    const isGif = file.media_type === "gif";
-    const fullUrl = toMediaUrl(rootPath, file.path);
     const hovered = hoveredSide === side;
 
-    // Video state
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const [playing, setPlaying] = useState(true);
-    const [currentTime, setCurrentTime] = useState(0);
-    const [duration, setDuration] = useState(0);
-    const [scrubbing, setScrubbing] = useState(false);
-
-    useEffect(() => {
-        setThumbUrl(null);
-        setFullLoaded(false);
-        setCurrentTime(0);
-        setDuration(0);
-        window.api.getThumbnailPath(file.content_hash).then((absPath) => {
-            if (absPath) setThumbUrl(toThumbnailUrl(absPath));
-        });
-    }, [file.content_hash]);
-
-    // Video time ticker
-    useEffect(() => {
-        if (!isVideo) return;
-        let rafId: number;
-        const tick = () => {
-            if (videoRef.current && !scrubbing)
-                setCurrentTime(videoRef.current.currentTime);
-            rafId = requestAnimationFrame(tick);
-        };
-        rafId = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(rafId);
-    }, [isVideo, scrubbing]);
-
-    const showLoadingCover = !isVideo && !isGif && !fullLoaded;
-
-    const handleMediaMouseMove = useCallback(
+    const handleMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            if (disabled) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const relX = e.clientX - rect.left;
-            const s = xToScore(relX, rect.width, side);
-            onScoreHover(side, s);
+            onScoreHover(side, xToScore(relX, rect.width, side));
         },
-        [disabled, side, onScoreHover, onScoreLeave],
+        [side, onScoreHover],
     );
-
-    const handleMediaClick = useCallback(() => {
-        if (disabled) return;
-        onCommit();
-    }, [disabled, onCommit]);
-
-    const togglePlay = useCallback((e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!videoRef.current) return;
-        videoRef.current.paused
-            ? videoRef.current.play()
-            : videoRef.current.pause();
-    }, []);
-    const wasPlayingRef = useRef(false);
-
-    const handleScrubChange = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            e.stopPropagation();
-            const t = parseFloat(e.target.value);
-            setCurrentTime(t);
-            if (videoRef.current) videoRef.current.currentTime = t;
-        },
-        [],
-    );
-
-    const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
     return (
         <div
             className={`relative flex flex-1 flex-col overflow-hidden rounded-xl rounded-t-none border-2 transition-all
-                ${
-                    disabled
-                        ? "border-neutral-800 opacity-60"
-                        : hovered
-                          ? "border-neutral-500"
-                          : "border-neutral-700"
-                }`}
-            onMouseEnter={() => {
-                focusTagInput.current?.();
-            }}
+                ${disabled ? "border-neutral-800 opacity-60" : hovered ? "border-neutral-500" : "border-neutral-700"}`}
+            onMouseEnter={() => focusTagInput.current?.()}
         >
-            {/* Media area */}
-            <div
-                className="relative flex-1 overflow-hidden bg-neutral-900 cursor-pointer select-none"
-                onMouseMove={handleMediaMouseMove}
-                onClick={handleMediaClick}
-            >
-                {isVideo ? (
-                    <video
-                        ref={videoRef}
-                        key={fullUrl}
-                        src={fullUrl}
-                        className="h-full w-full object-contain"
-                        muted={!hovered}
-                        loop
-                        playsInline
-                        autoPlay
-                        onLoadedMetadata={() => {
-                            if (videoRef.current) {
-                                setDuration(videoRef.current.duration);
-                            }
-                        }}
-                        onPlay={() => setPlaying(true)}
-                        onPause={() => setPlaying(false)}
-                    />
-                ) : (
-                    <>
-                        {thumbUrl && (
-                            <img
-                                src={thumbUrl}
-                                alt={file.filename}
-                                className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
-                                style={{
-                                    filter: "blur(8px)",
-                                    opacity: fullLoaded ? 0 : 1,
-                                }}
-                            />
-                        )}
-                        <img
-                            src={fullUrl}
-                            alt={file.filename}
-                            className="relative h-full w-full object-contain transition-opacity duration-300"
-                            style={{ opacity: fullLoaded ? 1 : 0 }}
-                            onLoad={() => setFullLoaded(true)}
-                            draggable={false}
-                        />
-                        {showLoadingCover && <LoadingCover />}
-                    </>
-                )}
-
-                {isGif && (
-                    <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
-                        GIF
-                    </div>
-                )}
-
-                {/* Minimal video controls — overlaid at bottom of media */}
-                {isVideo && (
-                    <div
-                        className="absolute bottom-0 left-0 right-0 flex items-center group/controls"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Progress bar, sits flush at the very bottom */}
-                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/5">
-                            <div
-                                className="h-full bg-white/40 transition-none"
-                                style={{ width: `${progress}%` }}
-                            />
-                            {/* Invisible wide hit target for scrubbing */}
-                            <input
-                                type="range"
-                                min={0}
-                                max={duration || 0}
-                                step={0.01}
-                                value={currentTime}
-                                onChange={handleScrubChange}
-                                onMouseDown={(e) => {
-                                    e.stopPropagation();
-                                    wasPlayingRef.current =
-                                        !videoRef.current?.paused;
-                                    setScrubbing(true);
-                                    videoRef.current?.pause();
-                                }}
-                                onMouseUp={(e) => {
-                                    e.stopPropagation();
-                                    setScrubbing(false);
-                                    if (wasPlayingRef.current)
-                                        videoRef.current?.play();
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="absolute inset-0 w-full opacity-0 cursor-pointer"
-                                style={{
-                                    height: "12px",
-                                    bottom: 0,
-                                    top: "auto",
-                                }}
-                            />
-                        </div>
-
-                        {/* Play/pause — fades in on hover */}
-                        <button
-                            onClick={togglePlay}
-                            className="relative mb-1.5 ml-2 flex items-center justify-center w-5 h-5 rounded text-white/0 group-hover/controls:text-white/60 hover:!text-white/90 transition-colors text-xs"
-                        >
-                            {playing ? "⏸" : "▶"}
-                        </button>
-                    </div>
-                )}
-            </div>
+            <MediaPlayer
+                file={file}
+                rootPath={rootPath}
+                disabled={disabled}
+                muted={!hovered || disabled}
+                onClick={disabled ? undefined : onCommit}
+                onMouseMove={handleMouseMove}
+                className="flex-1"
+            />
 
             <InlineTagEditor
                 file={file}
@@ -567,7 +398,6 @@ function CompareCard({
                 }}
             />
 
-            {/* Footer */}
             <div className="shrink-0 border-t border-neutral-800 bg-neutral-900 px-4 py-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
                     <p
@@ -584,8 +414,14 @@ function CompareCard({
                         {file.comparison_count} comparisons
                     </p>
                 </div>
-                <button className="shrink-0 rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
-                        onClick={() => onGoToFolder(file.path.split("/").slice(0, -1).join("/"))}>
+                <button
+                    className="shrink-0 rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
+                    onClick={() =>
+                        onGoToFolder(
+                            file.path.split("/").slice(0, -1).join("/"),
+                        )
+                    }
+                >
                     Go to folder
                 </button>
             </div>
@@ -676,7 +512,7 @@ function InlineTagEditor({
             } else if (e.key === "ArrowDown") {
                 // Down = move toward bottom of list visually (toward input)
                 e.preventDefault();
-                (highlightedIndex === num - 1) 
+                highlightedIndex === num - 1
                     ? setHighlightedIndex(-1)
                     : setHighlightedIndex((i) => (i >= num - 1 ? 0 : i + 1));
             } else if (e.key === "Tab") {
@@ -705,9 +541,6 @@ function InlineTagEditor({
                     inputRef.current?.blur();
                 }
             }
-
-            
-
         },
         [visibleSuggestions, highlightedIndex, input, addTag],
     );
@@ -782,7 +615,6 @@ function InlineTagEditor({
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onFocus={() => setFocused(true)}
-                    
                     placeholder="Add tag…"
                     className="w-full bg-neutral-900 border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-neutral-500 transition-colors"
                 />

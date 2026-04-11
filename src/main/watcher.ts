@@ -1,115 +1,366 @@
 // main/watcher.ts
-import chokidar, { FSWatcher } from 'chokidar'
-import { join, relative, extname, basename } from 'path'
-import { statSync } from 'fs'
-import { BrowserWindow } from 'electron'
-import { upsertFile, getFileByPath, deleteFileByPath } from './db'
-import { getThumbnailPath, generateSizedImage, getMediaType, ensureDir } from './scanner'
-import { hashFile } from './scanner'
+import chokidar, { FSWatcher } from "chokidar";
+import { join, relative, extname, basename } from "path";
+import { statSync } from "fs";
+import { BrowserWindow } from "electron";
+import {
+    upsertFile,
+    getFileByPath,
+    getFileByHash,
+    deleteFileByPath,
+    updateFilePath,
+    getFilesByPathPrefix,
+    renameFolderPaths,
+} from "./db";
+import {
+    generateSizedImage,
+    getMediaType,
+    ensureDir,
+    hashFile,
+} from "./scanner";
 
-const DEBOUNCE_MS = 1500
-const watchers = new Map<string, FSWatcher>()
+const RENAME_WINDOW_MS = 2000;
+const watchers = new Map<string, FSWatcher>();
 
-export const ignoredPaths = new Set<string>()
+export const ignoredPaths = new Set<string>();
 
-async function waitUntilFileStable(filePath: string, intervalMs = 200, maxWaitMs = 300_000): Promise<void> {
-    let lastSize = -1
-    let waited = 0
+// Pending unlinks: hash -> { relativePath, timer }
+// Populated when unlink fires first (Windows / Linux ordering)
+const pendingUnlinks = new Map<
+    string,
+    {
+        relativePath: string;
+        timer: ReturnType<typeof setTimeout>;
+    }
+>();
+
+// Pending adds: hash -> { relativePath, filename, mtime, mediaType, timer }
+// Populated when add fires first (macOS ordering)
+const pendingAdds = new Map<
+    string,
+    {
+        relativePath: string;
+        filename: string;
+        mtime: number;
+        mediaType: "photo" | "gif" | "video";
+        timer: ReturnType<typeof setTimeout>;
+    }
+>();
+
+// Pending folder unlinks: oldRelativeDir -> timer
+// Populated when unlinkDir fires first (Windows / Linux ordering)
+const pendingDirUnlinks = new Map<
+    string,
+    {
+        timer: ReturnType<typeof setTimeout>;
+    }
+>();
+
+// Pending folder adds: dirName -> { newRelativeDir, timer }
+// Populated when addDir fires first (macOS ordering)
+const pendingDirAdds = new Map<
+    string,
+    {
+        newRelativeDir: string;
+        timer: ReturnType<typeof setTimeout>;
+    }
+>();
+
+async function waitUntilFileStable(
+    filePath: string,
+    intervalMs = 200,
+    maxWaitMs = 300_000,
+): Promise<void> {
+    let lastSize = -1;
+    let waited = 0;
     while (waited < maxWaitMs) {
-        await new Promise(r => setTimeout(r, intervalMs))
-        waited += intervalMs
+        await new Promise((r) => setTimeout(r, intervalMs));
+        waited += intervalMs;
         try {
-            const { size } = statSync(filePath)
-            if (size === lastSize && size > 0) return  // stable
-            lastSize = size
+            const { size } = statSync(filePath);
+            if (size === lastSize && size > 0) return;
+            lastSize = size;
         } catch {
             // file might not be visible yet, keep waiting
         }
     }
-    throw new Error(`File never stabilized: ${filePath}`)
+    throw new Error(`File never stabilized: ${filePath}`);
 }
 
 export function watchFolder(rootPath: string, win: BrowserWindow): void {
-  if (watchers.has(rootPath)) {
-    return
-  }
+    if (watchers.has(rootPath)) return;
 
-  const thumbDir = join(rootPath, '_thumbnails')
-  const previewDir = join(rootPath, '_previews')
-  ensureDir(thumbDir)
-  ensureDir(previewDir)
+    const thumbDir = join(rootPath, "_thumbnails");
+    const previewDir = join(rootPath, "_previews");
+    ensureDir(thumbDir);
+    ensureDir(previewDir);
 
-  const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  const watcher = chokidar.watch(rootPath, {
-    ignored: (filePath: string) => {
-  if (ignoredPaths.has(filePath)) return true
-  const seg = filePath.replace(rootPath, '').split(/[\\/]/)
-  return seg.some(s => s.startsWith('.') || s.startsWith('_'))
-},
-    persistent: true,
-    ignoreInitial: true,   // don't re-fire for files found on startup
-  })
-
-  watcher.on('add', async (filePath) => {
-    const mediaType = getMediaType(extname(filePath))
-    if (!mediaType) return
-
-    const existing = debounceTimers.get(filePath)
-    if (existing) clearTimeout(existing)
-
-    debounceTimers.set(filePath, setTimeout(async () => {
-        debounceTimers.delete(filePath)
-        try {
-            await waitUntilFileStable(filePath)
-
-            const stat = statSync(filePath)
-            const relativePath = relative(rootPath, filePath)
-            const hash = await hashFile(filePath)
-
-            const thumbPath = join(thumbDir, `${hash}.jpg`)
-            const previewPath = join(previewDir, `${hash}.jpg`)
-            await generateSizedImage(filePath, thumbPath, 400, mediaType).catch(() => {})
-            await generateSizedImage(filePath, previewPath, 1200, mediaType).catch(() => {})
-
-            upsertFile({
-                content_hash: hash,
-                path: relativePath,
-                filename: basename(filePath),
-                media_type: mediaType,
-                mtime: stat.mtimeMs,
-                size: stat.size,
-            })
-
-            win.webContents.send('media:added', { relativePath, hash, mediaType })
-        } catch (err) {
-            console.error('Watcher failed to process:', filePath, err)
+    // Rewrites all DB records under oldRelativeDir to newRelativeDir and
+    // emits media:renamed for each affected file.
+    function commitFolderRename(
+        oldRelativeDir: string,
+        newRelativeDir: string,
+    ): void {
+        const affected = getFilesByPathPrefix(oldRelativeDir); // fetch before rewriting
+        renameFolderPaths(oldRelativeDir, newRelativeDir); // single atomic UPDATE
+        for (const record of affected) {
+            const newRelativePath =
+                newRelativeDir + record.path.slice(oldRelativeDir.length);
+            win.webContents.send("media:renamed", {
+                oldRelativePath: record.path,
+                relativePath: newRelativePath,
+                hash: record.content_hash,
+                mediaType: record.media_type,
+            });
         }
-    }, 500))
-})
+        win.webContents.send("folder:renamed", {
+            oldRelativePath: oldRelativeDir,
+            relativePath: newRelativeDir,
+        });
+    }
 
-  watcher.on('unlink', (filePath) => {
-    const relativePath = relative(rootPath, filePath)
-    deleteFileByPath(relativePath)
-    win.webContents.send('media:removed', { relativePath })
-})
+    const watcher = chokidar.watch(rootPath, {
+        ignored: (filePath: string) => {
+            if (ignoredPaths.has(filePath)) return true;
+            const seg = filePath.replace(rootPath, "").split(/[\\/]/);
+            return seg.some((s) => s.startsWith(".") || s.startsWith("_"));
+        },
+        persistent: true,
+        ignoreInitial: true,
+    });
 
-  watcher.on('error', (err) => console.error('Watcher error:', err))
+    // ── File added ────────────────────────────────────────────────────────────
+    watcher.on("add", async (filePath) => {
+        const mediaType = getMediaType(extname(filePath));
+        if (!mediaType) return;
 
-  watchers.set(rootPath, watcher)
+        const existing = debounceTimers.get(filePath);
+        if (existing) clearTimeout(existing);
+
+        debounceTimers.set(
+            filePath,
+            setTimeout(async () => {
+                debounceTimers.delete(filePath);
+                try {
+                    await waitUntilFileStable(filePath);
+
+                    const stat = statSync(filePath);
+                    const relativePath = relative(rootPath, filePath);
+                    const hash = await hashFile(filePath);
+
+                    // ── Case 1: unlink fired first (Windows/Linux) ──────────────────
+                    const pendingUnlink = pendingUnlinks.get(hash);
+                    if (pendingUnlink) {
+                        clearTimeout(pendingUnlink.timer);
+                        pendingUnlinks.delete(hash);
+                        updateFilePath(
+                            hash,
+                            relativePath,
+                            basename(filePath),
+                            stat.mtimeMs,
+                        );
+                        win.webContents.send("media:renamed", {
+                            oldRelativePath: pendingUnlink.relativePath,
+                            relativePath,
+                            hash,
+                            mediaType,
+                        });
+                        return;
+                    }
+
+                    // ── Case 2: add fires first (macOS) ─────────────────────────────
+                    const existingRecord = getFileByHash(hash);
+                    if (
+                        existingRecord &&
+                        existingRecord.path !== relativePath
+                    ) {
+                        const timer = setTimeout(() => {
+                            pendingAdds.delete(hash);
+                            updateFilePath(
+                                hash,
+                                relativePath,
+                                basename(filePath),
+                                stat.mtimeMs,
+                            );
+                            win.webContents.send("media:renamed", {
+                                oldRelativePath: existingRecord.path,
+                                relativePath,
+                                hash,
+                                mediaType,
+                            });
+                        }, RENAME_WINDOW_MS);
+
+                        pendingAdds.set(hash, {
+                            relativePath,
+                            filename: basename(filePath),
+                            mtime: stat.mtimeMs,
+                            mediaType,
+                            timer,
+                        });
+                        return;
+                    }
+
+                    // ── Case 3: genuinely new file ───────────────────────────────────
+                    const thumbPath = join(thumbDir, `${hash}.jpg`);
+                    const previewPath = join(previewDir, `${hash}.jpg`);
+                    await generateSizedImage(
+                        filePath,
+                        thumbPath,
+                        400,
+                        mediaType,
+                    ).catch(() => {});
+                    await generateSizedImage(
+                        filePath,
+                        previewPath,
+                        1200,
+                        mediaType,
+                    ).catch(() => {});
+
+                    upsertFile({
+                        content_hash: hash,
+                        path: relativePath,
+                        filename: basename(filePath),
+                        media_type: mediaType,
+                        mtime: stat.mtimeMs,
+                        size: stat.size,
+                    });
+
+                    win.webContents.send("media:added", {
+                        relativePath,
+                        hash,
+                        mediaType,
+                    });
+                } catch (err) {
+                    console.error("Watcher failed to process:", filePath, err);
+                }
+            }, 500),
+        );
+    });
+
+    // ── File removed ──────────────────────────────────────────────────────────
+    watcher.on("unlink", (filePath) => {
+        const relativePath = relative(rootPath, filePath);
+        const record = getFileByPath(relativePath);
+
+        if (!record) {
+            win.webContents.send("media:removed", { relativePath });
+            return;
+        }
+
+        // ── Case 1: add fired first (macOS) ─────────────────────────────────
+        const pendingAdd = pendingAdds.get(record.content_hash);
+        if (pendingAdd) {
+            clearTimeout(pendingAdd.timer);
+            pendingAdds.delete(record.content_hash);
+            updateFilePath(
+                record.content_hash,
+                pendingAdd.relativePath,
+                pendingAdd.filename,
+                pendingAdd.mtime,
+            );
+            win.webContents.send("media:renamed", {
+                oldRelativePath: relativePath,
+                relativePath: pendingAdd.relativePath,
+                hash: record.content_hash,
+                mediaType: pendingAdd.mediaType,
+            });
+            return;
+        }
+
+        // ── Case 2: unlink fires first (Windows/Linux) ──────────────────────
+        const timer = setTimeout(() => {
+            pendingUnlinks.delete(record.content_hash);
+            deleteFileByPath(relativePath);
+            win.webContents.send("media:removed", { relativePath });
+        }, RENAME_WINDOW_MS);
+
+        pendingUnlinks.set(record.content_hash, { relativePath, timer });
+    });
+
+    // ── Folder removed ────────────────────────────────────────────────────────
+    watcher.on("unlinkDir", (dirPath) => {
+        const oldRelativeDir = relative(rootPath, dirPath);
+        const dirName = basename(dirPath);
+
+        // ── Case 1: addDir fired first (macOS) ──────────────────────────────
+        // A pending add exists for this dirname — pair it up and commit.
+        const pendingAdd = pendingDirAdds.get(dirName);
+        if (pendingAdd) {
+            clearTimeout(pendingAdd.timer);
+            pendingDirAdds.delete(dirName);
+            commitFolderRename(oldRelativeDir, pendingAdd.newRelativeDir);
+            return;
+        }
+
+        // ── Case 2: unlinkDir fires first (Windows/Linux) ───────────────────
+        // Hold the delete and wait to see if a matching addDir arrives.
+        const timer = setTimeout(() => {
+            pendingDirUnlinks.delete(oldRelativeDir);
+            const affected = getFilesByPathPrefix(oldRelativeDir);
+            for (const record of affected) {
+                deleteFileByPath(record.path);
+                win.webContents.send("media:removed", {
+                    relativePath: record.path,
+                });
+            }
+            win.webContents.send("folder:removed", {
+                relativePath: oldRelativeDir,
+            });
+        }, RENAME_WINDOW_MS);
+
+        pendingDirUnlinks.set(oldRelativeDir, { timer });
+    });
+
+    // ── Folder added ──────────────────────────────────────────────────────────
+    watcher.on("addDir", (dirPath) => {
+        const newRelativeDir = relative(rootPath, dirPath);
+
+        // Ignore the root itself which fires on watcher init.
+        if (newRelativeDir === "") return;
+
+        const dirName = basename(dirPath);
+
+        // ── Case 1: unlinkDir fired first (Windows/Linux) ───────────────────
+        // Find a pending unlink whose dirname matches — that's our rename pair.
+        for (const [oldRelativeDir, pending] of pendingDirUnlinks) {
+            if (basename(oldRelativeDir) === dirName) {
+                clearTimeout(pending.timer);
+                pendingDirUnlinks.delete(oldRelativeDir);
+                commitFolderRename(oldRelativeDir, newRelativeDir);
+                return;
+            }
+        }
+
+        // ── Case 2: addDir fires first (macOS) ──────────────────────────────
+        // Hold off and wait for the matching unlinkDir. If none arrives within
+        // the window it's a genuinely new folder; individual `add` events for
+        // its contents will handle any files inside.
+        const timer = setTimeout(() => {
+            pendingDirAdds.delete(dirName)
+            win.webContents.send('folder:added', { relativePath: newRelativeDir })
+        }, RENAME_WINDOW_MS)
+
+        pendingDirAdds.set(dirName, { newRelativeDir, timer });
+    });
+
+    watcher.on("error", (err) => console.error("Watcher error:", err));
+
+    watchers.set(rootPath, watcher);
 }
 
 export async function unwatchFolder(rootPath: string): Promise<void> {
-  const w = watchers.get(rootPath)
-  if (w) {
-    await w.close()
-    watchers.delete(rootPath)
-  }
+    const w = watchers.get(rootPath);
+    if (w) {
+        await w.close();
+        watchers.delete(rootPath);
+    }
 }
 
 export async function unwatchAll(): Promise<void> {
-  for (const [path, w] of watchers) {
-    await w.close()
-    watchers.delete(path)
-  }
+    for (const [path, w] of watchers) {
+        await w.close();
+        watchers.delete(path);
+    }
 }

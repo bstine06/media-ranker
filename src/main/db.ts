@@ -37,18 +37,15 @@ export function getDb(): Database.Database {
 
 export function initDb(rootPath: string): Database.Database {
   const dbPath = join(rootPath, '_media_index.db')
-  
-  // Already open on the same file — nothing to do
+
   if (db && (db as any).name === dbPath) return db
 
-  // Different path (library switch) — close old connection first
   if (db) {
     db.close()
     db = null
   }
   db = new Database(dbPath)
 
-  // Enable WAL mode for better concurrent read performance
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
@@ -103,7 +100,6 @@ export function upsertFile(file: Omit<DbFile, 'id' | 'elo_score' | 'comparison_c
   const existing = db.prepare('SELECT * FROM files WHERE content_hash = ?').get(file.content_hash) as DbFile | undefined
 
   if (existing) {
-    // File moved/renamed or mtime/size changed — update all tracked fields
     if (
       existing.path !== file.path ||
       existing.filename !== file.filename ||
@@ -128,23 +124,40 @@ export function getFileByPath(relativePath: string): DbFile | undefined {
   return getDb().prepare('SELECT * FROM files WHERE path = ?').get(relativePath) as DbFile | undefined
 }
 
+export function getFileByHash(hash: string): DbFile | undefined {
+  return getDb().prepare('SELECT * FROM files WHERE content_hash = ?').get(hash) as DbFile | undefined
+}
+
+// Used by the watcher to update path/filename after a rename, without
+// touching elo_score, tags, comparisons, or any other fields.
+export function updateFilePath(
+  hash: string,
+  newRelativePath: string,
+  newFilename: string,
+  mtime: number
+): void {
+  getDb()
+    .prepare('UPDATE files SET path = ?, filename = ?, mtime = ? WHERE content_hash = ?')
+    .run(newRelativePath, newFilename, mtime, hash)
+}
+
 export function getAllFiles(): DbFile[] {
   return getDb().prepare('SELECT * FROM files ORDER BY elo_score DESC').all() as DbFile[]
 }
 
 export function getFilesByFolder(folderRelPath: string): DbFile[] {
-  // Match files whose path starts with the given folder prefix
   return getDb()
     .prepare("SELECT * FROM files WHERE path LIKE ? ORDER BY elo_score DESC")
     .all(`${folderRelPath.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`) as DbFile[]
 }
-
-export function getFileByHash(hash: string): DbFile | undefined {
-  return getDb().prepare('SELECT * FROM files WHERE content_hash = ?').get(hash) as DbFile | undefined
+export function getFilesByPathPrefix(prefix: string): DbFile[] {
+  const escaped = prefix.replace(/%/g, '\\%').replace(/_/g, '\\_')
+  return getDb()
+    .prepare(`SELECT * FROM files WHERE path = ? OR path LIKE ? ESCAPE '\\'`)
+    .all(prefix, `${escaped}/%`) as DbFile[]
 }
 
 export function getUnindexedCount(): number {
-  // Files with 0 comparisons — useful for the "new files" badge
   const result = getDb()
     .prepare('SELECT COUNT(*) as count FROM files WHERE comparison_count = 0')
     .get() as { count: number }
@@ -152,20 +165,19 @@ export function getUnindexedCount(): number {
 }
 
 export function renameFolderPaths(oldPrefix: string, newPrefix: string): void {
-    const db = getDb()
-    db.transaction(() => {
-        // Update all files whose path starts with the old prefix
-        db.prepare(`
-            UPDATE files
-            SET path = ? || substr(path, ?)
-            WHERE path = ? OR path LIKE ?
-        `).run(
-            newPrefix,
-            oldPrefix.length + 1,
-            oldPrefix,
-            `${oldPrefix.replace(/%/g, '\\%').replace(/_/g, '\\_')}/%`
-        )
-    })()
+  const db = getDb()
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE files
+      SET path = ? || substr(path, ?)
+      WHERE path = ? OR path LIKE ?
+    `).run(
+      newPrefix,
+      oldPrefix.length + 1,
+      oldPrefix,
+      `${oldPrefix.replace(/%/g, '\\%').replace(/_/g, '\\_')}/%`
+    )
+  })()
 }
 
 export function deleteFileByPath(relativePath: string): void {
@@ -201,33 +213,33 @@ export function getAllTags(): string[] {
 }
 
 export function getFileIdsByTags(tags: string[], mode: "and" | "or"): number[] {
-    const db = getDb();
-    if (tags.length === 0) return [];
+  const db = getDb()
+  if (tags.length === 0) return []
 
-    const placeholders = tags.map(() => "?").join(", ");
+  const placeholders = tags.map(() => "?").join(", ")
 
-    if (mode === "or") {
-        const rows = db.prepare(
-            `SELECT DISTINCT file_id FROM tags WHERE tag IN (${placeholders})`
-        ).all(...tags) as { file_id: number }[];
-        return rows.map(r => r.file_id);
-    } else {
-        const rows = db.prepare(
-            `SELECT file_id FROM tags WHERE tag IN (${placeholders})
-             GROUP BY file_id HAVING COUNT(DISTINCT tag) = ?`
-        ).all(...tags, tags.length) as { file_id: number }[];
-        return rows.map(r => r.file_id);
-    }
+  if (mode === "or") {
+    const rows = db.prepare(
+      `SELECT DISTINCT file_id FROM tags WHERE tag IN (${placeholders})`
+    ).all(...tags) as { file_id: number }[]
+    return rows.map(r => r.file_id)
+  } else {
+    const rows = db.prepare(
+      `SELECT file_id FROM tags WHERE tag IN (${placeholders})
+       GROUP BY file_id HAVING COUNT(DISTINCT tag) = ?`
+    ).all(...tags, tags.length) as { file_id: number }[]
+    return rows.map(r => r.file_id)
+  }
 }
 
 export function addTagToFolder(folderRelPath: string, tag: string): number {
-    const db = getDb();
-    const pattern = `${folderRelPath.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
-    const result = db.prepare(`
-        INSERT OR IGNORE INTO tags (file_id, tag)
-        SELECT id, ? FROM files WHERE path LIKE ?
-    `).run(tag, pattern);
-    return result.changes;
+  const db = getDb()
+  const pattern = `${folderRelPath.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO tags (file_id, tag)
+    SELECT id, ? FROM files WHERE path LIKE ?
+  `).run(tag, pattern)
+  return result.changes
 }
 
 // ── Elo queries ─────────────────────────────────────────────────────────────
@@ -252,7 +264,6 @@ export function updateEloScores(
     VALUES (?, ?, ?)
   `)
 
-  // Run both updates and the log insert in a single transaction
   db.transaction(() => {
     updateScore.run(newWinnerScore, winnerId)
     updateScore.run(newLoserScore, loserId)

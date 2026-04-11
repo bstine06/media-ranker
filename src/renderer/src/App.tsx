@@ -1,17 +1,15 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import type { DbFile, FolderNode } from "./shared/types/types";
-import NavItem from "./components/NavItem";
 import BrowseView from "./browse/components/BrowseView";
 import CompareView from "./components/CompareView";
-import RankingsView from "./components/RankingsView";
 import Sidebar from "./components/Sidebar";
 import FileView from "./components/FileView";
 import { useKeyboardShortcut } from "./hooks/useKeyboard";
-import { useHoverPreview } from "./browse/hooks/useHoverPreview";
 import { useSettings } from "./contexts/SettingsContext";
 import { useStatus } from "./contexts/StatusContext";
+import ScrollView from "./components/ScrollView";
 
-type View = "browse" | "compare" | "file";
+type View = "browse" | "compare" | "file" | "scroll";
 
 function getAllPaths(nodes: FolderNode[]): string[] {
     const paths: string[] = [];
@@ -181,18 +179,70 @@ export default function App(): JSX.Element {
     );
 
     useEffect(() => {
-        const removeAdded = window.api.onMediaAdded(() => {
-            // Re-fetch whatever the current view is showing
+        const handleAdded = window.api.onMediaAdded(() => {
             if (rootPath) loadFolder(activeFolder, rootPath);
         });
 
-        const removeRemoved = window.api.onMediaRemoved(() => {
+        const handleRemoved = window.api.onMediaRemoved(() => {
             if (rootPath) loadFolder(activeFolder, rootPath);
         });
+
+        const handleRenamed = window.api.onMediaRenamed(() => {
+            if (rootPath) loadFolder(activeFolder, rootPath);
+        });
+
+        const handleFolderRenamed = window.api.onFolderRenamed(
+            ({ oldRelativePath, relativePath }) => {
+                setSubfolders((prev) =>
+                    prev.map((f) =>
+                        f.relativePath === oldRelativePath
+                            ? {
+                                  ...f,
+                                  name: relativePath.split("/").pop() ?? f.name,
+                                  relativePath,
+                              }
+                            : f,
+                    ),
+                );
+                if (activeFolder === oldRelativePath)
+                    setActiveFolder(relativePath);
+            },
+        );
+
+        const handleFolderRemoved = window.api.onFolderRemoved(
+            ({ relativePath }) => {
+                setSubfolders((prev) =>
+                    prev.filter((f) => f.relativePath !== relativePath),
+                );
+                if (activeFolder === relativePath) {
+                    setActiveFolder(null); // or wherever you send users when active folder disappears
+                    if (rootPath) loadFolder(null, rootPath);
+                }
+            },
+        );
+
+        const handleFolderAdded = window.api.onFolderAdded(
+            ({ relativePath }) => {
+                const depth = relativePath.split("/").filter(Boolean).length;
+                if (depth !== 1) return;
+                setSubfolders((prev) => [
+                    ...prev,
+                    {
+                        name: relativePath.split("/").pop() ?? relativePath,
+                        relativePath,
+                        children: [],
+                    },
+                ]);
+            },
+        );
 
         return () => {
-            removeAdded();
-            removeRemoved();
+            handleAdded();
+            handleRemoved();
+            handleRenamed();
+            handleFolderRenamed();
+            handleFolderRemoved();
+            handleFolderAdded();
         };
     }, [rootPath, activeFolder, loadFolder]);
 
@@ -211,6 +261,15 @@ export default function App(): JSX.Element {
             setTagFilteredIds(new Set(ids));
         });
     }, [activeTags, tagMode]);
+
+    useEffect(() => {
+        if (activeFile && files.length > 0) {
+            const updated = files.find(
+                (f) => f.content_hash === activeFile.content_hash,
+            );
+            if (updated) setActiveFile(updated);
+        }
+    }, [files]);
 
     const rescanLibrary = useCallback(
         async (path: string, activeFolder: string | null) => {
@@ -332,7 +391,7 @@ export default function App(): JSX.Element {
     const handleGoToFolder = (folderPath: string) => {
         setActiveFolder(folderPath);
         setView("browse");
-    }
+    };
 
     // Apply tag filter on top of whatever files BrowseView already receives
     const visibleFiles = tagFilteredIds
@@ -406,6 +465,23 @@ export default function App(): JSX.Element {
                             rootPath={rootPath}
                             folderPrefixes={compareFolders}
                             active={view === "compare"}
+                            onInspectFile={handleInspectFile}
+                            activeTags={activeTags}
+                            tagMode={tagMode}
+                            onGoToFolder={handleGoToFolder}
+                        />
+                    </div>
+                    <div
+                        className={
+                            view === "scroll"
+                                ? "flex flex-1 flex-col overflow-hidden"
+                                : "hidden"
+                        }
+                    >
+                        <ScrollView
+                            rootPath={rootPath}
+                            folderPrefixes={compareFolders}
+                            active={view === "scroll"}
                             onInspectFile={handleInspectFile}
                             activeTags={activeTags}
                             tagMode={tagMode}

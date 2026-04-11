@@ -36,6 +36,31 @@ declare global {
             onMediaRemoved: (
                 callback: (file: { relativePath: string }) => void,
             ) => () => void;
+
+            onMediaRenamed: (
+                callback: (file: {
+                    oldRelativePath: string;
+                    relativePath: string;
+                    hash: string;
+                    mediaType: string;
+                }) => void,
+            ) => () => void;
+
+            onFolderRenamed: (
+                callback: (data: {
+                    oldRelativePath: string;
+                    relativePath: string;
+                }) => void,
+            ) => () => void;
+
+            onFolderRemoved: (
+                callback: (data: { relativePath: string }) => void,
+            ) => () => void;
+
+            onFolderAdded: (
+                callback: (data: { relativePath: string }) => void,
+            ) => () => void;
+
             getThumbnailPath: (hash: string) => Promise<string | null>;
             getTags: (fileId: number) => Promise<string[]>;
             addTag: (fileId: number, tag: string) => Promise<string[]>;
@@ -49,6 +74,12 @@ declare global {
                 folderRelPath: string,
                 tag: string,
             ) => Promise<number>;
+            getRandomFile: (
+                folderPrefixes: string[] | null,
+                tagList: string[] | null,
+                tagMode: "and" | "or",
+                excludeIds: number[] = [],
+            ) => Promise<import("./types").DbFile | null>;
             getPair: (
                 folderPrefixes: string[] | null,
                 tagList: string[] | null,
@@ -81,8 +112,14 @@ declare global {
             >;
             openExternal: (url: string) => Promise<void>;
             showInFolder: (absolutePath: string) => Promise<void>;
-            moveFilesTo: (filePaths: string[], targetDir: string) => Promise<void>;
-            fileReplace: (oldRelPath: string, newAbsPath: string) => Promise<DbFile>;
+            moveFilesTo: (
+                filePaths: string[],
+                targetDir: string,
+            ) => Promise<void>;
+            fileReplace: (
+                oldRelPath: string,
+                newAbsPath: string,
+            ) => Promise<DbFile>;
             openFile: (extensions: string[]) => Promise<string | null>;
         };
     }
