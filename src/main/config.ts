@@ -27,3 +27,10 @@ export function saveRootPath(path: string | null): void {
         console.error("Failed to save config:", err)
     }
 }
+
+export const INTERNAL_NAMES = new Set([
+    "_thumbnails",
+    "_media_index.db",
+    "_media_index.db-shm",
+    "_media_index.db-wal",
+]);

@@ -301,7 +301,18 @@ export default function BrowseView({
                                 file={file}
                                 rank={sortMode === "rank" ? index + 1 : null}
                                 rootPath={rootPath}
-                                onClick={() => onInspectFile(file)}
+                                onClick={() =>
+                                    editingMetadata
+                                        ? setDraftProfileImage((prev) =>
+                                              prev === file.content_hash
+                                                  ? undefined
+                                                  : file.content_hash,
+                                          )
+                                        : onInspectFile(file)
+                                }
+                                isSelected={
+                                    draftProfileImage === file.content_hash
+                                }
                             />
                         ))}
                     </div>

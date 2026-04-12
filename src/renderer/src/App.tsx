@@ -86,7 +86,7 @@ export default function App(): JSX.Element {
     const [tagFilteredIds, setTagFilteredIds] = useState<Set<number> | null>(
         null,
     );
-    const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null)
+    const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
 
     const { status, setStatus, resetStatus } = useStatus();
 
@@ -108,7 +108,9 @@ export default function App(): JSX.Element {
             setStatus(
                 "Library folder was moved or renamed. Please select a new location.",
             );
-            setWelcomeMessage("Library folder was moved or renamed. Please select a new location.")
+            setWelcomeMessage(
+                "Library folder was moved or renamed. Please select a new location.",
+            );
         });
     }, []);
 
@@ -138,7 +140,6 @@ export default function App(): JSX.Element {
 
     const loadFolder = useCallback(
         async (folder: string | null, root: string) => {
-            console.log("LKLKLK")
             setActiveFolder(folder);
             const result = folder
                 ? await window.api.getFilesInFolder(folder)
@@ -185,25 +186,40 @@ export default function App(): JSX.Element {
     );
 
     useEffect(() => {
-        const handleAdded = window.api.onMediaAdded(({ relativePath, hash, mediaType }) => {
-    // only matters if it belongs to the active folder (or we're in all-files view)
-    const folderPath = relativePath.split("/").slice(0, -1).join("/");
-    if (activeFolder && folderPath !== activeFolder) return;
-    if (rootPath) loadFolder(activeFolder, rootPath); // still reload for adds — need full DbFile
-});
+        const handleAdded = window.api.onMediaAdded(
+            ({ relativePath, hash, mediaType }) => {
+                // only matters if it belongs to the active folder (or we're in all-files view)
+                const folderPath = relativePath
+                    .split("/")
+                    .slice(0, -1)
+                    .join("/");
+                if (activeFolder && folderPath !== activeFolder) return;
+                if (rootPath) loadFolder(activeFolder, rootPath); // still reload for adds — need full DbFile
+            },
+        );
 
-const handleRemoved = window.api.onMediaRemoved(({ relativePath }) => {
-    // always remove from state regardless of which folder is active
-    setFiles((prev) => prev.filter((f) => f.path !== relativePath));
-});
+        const handleRemoved = window.api.onMediaRemoved(({ relativePath }) => {
+            // always remove from state regardless of which folder is active
+            setFiles((prev) => prev.filter((f) => f.path !== relativePath));
+        });
 
-const handleRenamed = window.api.onMediaRenamed(({ oldRelativePath, relativePath }) => {
-    setFiles((prev) =>
-        prev.map((f) =>
-            f.path === oldRelativePath ? { ...f, path: relativePath, filename: relativePath.split("/").pop() ?? f.filename } : f
-        )
-    );
-});
+        const handleRenamed = window.api.onMediaRenamed(
+            ({ oldRelativePath, relativePath }) => {
+                setFiles((prev) =>
+                    prev.map((f) =>
+                        f.path === oldRelativePath
+                            ? {
+                                  ...f,
+                                  path: relativePath,
+                                  filename:
+                                      relativePath.split("/").pop() ??
+                                      f.filename,
+                              }
+                            : f,
+                    ),
+                );
+            },
+        );
 
         const handleFolderRenamed = window.api.onFolderRenamed(
             ({ oldRelativePath, relativePath }) => {
@@ -220,6 +236,7 @@ const handleRenamed = window.api.onMediaRenamed(({ oldRelativePath, relativePath
                 );
                 if (activeFolder === oldRelativePath)
                     setActiveFolder(relativePath);
+                console.log("Folder renamed");
             },
         );
 
@@ -247,6 +264,7 @@ const handleRenamed = window.api.onMediaRenamed(({ oldRelativePath, relativePath
                         children: [],
                     },
                 ]);
+                console.log("Folder added");
             },
         );
 

@@ -6,6 +6,7 @@ import {
     existsSync,
     mkdirSync,
 } from "fs";
+import { access, unlink } from "fs/promises";
 import { join, relative, extname, basename } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -22,6 +23,7 @@ import {
     getFileByHashAny,
 } from "./db";
 import ffmpegPath from "ffmpeg-static";
+import { INTERNAL_NAMES } from "./config";
 
 const execFileAsync = promisify(execFile);
 
@@ -44,6 +46,7 @@ export interface ScanResult {
     updated: number;
     skipped: number;
     unsupported: number;
+    resurrected: number; // was computed but never surfaced
 }
 
 export interface FolderNode {
@@ -78,6 +81,26 @@ export function ensureDir(dirPath: string): void {
     if (!existsSync(dirPath)) mkdirSync(dirPath);
 }
 
+// Helper to ensure a thumbnail exists, generating it if not
+async function ensureThumbnail(
+    thumbDir: string,
+    hash: string,
+    absolutePath: string,
+    filename: string,
+    mediaType: MediaType,
+): Promise<void> {
+    const thumbPath = join(thumbDir, `${hash}.jpg`);
+    try {
+        await access(thumbPath); // already exists, nothing to do
+    } catch {
+        await generateSizedImage(absolutePath, thumbPath, 400, mediaType).catch(
+            (e) => {
+                console.warn(`Thumbnail failed for ${filename}:`, e);
+            },
+        );
+    }
+}
+
 export async function generateSizedImage(
     filePath: string,
     outPath: string,
@@ -85,7 +108,7 @@ export async function generateSizedImage(
     mediaType: MediaType,
 ): Promise<void> {
     if (existsSync(outPath)) return;
-    const bin = ffmpegPath!; // path to bundled ffmpeg
+    const bin = ffmpegPath!;
 
     if (mediaType === "video") {
         await execFileAsync(bin, [
@@ -129,7 +152,7 @@ function walkDir(dirPath: string, rootPath: string): ScannedFile[] {
     }
 
     for (const entry of entries) {
-        if (entry.startsWith(".") || entry.startsWith("_")) continue;
+        if (entry.startsWith(".") || INTERNAL_NAMES.has(entry)) continue;
 
         const absPath = join(dirPath, entry);
         let stat;
@@ -142,10 +165,8 @@ function walkDir(dirPath: string, rootPath: string): ScannedFile[] {
         if (stat.isDirectory()) {
             results.push(...walkDir(absPath, rootPath));
         } else if (stat.isFile()) {
-            const ext = extname(entry);
-            const mediaType = getMediaType(ext);
+            const mediaType = getMediaType(extname(entry));
             if (!mediaType) continue;
-
             results.push({
                 absolutePath: absPath,
                 relativePath: relative(rootPath, absPath),
@@ -169,7 +190,6 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
     let unsupported = 0;
     let resurrected = 0;
 
-    // hash -> relativePath for everything found on disk this scan
     const scannedHashes = new Map<string, string>();
 
     for (const file of files) {
@@ -189,14 +209,22 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
                 hash = existingByPath.content_hash;
                 scannedHashes.set(hash, file.relativePath);
 
-                // Still need to resurrect if missing, even without rehashing
+                // Resurrected via path+mtime match (the early-continue branch)
                 if (existingByPath.status === "missing") {
                     setFileStatus(hash, "active");
                     resurrected++;
                 } else {
                     skipped++;
                 }
-                continue; // ← don't fall through to the hash-based checks below
+                // Runs for both active-skipped and resurrected — cheap no-op if thumb exists
+                await ensureThumbnail(
+                    thumbDir,
+                    hash,
+                    file.absolutePath,
+                    file.filename,
+                    file.mediaType,
+                );
+                continue;
             } else {
                 hash = await hashFile(file.absolutePath);
             }
@@ -204,10 +232,8 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
             scannedHashes.set(hash, file.relativePath);
 
             const existingByHash = getFileByHashAny(hash);
-            // ... rest of the checks unchanged
 
             if (!existingByHash) {
-                // Genuinely new file — generate thumb and insert
                 const thumbPath = join(thumbDir, `${hash}.jpg`);
                 await generateSizedImage(
                     file.absolutePath,
@@ -229,22 +255,28 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
                     missing_since: null,
                 });
                 added++;
+                //Resurrected/moved via hash match
             } else if (
                 existingByHash.path !== file.relativePath ||
                 existingByHash.status === "missing"
             ) {
-                // Known file that moved, was renamed, or is being resurrected after a
-                // parent folder rename — update path and mark active, tags survive
                 updateFilePath(hash, file.relativePath, file.filename, mtime);
                 setFileStatus(hash, "active");
+                await ensureThumbnail(
+                    thumbDir,
+                    hash,
+                    file.absolutePath,
+                    file.filename,
+                    file.mediaType,
+                );
 
                 if (existingByHash.status === "missing") resurrected++;
                 else updated++;
+                // Content-changed file (same path, new hash, already upserted)
             } else if (
                 existingByPath &&
                 (existingByPath.mtime !== mtime || existingByPath.size !== size)
             ) {
-                // Same path, but mtime/size changed — content update
                 upsertFile({
                     content_hash: hash,
                     path: file.relativePath,
@@ -255,30 +287,66 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
                     status: "active",
                     missing_since: null,
                 });
+                await ensureThumbnail(
+                    thumbDir,
+                    hash,
+                    file.absolutePath,
+                    file.filename,
+                    file.mediaType,
+                );
                 updated++;
             }
-            // else: active, same path, same hash — skipped++ already counted above
         } catch (err) {
             console.error(`Failed to process ${file.absolutePath}:`, err);
             unsupported++;
         }
     }
 
-    // Anything not seen on disk this scan: mark missing, never hard-delete
+    // Mark missing and delete thumbnails for anything not seen on disk
     const allDbFiles = getAllFiles();
-for (const dbFile of allDbFiles) {
-    if (dbFile.status === "missing") {
-        console.log("missing record:", dbFile.path, "in scannedHashes?", scannedHashes.has(dbFile.content_hash));
+    for (const dbFile of allDbFiles) {
+        const isOnDisk = scannedHashes.has(dbFile.content_hash);
+
+        if (!isOnDisk && dbFile.status === "active") {
+            // Newly missing this scan
+            markFileMissing(dbFile.path);
+            unlink(join(thumbDir, `${dbFile.content_hash}.jpg`)).catch(
+                (err) => {
+                    if (err.code !== "ENOENT")
+                        console.error(
+                            "Failed to delete thumbnail:",
+                            dbFile.content_hash,
+                            err,
+                        );
+                },
+            );
+        } else if (!isOnDisk && dbFile.status === "missing") {
+            // Already missing from a prior scan — thumbnail may still be lingering
+            unlink(join(thumbDir, `${dbFile.content_hash}.jpg`)).catch(
+                (err) => {
+                    if (err.code !== "ENOENT")
+                        console.error(
+                            "Failed to delete stale thumbnail:",
+                            dbFile.content_hash,
+                            err,
+                        );
+                },
+            );
+        }
     }
-    if (!scannedHashes.has(dbFile.content_hash) && dbFile.status === "active") {
-        markFileMissing(dbFile.path);
-    }
-}
 
     console.log(
-        `Scan complete: ${files.length} on disk, +${added} new, ~${updated} updated, ↑${resurrected} resurrected, ${skipped} skipped, ${unsupported} failed`,
+        `Scan complete: ${files.length} on disk, +${added} new, ~${updated} updated, ` +
+            `↑${resurrected} resurrected, ${skipped} skipped, ${unsupported} failed`,
     );
-    return { scanned: files.length, added, updated, skipped, unsupported };
+    return {
+        scanned: files.length,
+        added,
+        updated,
+        skipped,
+        unsupported,
+        resurrected,
+    };
 }
 
 export function getSubfolders(rootPath: string): string[] {
@@ -290,7 +358,7 @@ export function getSubfolders(rootPath: string): string[] {
     }
 
     return entries.filter((entry) => {
-        if (entry.startsWith(".") || entry.startsWith("_")) return false;
+        if (entry.startsWith(".") || INTERNAL_NAMES.has(entry)) return false;
         try {
             return statSync(join(rootPath, entry)).isDirectory();
         } catch {
@@ -310,7 +378,7 @@ export function getFolderTree(rootPath: string): FolderNode[] {
 
         const nodes: FolderNode[] = [];
         for (const entry of entries) {
-            if (entry.startsWith(".") || entry.startsWith("_")) continue;
+            if (entry.startsWith(".") || INTERNAL_NAMES.has(entry)) continue;
             const absPath = join(dirPath, entry);
             try {
                 if (statSync(absPath).isDirectory()) {

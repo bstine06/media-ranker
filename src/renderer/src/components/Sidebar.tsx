@@ -57,7 +57,9 @@ function FolderItem({
             )}
             <button
                 onClick={() =>
-                    !isFilterable && onSelectFolder(node.relativePath)
+                    isFilterable
+                        ? onToggleFolder(node.relativePath, [node.relativePath])
+                        : onSelectFolder(node.relativePath)
                 }
                 className={`flex-1 truncate rounded-md py-1 pr-2 text-left text-sm transition-colors ${
                     !isFilterable
@@ -427,9 +429,7 @@ export default function Sidebar({
                                 />
                             )}
                             <button
-                                onClick={() =>
-                                    !isFilterable && onSelectFolder(null)
-                                }
+                                onClick={() => isFilterable ? onCheckAll() : onSelectFolder(null)}
                                 className={`flex-1 truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
                                     !isFilterable && activeFolder === null
                                         ? "text-white font-medium"
@@ -485,7 +485,7 @@ export default function Sidebar({
                 />
             </div>
 
-            {allTags.length > 0 && (
+            
                 <TagFilterSection
                     allTags={allTags}
                     activeTags={activeTags}
@@ -493,7 +493,7 @@ export default function Sidebar({
                     onToggleTag={onToggleTag}
                     onSetTagMode={onSetTagMode}
                 />
-            )}
+            
 
             <div className="shrink-0 p-3 border-t border-neutral-800">
                 <div className="flex gap-1 p-3 pb-0 shrink-0">

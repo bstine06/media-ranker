@@ -1,5 +1,9 @@
 import { useSettings } from "@renderer/contexts/SettingsContext";
-import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
+import {
+    formatFileSize,
+    toMediaUrl,
+    toThumbnailUrl,
+} from "@renderer/lib/media";
 import { DbFile } from "@renderer/shared/types/types";
 import React, {
     useCallback,
@@ -11,6 +15,8 @@ import React, {
 import { TagPanel } from "./FileView";
 import { MediaPlayer } from "./MediaPlayer";
 import { mergeRefs } from "@renderer/lib/refs";
+import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
+import { FolderIcon } from "./icons/FolderIcon";
 
 const preloadCache = new Map<string, HTMLImageElement>();
 
@@ -26,7 +32,7 @@ function preloadImage(url: string): Promise<void> {
 
 const MediaSlide = React.forwardRef<
     HTMLVideoElement,
-    { file: DbFile; rootPath: string, disabled: boolean }
+    { file: DbFile; rootPath: string; disabled: boolean }
 >(({ file, rootPath, disabled }, ref) => {
     const localRef = useRef<HTMLVideoElement>(null);
     const handleClick = useCallback(() => {
@@ -35,17 +41,17 @@ const MediaSlide = React.forwardRef<
             : localRef.current!.pause();
     }, []);
     return (
-    <div className="relative flex h-full w-full flex-col bg-black">
-        <MediaPlayer
-            file={file}
-            rootPath={rootPath}
-            muted={false}
-            className="h-full w-full"
-            onClick={handleClick}
-            disabled={disabled}
-        />
-    </div>
-    )
+        <div className="relative flex h-full w-full flex-col bg-black">
+            <MediaPlayer
+                file={file}
+                rootPath={rootPath}
+                muted={false}
+                className="h-full w-full"
+                onClick={handleClick}
+                disabled={disabled}
+            />
+        </div>
+    );
 });
 
 // ── Main view ────────────────────────────────────────────────────────────────
@@ -74,6 +80,10 @@ export default function ScrollView({
     // "up" | "down" — which direction the slide is animating out
     const [slideDir, setSlideDir] = useState<"up" | "down">("down");
 
+    const [folderProfileHash, setFolderProfileHash] = useState<string | null>(
+        null,
+    );
+
     const prefetchRef = useRef<DbFile | null>(null);
     // gate: ignore navigate calls while animation is in flight
     const lockedRef = useRef(false);
@@ -84,6 +94,35 @@ export default function ScrollView({
     );
 
     const { scrollTime } = useSettings();
+
+    const currentFolder = history[cursor]?.path.split("/")[0] ?? null;
+
+    const folderPrefixesRef = useRef(folderPrefixes);
+    const activeTagsRef = useRef(activeTags);
+    const tagModeRef = useRef(tagMode);
+
+    useEffect(() => {
+        folderPrefixesRef.current = folderPrefixes;
+    }, [folderPrefixes]);
+    useEffect(() => {
+        activeTagsRef.current = activeTags;
+    }, [activeTags]);
+    useEffect(() => {
+        tagModeRef.current = tagMode;
+    }, [tagMode]);
+
+    useEffect(() => {
+        if (!currentFolder) return;
+        const load = async () => {
+            try {
+                const raw = await window.api.readFolderMetadata(currentFolder);
+                setFolderProfileHash(raw.profileImage ?? null);
+            } catch {
+                setFolderProfileHash(null);
+            }
+        };
+        load();
+    }, [currentFolder]);
 
     // ── Slide state — track both current and previous for overlap transition ─────
     const [prevCursor, setPrevCursor] = useState<number | null>(null);
@@ -118,19 +157,20 @@ export default function ScrollView({
 
     const fetchOne = useCallback(
         async (exclude: DbFile[] = []): Promise<DbFile | null> => {
-            const tagList = activeTags.size > 0 ? [...activeTags] : null;
+            const tags = activeTagsRef.current;
+            const tagList = tags.size > 0 ? [...tags] : null;
             const excludeIds = exclude.map((f) => f.id);
             let file = await window.api.getRandomFile(
-                folderPrefixes,
+                folderPrefixesRef.current,
                 tagList,
-                tagMode,
+                tagModeRef.current,
                 excludeIds,
             );
             if (!file) {
                 file = await window.api.getRandomFile(
-                    folderPrefixes,
+                    folderPrefixesRef.current,
                     tagList,
-                    tagMode,
+                    tagModeRef.current,
                     [],
                 );
             }
@@ -139,8 +179,85 @@ export default function ScrollView({
             }
             return file;
         },
-        [folderPrefixes, rootPath, tagKey, tagMode],
+        [rootPath], // rootPath is the only thing that should trigger a real reset
     );
+
+    const fetchOneRef = useRef(fetchOne);
+    useEffect(() => {
+        fetchOneRef.current = fetchOne;
+    }, [fetchOne]);
+
+    useEffect(() => {
+        prefetchRef.current = null;
+    }, [tagKey, tagMode, folderPrefixes]);
+
+    // ── initial load ──────────────────────────────────────────────────────────
+
+    // Hard reset only when rootPath changes (or on mount)
+    useEffect(() => {
+        setLoading(true);
+        prefetchRef.current = null;
+        setHistory([]);
+        setCursor(0);
+
+        fetchOne([]).then((file) => {
+            if (!file) {
+                setLoading(false);
+                return;
+            }
+            setSlotFiles([file, null]);
+            setSlotTransforms(["translateY(0)", "translateY(100%)"]);
+            setSlotTransitions(["none", "none"]);
+            setFrontSlot(0);
+            setCursor(0);
+            setHistory([file]);
+            setLoading(false);
+            fetchOne([file]).then((f) => {
+                prefetchRef.current = f;
+            });
+        });
+    }, [rootPath]); // ← only hard reset on rootPath change
+
+    // Soft reset on filter changes — just bust the prefetch cache
+    useEffect(() => {
+        prefetchRef.current = null;
+    }, [folderPrefixes, tagKey, tagMode]);
+
+    const hasNoFiles = !loading && history.length === 0;
+
+    // watch for the "no files" state and re-trigger the bootstrap 
+    // when filters change, only in this specific case
+    useEffect(() => {
+        if (!hasNoFiles) return;
+        prefetchRef.current = null;
+
+        fetchOne([]).then((file) => {
+            if (!file) return;
+            setSlotFiles([file, null]);
+            setSlotTransforms(["translateY(0)", "translateY(100%)"]);
+            setSlotTransitions(["none", "none"]);
+            setFrontSlot(0);
+            setCursor(0);
+            setHistory([file]);
+            fetchOne([file]).then((f) => {
+                prefetchRef.current = f;
+            });
+        });
+    }, [folderPrefixes, tagKey, tagMode]);
+
+    useEffect(() => {
+    const unsub = window.api.onMediaRenamed(({ oldRelativePath, relativePath }) => {
+        if (prefetchRef.current?.path === oldRelativePath) {
+            prefetchRef.current = {
+                ...prefetchRef.current,
+                path: relativePath,
+                filename: relativePath.split("/").pop() ?? prefetchRef.current.filename,
+            };
+        }
+    });
+    return () => unsub();
+}, []);
+
 
     // ── navigation ────────────────────────────────────────────────────────────
 
@@ -165,8 +282,8 @@ export default function ScrollView({
                     const isDupe =
                         candidate && history.some((f) => f.id === candidate.id);
                     const next = isDupe
-                        ? await fetchOne(history)
-                        : (candidate ?? (await fetchOne(history)));
+                        ? await fetchOneRef.current(history)
+                        : (candidate ?? (await fetchOneRef.current(history)));
                     if (!next) {
                         lockedRef.current = false;
                         return;
@@ -174,7 +291,7 @@ export default function ScrollView({
                     nextHistory = [...history, next];
                     nextCursor = nextHistory.length - 1;
                     setHistory(nextHistory);
-                    fetchOne(nextHistory).then((f) => {
+                    fetchOneRef.current(nextHistory).then((f) => {
                         prefetchRef.current = f;
                     });
                 }
@@ -227,7 +344,7 @@ export default function ScrollView({
                 });
             });
         },
-        [cursor, history, frontSlot, fetchOne],
+        [cursor, history, frontSlot],
     );
 
     const wheelLatchRef = useRef(false);
@@ -298,41 +415,15 @@ export default function ScrollView({
         return () => window.removeEventListener("keydown", onKey);
     }, [active, navigate]);
 
-    // Play / pause all media when component becomes in/active 
+    // Play / pause all media when component becomes in/active
     useEffect(() => {
         if (active) {
-            console.log("scrollview active ", active)
-            videoRefs.forEach(vRef => vRef.current?.play());
+            console.log("scrollview active ", active);
+            videoRefs.forEach((vRef) => vRef.current?.play());
         } else {
-            videoRefs.forEach(vRef => vRef.current?.pause());
+            videoRefs.forEach((vRef) => vRef.current?.pause());
         }
     }, [active]);
-
-    // ── initial load ──────────────────────────────────────────────────────────
-
-    useEffect(() => {
-        setLoading(true);
-        prefetchRef.current = null;
-        setHistory([]);
-        setCursor(0);
-
-        fetchOne([]).then((file) => {
-            if (!file) {
-                setLoading(false);
-                return;
-            }
-            setSlotFiles([file, null]);
-            setSlotTransforms(["translateY(0)", "translateY(100%)"]);
-            setSlotTransitions(["none", "none"]);
-            setFrontSlot(0);
-            setCursor(0);
-            setHistory([file]);
-            setLoading(false);
-            fetchOne([file]).then((f) => {
-                prefetchRef.current = f;
-            });
-        });
-    }, [folderPrefixes, tagKey, tagMode]);
 
     // ── render ────────────────────────────────────────────────────────────────
 
@@ -367,7 +458,7 @@ export default function ScrollView({
         );
 
     return (
-        <div className="relative flex min-h-0 flex-1 group">
+        <div className="relative flex min-h-0 flex-1">
             <div className="relative flex min-h-0 flex-1 flex-col flex-[4]">
                 {/* Media area */}
                 <div
@@ -385,7 +476,7 @@ export default function ScrollView({
                             }}
                         >
                             {slotFiles[slot] && (
-                                <MediaSlide 
+                                <MediaSlide
                                     file={slotFiles[slot]!}
                                     rootPath={rootPath}
                                     ref={videoRefs[slot]}
@@ -398,7 +489,7 @@ export default function ScrollView({
 
                 {/* Nav buttons — full overlay so whole media area triggers hover */}
                 <div className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none">
-                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 duration-500 pointer-events-auto">
+                    <div className="flex flex-col gap-2 opacity-0 hover:opacity-100 duration-500 pointer-events-auto">
                         <button
                             onClick={() => navigate("up")}
                             disabled={cursor === 0}
@@ -416,7 +507,45 @@ export default function ScrollView({
                 </div>
             </div>
             <div className="w-56">
-            <TagPanel file={currentFile} />
+                {/* File info */}
+                <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
+                    <div
+                        className="cursor-pointer flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
+                        onClick={() =>
+                            onGoToFolder(currentFile.path.split("/")[0])
+                        }
+                    >
+                        {folderProfileHash ? (
+                            <ThumbnailImage
+                                contentHash={folderProfileHash}
+                                className="w-6 h-6 rounded-full shrink-0"
+                            />
+                        ) : (
+                            <div className="bg-neutral-700 rounded-full shrink-0">
+                                <FolderIcon className="w-4 h-4 m-1 text-neutral-500" />
+                            </div>
+                        )}
+                        <span
+                            className="text-neutral-400 text-sm truncate"
+                            title={currentFile?.path}
+                        >
+                            {currentFile?.path?.split("/")[0] ?? "—"}
+                        </span>
+                    </div>
+                    <span
+                        className="text-neutral-200 font-medium break-all"
+                        title={currentFile?.filename}
+                        style={{ overflowWrap: "break-word", hyphens: "none" }}
+                    >
+                        {currentFile?.filename ?? "—"}
+                    </span>
+                    <span className="text-neutral-500 text-xs">
+                        {currentFile?.size != null
+                            ? formatFileSize(currentFile.size)
+                            : "—"}
+                    </span>
+                </div>
+                <TagPanel file={currentFile} />
             </div>
         </div>
     );

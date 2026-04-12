@@ -48,7 +48,7 @@ export function getWeightedPair(
 ): [DbFile, DbFile] | null {
   const db = getDb()
 
-  const conditions: string[] = []
+  const conditions: string[] = [`f.status = 'active'`];
   const params: unknown[] = []
 
   if (folderPrefixes && folderPrefixes.length > 0) {

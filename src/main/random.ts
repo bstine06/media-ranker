@@ -9,7 +9,7 @@ export function getRandomFile(
 ): DbFile | null {
     const db = getDb();
 
-    const conditions: string[] = [];
+    const conditions: string[] = [`f.status = 'active'`];
     const params: unknown[] = [];
 
     if (excludeIds.length > 0) {

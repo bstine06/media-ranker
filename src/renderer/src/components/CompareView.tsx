@@ -409,7 +409,7 @@ function CompareCard({
                     className="shrink-0 rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
                     onClick={() =>
                         onGoToFolder(
-                            file.path.split("/").slice(0, -1).join("/"),
+                            file.path.split("/")[0],
                         )
                     }
                 >

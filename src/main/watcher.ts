@@ -22,7 +22,9 @@ import {
     ensureDir,
     hashFile,
 } from "./scanner";
-import { saveRootPath } from "./config";
+import { saveRootPath, INTERNAL_NAMES } from "./config";
+import { unlink } from "fs/promises";
+import { pendingAppRenames } from "./index";
 
 const RENAME_WINDOW_MS = 2000;
 const watchers = new Map<string, FSWatcher>();
@@ -128,7 +130,11 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         ignored: (filePath: string) => {
             if (ignoredPaths.has(filePath)) return true;
             const seg = filePath.replace(rootPath, "").split(/[\\/]/);
-            return seg.some((s) => s.startsWith(".") || s.startsWith("_"));
+            // Ignore dot-files/folders (system files, .DS_Store, .git, etc.)
+            if (seg.some((s) => s.startsWith("."))) return true;
+            // Ignore only known internal app paths, not all underscore-prefixed names
+            if (seg.some((s) => INTERNAL_NAMES.has(s))) return true;
+            return false;
         },
         persistent: true,
         ignoreInitial: true,
@@ -266,10 +272,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         const relativePath = relative(rootPath, filePath);
         const record = getFileByPathAny(relativePath);
 
-        if (!record) {
-            return;
-        }
-
+        if (!record) return;
         if (record.status === "missing") return;
 
         // ── Case 1: add fired first (macOS) ─────────────────────────────────
@@ -293,13 +296,26 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         }
 
         // ── Case 2: unlink fires first (Windows/Linux) ──────────────────────
+        const { content_hash } = record;
         const timer = setTimeout(() => {
-            pendingUnlinks.delete(record.content_hash);
+            pendingUnlinks.delete(content_hash);
             markFileMissing(relativePath);
+
+            // Delete thumbnail — best effort, fire and forget
+            unlink(join(thumbDir, `${content_hash}.jpg`)).catch((err) => {
+                if (err.code !== "ENOENT") {
+                    console.error(
+                        "Failed to delete thumbnail:",
+                        content_hash,
+                        err,
+                    );
+                }
+            });
+
             win.webContents.send("media:removed", { relativePath });
         }, RENAME_WINDOW_MS);
 
-        pendingUnlinks.set(record.content_hash, { relativePath, timer });
+        pendingUnlinks.set(content_hash, { relativePath, timer });
     });
 
     // ── Folder removed ────────────────────────────────────────────────────────
@@ -310,6 +326,11 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         if (oldRelativeDir === "") {
             saveRootPath(null);
             win.webContents.send("library:invalid");
+            return;
+        }
+
+        if (pendingAppRenames.has(dirPath)) {
+            pendingAppRenames.delete(dirPath);
             return;
         }
 
@@ -332,6 +353,17 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
             const affected = getFilesByPathPrefix(oldRelativeDir);
             for (const record of affected) {
                 markFileMissing(record.path);
+                unlink(join(thumbDir, `${record.content_hash}.jpg`)).catch(
+                    (err) => {
+                        if (err.code !== "ENOENT") {
+                            console.error(
+                                "Failed to delete thumbnail:",
+                                record.content_hash,
+                                err,
+                            );
+                        }
+                    },
+                );
                 win.webContents.send("media:removed", {
                     relativePath: record.path,
                 });
@@ -350,6 +382,12 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
 
         // Ignore the root itself which fires on watcher init.
         if (newRelativeDir === "") return;
+
+        // Bail early if this is a rename from the app, managed at the ipc handler
+        if (pendingAppRenames.has(dirPath)) {
+            pendingAppRenames.delete(dirPath);
+            return; // IPC handler already took care of it
+        }
 
         const dirName = basename(dirPath);
 

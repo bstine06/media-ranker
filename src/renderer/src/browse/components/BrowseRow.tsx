@@ -11,11 +11,13 @@ export default function BrowseRow({
     rank,
     rootPath,
     onClick,
+    isSelected = false,
 }: {
     file: DbFile;
     rank: number | null;
     rootPath: string;
     onClick: () => void;
+    isSelected?: boolean;
 }): JSX.Element {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
     const fullUrl = toMediaUrl(rootPath, file.path);
@@ -47,12 +49,14 @@ export default function BrowseRow({
     return (
         <>
             <div
-                ref={elementRef as React.RefObject<HTMLDivElement>}
-                className="flex items-center gap-4 border-b border-neutral-800/50 px-5 py-3 transition-colors cursor-default border-l-2 border-l-transparent hover:border-l-neutral-600 hover:bg-neutral-900/50"
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-                onClick={onClick}
-            >
+    ref={elementRef as React.RefObject<HTMLDivElement>}
+    className={`relative flex items-center gap-4 border-b border-neutral-800/50 px-5 py-3 transition-colors cursor-default border-l-2 hover:bg-neutral-900/50 ${
+        isSelected
+            ? "border-l-blue-500 bg-blue-500/10"
+            : "border-l-transparent hover:border-l-neutral-600"
+    }`}
+    onClick={onClick}
+>
                 {rank !== null && (
                     <span
                         className={`w-8 shrink-0 text-right text-sm font-bold tabular-nums ${rankColor}`}
@@ -61,7 +65,11 @@ export default function BrowseRow({
                     </span>
                 )}
 
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-neutral-800">
+                <div
+                    className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-neutral-800"
+                    onMouseEnter={handleMouseEnter}
+                    onMouseLeave={handleMouseLeave}
+                >
                     {thumbUrl ? (
                         <img
                             src={thumbUrl}
@@ -73,6 +81,13 @@ export default function BrowseRow({
                             {file.media_type === "video" ? "▶" : "?"}
                         </div>
                     )}
+                    {isSelected && (
+    <div className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
+        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+        </svg>
+    </div>
+)}
                 </div>
 
                 <div className="flex flex-1 flex-col min-w-0">

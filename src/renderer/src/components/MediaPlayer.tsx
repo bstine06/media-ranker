@@ -51,7 +51,6 @@ export function MediaPlayer({
         setThumbUrl(null);
         setFullLoaded(false);
         setCurrentTime(0);
-        setDuration(0);
         window.api.getThumbnailPath(file.content_hash).then((absPath) => {
             if (absPath) setThumbUrl(toThumbnailUrl(absPath));
         });
@@ -108,9 +107,16 @@ export function MediaPlayer({
         [],
     );
 
+    // Add this helper above the component (or inside it):
+    function formatTime(seconds: number): string {
+        const s = Math.floor(seconds);
+        const m = Math.floor(s / 60);
+        return `${m}:${String(s % 60).padStart(2, "0")}`;
+    }
+
     return (
         <div
-            className={`relative overflow-hidden bg-neutral-900 cursor-pointer select-none ${className}`}
+            className={`relative overflow-hidden bg-black cursor-pointer select-none ${className}`}
             onMouseMove={handleMouseMove}
             onClick={handleClick}
         >
@@ -125,8 +131,8 @@ export function MediaPlayer({
                     playsInline
                     autoPlay={!disabled}
                     onLoadedMetadata={() => {
-                        if (videoRef.current)
-                            setDuration(videoRef.current.duration);
+                        const d = videoRef.current?.duration;
+                        if (d && isFinite(d)) setDuration(d);
                     }}
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
@@ -181,7 +187,8 @@ export function MediaPlayer({
                             onChange={handleScrubChange}
                             onMouseDown={(e) => {
                                 e.stopPropagation();
-                                wasPlayingRef.current = !videoRef.current?.paused;
+                                wasPlayingRef.current =
+                                    !videoRef.current?.paused;
                                 setScrubbing(true);
                                 videoRef.current?.pause();
                             }}
@@ -202,6 +209,12 @@ export function MediaPlayer({
                     >
                         {playing ? "⏸" : "▶"}
                     </button>
+                    <span
+                        className="relative mb-1.5 ml-auto mr-2 text-white/0 group-hover/controls:text-white/60 transition-colors tabular-nums"
+                        style={{ fontSize: "10px" }}
+                    >
+                        {formatTime(currentTime)} / {formatTime(duration)}
+                    </span>
                 </div>
             )}
         </div>

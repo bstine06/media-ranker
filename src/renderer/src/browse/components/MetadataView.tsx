@@ -50,8 +50,10 @@ export default function MetadataView({
     }, [editing]);
 
     const handleSave = () => {
+        const existingMetadata = folderMetadata ?? {}
         onSave(
             {
+                ...existingMetadata,
                 profileImage: draftProfileImage,
                 fields: draftFields
                     ? draftFields.filter((f) => f.key.trim() || f.value.trim())

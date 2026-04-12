@@ -27,6 +27,7 @@ import {
     getMissingFiles,
     reconcileMissingFiles,
     getAllActiveFiles,
+    getFilesByPathPrefix,
 } from "./db";
 import type { DbFile } from "./db";
 import {
@@ -56,6 +57,8 @@ import { loadSavedRootPath, saveRootPath } from "./config";
 let rootPath: string | null = null;
 
 const renameAsync = promisify(rename);
+
+export const pendingAppRenames = new Set<string>();
 
 function registerIpcHandlers(): void {
     // ── Utility ──────────────────────────────────────────────────────────────
@@ -161,6 +164,7 @@ function registerIpcHandlers(): void {
         "rename-folder",
         async (_event, oldRelPath: string, newName: string) => {
             if (!rootPath) return { ok: false, error: "No library open" };
+            const win = BrowserWindow.getAllWindows()[0];
 
             const parentDir = path.dirname(oldRelPath);
             const newRelPath =
@@ -168,7 +172,6 @@ function registerIpcHandlers(): void {
             const oldAbsPath = path.join(rootPath, oldRelPath);
             const newAbsPath = path.join(rootPath, newRelPath);
 
-            // Conflict check — refuse if sibling with that name already exists
             if (
                 existsSync(newAbsPath) &&
                 oldAbsPath.toLowerCase() !== newAbsPath.toLowerCase()
@@ -180,10 +183,38 @@ function registerIpcHandlers(): void {
             }
 
             try {
+                // Grab affected records BEFORE rewriting the DB
+                const affected = getFilesByPathPrefix(oldRelPath);
+
+                ignoredPaths.add(oldAbsPath);
+                ignoredPaths.add(newAbsPath);
+                pendingAppRenames.add(newAbsPath);
                 await renameAsync(oldAbsPath, newAbsPath);
+                ignoredPaths.delete(oldAbsPath);
+                ignoredPaths.delete(newAbsPath);
+
                 renameFolderPaths(oldRelPath, newRelPath);
+
+                // Emit exactly what commitFolderRename would have emitted
+                for (const record of affected) {
+                    const newFilePath =
+                        newRelPath + record.path.slice(oldRelPath.length);
+                    win.webContents.send("media:renamed", {
+                        oldRelativePath: record.path,
+                        relativePath: newFilePath,
+                        hash: record.content_hash,
+                        mediaType: record.media_type,
+                    });
+                }
+                win.webContents.send("folder:renamed", {
+                    oldRelativePath: oldRelPath,
+                    relativePath: newRelPath,
+                });
+
                 return { ok: true, newRelPath };
             } catch (err: any) {
+                ignoredPaths.delete(oldAbsPath);
+                ignoredPaths.delete(newAbsPath);
                 return { ok: false, error: err.message };
             }
         },
