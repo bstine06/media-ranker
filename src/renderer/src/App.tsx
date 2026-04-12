@@ -139,7 +139,7 @@ export default function App(): JSX.Element {
     }, [volume]);
 
     const loadFolder = useCallback(
-        async (folder: string | null, root: string) => {
+        async (folder: string | null) => {
             setActiveFolder(folder);
             const result = folder
                 ? await window.api.getFilesInFolder(folder)
@@ -176,7 +176,7 @@ export default function App(): JSX.Element {
             const folders = await window.api.getSubfolders();
             setSubfolders(folders);
             setCheckedFolders(new Set(getAllPaths(folders)));
-            await loadFolder(activeFolder, path);
+            await loadFolder(activeFolder);
             const tags = await window.api.getAllTags();
             setAllTags(tags);
             resetStatus();
@@ -194,7 +194,7 @@ export default function App(): JSX.Element {
                     .slice(0, -1)
                     .join("/");
                 if (activeFolder && folderPath !== activeFolder) return;
-                if (rootPath) loadFolder(activeFolder, rootPath); // still reload for adds — need full DbFile
+                if (rootPath) loadFolder(activeFolder); // still reload for adds — need full DbFile
             },
         );
 
@@ -247,7 +247,7 @@ export default function App(): JSX.Element {
                 );
                 if (activeFolder === relativePath) {
                     setActiveFolder(null); // or wherever you send users when active folder disappears
-                    if (rootPath) loadFolder(null, rootPath);
+                    if (rootPath) loadFolder(null);
                 }
             },
         );
@@ -408,9 +408,9 @@ export default function App(): JSX.Element {
         });
     };
 
-    const handleGoToFolder = (folderPath: string) => {
-        setActiveFolder(folderPath);
+    const handleGoToFolder = (folder: string) => {
         setView("browse");
+        loadFolder(folder);
     };
 
     // Apply tag filter on top of whatever files BrowseView already receives
@@ -441,7 +441,7 @@ export default function App(): JSX.Element {
                     checkedFolders={checkedFolders}
                     onSelectFolder={(folder) => {
                         setView("browse");
-                        loadFolder(folder, rootPath);
+                        loadFolder(folder);
                     }}
                     onToggleFolder={handleToggleFolder}
                     onCheckAll={handleCheckAll}

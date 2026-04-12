@@ -512,7 +512,10 @@ export default function ScrollView({
                     <div
                         className="cursor-pointer flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
                         onClick={() =>
-                            onGoToFolder(currentFile.path.split("/")[0])
+                            {const folderName = currentFile.path.split("/")[0];
+                            console.log(folderName)
+                            onGoToFolder(folderName)
+                            }
                         }
                     >
                         {folderProfileHash ? (
