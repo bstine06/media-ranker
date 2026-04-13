@@ -81,14 +81,14 @@ export default function HoverPreview({
 
       {/* Preview container */}
       <div
-        className="fixed z-50 rounded-xl shadow-2xl border border-neutral-700 bg-neutral-900"
+        className="fixed z-50 shadow-2xl border border-neutral-700 bg-neutral-900"
         style={{
           left: x,
           top: y,
           width,
           height,
           opacity: ready ? 1 : 0,
-          transition: 'opacity 0.2s ease',
+          transition: 'opacity 0.1s ease',
           pointerEvents: 'none',
           overflow: 'hidden',
         }}

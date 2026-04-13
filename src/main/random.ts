@@ -3,7 +3,7 @@ import type { DbFile } from "./db";
 
 export function getRandomFile(
     folderPrefixes: string[] | null,
-    tagList: string[] | null,
+    tagList: number[] | null,
     tagMode: "and" | "or" = "or",
     excludeIds: number[] = [],
 ): DbFile | null {
@@ -30,19 +30,22 @@ export function getRandomFile(
         if (tagMode === "or") {
             const placeholders = tagList.map(() => "?").join(", ");
             conditions.push(`
-        f.id IN (
-          SELECT file_id FROM tags
-          WHERE tag IN (${placeholders})
-        )
-      `);
+    f.id IN (
+        SELECT ft.file_id FROM file_tags ft
+        JOIN tags t ON t.id = ft.tag_id
+        WHERE t.id IN (${placeholders})
+    )
+`);
             params.push(...tagList);
         } else {
             tagList.forEach((tag) => {
                 conditions.push(`
-          f.id IN (
-            SELECT file_id FROM tags WHERE tag = ?
-          )
-        `);
+        f.id IN (
+            SELECT ft.file_id FROM file_tags ft
+            JOIN tags t ON t.id = ft.tag_id
+            WHERE t.id = ?
+        )
+    `);
                 params.push(tag);
             });
         }

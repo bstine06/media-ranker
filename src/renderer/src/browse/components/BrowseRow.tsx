@@ -5,22 +5,23 @@ import { useEffect, useState } from "react";
 import { useHoverPreview } from "../hooks/useHoverPreview";
 import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
 import { DbFile } from "@renderer/shared/types/types";
+import { useFolders } from "@renderer/contexts/FolderContext";
 
 export default function BrowseRow({
     file,
-    rank,
     rootPath,
+    rank,
     onClick,
     isSelected = false,
 }: {
     file: DbFile;
-    rank: number | null;
     rootPath: string;
+    rank: number | null;
     onClick: () => void;
     isSelected?: boolean;
 }): JSX.Element {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
-    const fullUrl = toMediaUrl(rootPath, file.path);
+    const fullUrl = toMediaUrl(rootPath!, file.path);
 
     const {
         elementRef,

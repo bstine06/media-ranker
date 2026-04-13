@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import type { DbFile, FolderNode } from "../shared/types/types";
+import type { DbFile, DbTag, FolderNode } from "../shared/types/types";
 import NavItem from "./NavItem";
 import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
-import { FolderMetadata } from "@renderer/browse/types/browserTypes";
 import { FolderIcon } from "./icons/FolderIcon";
+import { useFolders } from "@renderer/contexts/FolderContext";
+import { useTags } from "@renderer/contexts/TagsContext";
 
-type View = "browse" | "compare" | "file" | "scroll";
+type View = "browse" | "compare" | "file" | "scroll" |"browse-scroll";
 
 function FolderItem({
     node,
@@ -16,6 +17,7 @@ function FolderItem({
     checkedFolders,
     onSelectFolder,
     onToggleFolder,
+    folderMetaVersion,
 }: {
     node: FolderNode;
     activeFolder: string | null;
@@ -23,6 +25,7 @@ function FolderItem({
     checkedFolders: Set<string>;
     onSelectFolder: (relativePath: string) => void;
     onToggleFolder: (relativePath: string, allPaths: string[]) => void;
+    folderMetaVersion: number;
 }): JSX.Element {
     const isActive = activeFolder === node.relativePath;
     const isChecked = checkedFolders.has(node.relativePath);
@@ -30,16 +33,16 @@ function FolderItem({
     const [profileImageHash, setProfileImageHash] = useState<string | null>();
 
     useEffect(() => {
-        const load = async () => {
-            try {
-                const raw = await window.api.readFolderMetadata(node.name);
-                setProfileImageHash(raw.profileImage ?? null);
-            } catch {
-                setProfileImageHash(null);
-            }
-        };
-        load();
-    }, [node]);
+    const load = async () => {
+        try {
+            const folder = await window.api.getFolder(node.relativePath);
+            setProfileImageHash(folder?.profile_image_hash ?? null);
+        } catch {
+            setProfileImageHash(null);
+        }
+    };
+    load();
+}, [node, folderMetaVersion]);
 
     return (
         <div className="flex items-center pr-4 hover:bg-neutral-800 transition-colors">
@@ -90,23 +93,16 @@ function FolderItem({
 }
 
 function TagFilterSection({
-    allTags,
-    activeTags,
-    tagMode,
-    onToggleTag,
-    onSetTagMode,
 }: {
-    allTags: string[];
-    activeTags: Set<string>;
-    tagMode: "and" | "or";
-    onToggleTag: (tag: string) => void;
-    onSetTagMode: (mode: "and" | "or") => void;
 }): JSX.Element {
     const [search, setSearch] = useState("");
     const [focused, setFocused] = useState(false);
+    const { allTags, activeTags, tagMode, toggleTag, setTagMode } = useTags();
 
     const suggestions = search.trim()
-        ? allTags.filter((t) => t.toLowerCase().includes(search.toLowerCase()))
+        ? allTags.filter((t) =>
+              t.name.toLowerCase().includes(search.toLowerCase()),
+          )
         : [];
 
     return (
@@ -118,7 +114,7 @@ function TagFilterSection({
                 {activeTags.size >= 2 && (
                     <button
                         onClick={() =>
-                            onSetTagMode(tagMode === "and" ? "or" : "and")
+                            setTagMode(tagMode === "and" ? "or" : "and")
                         }
                         className="text-[10px] rounded px-1.5 py-0.5 bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
                     >
@@ -129,18 +125,22 @@ function TagFilterSection({
 
             {activeTags.size > 0 && (
                 <div className="flex flex-wrap gap-1 mb-1.5">
-                    {[...activeTags].map((tag) => (
-                        <button
-                            key={tag}
-                            onClick={() => onToggleTag(tag)}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900 text-xs"
-                        >
-                            {tag}
-                            <span className="opacity-50 hover:opacity-100">
-                                ×
-                            </span>
-                        </button>
-                    ))}
+                    {[...activeTags].map((tagId) => {
+                        const tag = allTags.find((t) => t.id === tagId);
+                        if (!tag) return null;
+                        return (
+                            <button
+                                key={tag.id}
+                                onClick={() => toggleTag(tag)}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900 text-xs"
+                            >
+                                {tag.name}
+                                <span className="opacity-50 hover:opacity-100">
+                                    ×
+                                </span>
+                            </button>
+                        );
+                    })}
                 </div>
             )}
 
@@ -158,18 +158,18 @@ function TagFilterSection({
                     <div className="absolute left-0 right-0 top-full mt-1 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg max-h-40 overflow-y-auto">
                         {suggestions.slice(0, 20).map((tag) => (
                             <button
-                                key={tag}
+                                key={tag.id}
                                 onMouseDown={() => {
-                                    onToggleTag(tag);
+                                    toggleTag(tag);
                                     setSearch("");
                                 }}
                                 className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                                    activeTags.has(tag)
+                                    activeTags.has(tag.id)
                                         ? "text-white bg-neutral-700"
                                         : "text-neutral-300 hover:bg-neutral-800"
                                 }`}
                             >
-                                {tag}
+                                {tag.name}
                             </button>
                         ))}
                     </div>
@@ -186,7 +186,9 @@ function SettingsSection(): JSX.Element {
         volume,
         handleVolumeChange,
         scrollTime,
-        handleScrollTimeChange
+        handleScrollTimeChange,
+        tileSize,
+        handleTileSizeChange
     } = useSettings();
     const [open, setOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -231,8 +233,27 @@ function SettingsSection(): JSX.Element {
                         </button>
                     </div>
 
-                    <SliderInput name="volume" min={0} max={100} value={volume} onChange={handleVolumeChange}/>
-                    <SliderInput name="scroll time" min={0} max={2000} value={scrollTime} onChange={handleScrollTimeChange}/>
+                    <SliderInput
+                        name="volume"
+                        min={0}
+                        max={100}
+                        value={volume}
+                        onChange={handleVolumeChange}
+                    />
+                    <SliderInput
+                        name="scroll time"
+                        min={0}
+                        max={2000}
+                        value={scrollTime}
+                        onChange={handleScrollTimeChange}
+                    />
+                    <SliderInput
+                        name="tile size"
+                        min={100}
+                        max={300}
+                        value={tileSize}
+                        onChange={handleTileSizeChange}
+                    />
                 </div>
             )}
         </div>
@@ -240,130 +261,89 @@ function SettingsSection(): JSX.Element {
 }
 
 function SliderInput({
-    name,
-    min,
-    max,
-    value,
-    unit,
-    onChange
+    name, min, max, value, unit, onChange,
 }: {
-    name: string,
-    min: number,
-    max: number,
-    value: number,
-    unit?: string,
+    name: string;
+    min: number;
+    max: number;
+    value: number;
+    unit?: string;
     onChange: (newValue: number) => void;
 }): JSX.Element {
-
     const factor = 100 / (max - min);
-    const offset = min;
 
     return (
-        
         <div className="flex items-center justify-between py-2">
-                        <p className="text-xs text-neutral-500">{name}</p>
-                        <div className="flex items-center gap-2">
-                            <div
-                                className="relative w-24 h-1 bg-neutral-700 rounded cursor-pointer"
-                                onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    const el = e.currentTarget;
-                                    const calc = (clientX: number) => {
-                                        const rect = el.getBoundingClientRect();
-                                        const pct = Math.min(
-                                            max,
-                                            Math.max(
-                                                min,
-                                                Math.round(
-                                                    ((clientX - rect.left) /
-                                                        rect.width) *
-                                                        100 / factor,
-                                                ),
-                                            ),
-                                        );
-                                        onChange(pct);
-                                    };
-                                    calc(e.clientX);
-                                    const onMove = (e: MouseEvent) =>
-                                        calc(e.clientX);
-                                    const onUp = () => {
-                                        document.removeEventListener(
-                                            "mousemove",
-                                            onMove,
-                                        );
-                                        document.removeEventListener(
-                                            "mouseup",
-                                            onUp,
-                                        );
-                                    };
-                                    document.addEventListener(
-                                        "mousemove",
-                                        onMove,
-                                    );
-                                    document.addEventListener("mouseup", onUp);
-                                }}
-                            >
-                                <div
-                                    className="absolute inset-y-0 left-0 bg-neutral-300 rounded"
-                                    style={{ width: `${(value * factor) + offset}%` }}
-                                />
-                            </div>
-                            <span className="text-xs text-neutral-500 w-7 text-right tabular-nums">
-                                {value + (unit??"")}
-                            </span>
-                        </div>
-                    </div>
-    )
+            <p className="text-xs text-neutral-500">{name}</p>
+            <div className="flex items-center gap-2">
+                <div
+                    className="relative w-24 h-1 bg-neutral-700 rounded cursor-pointer"
+                    onMouseDown={(e) => {
+                        e.preventDefault();
+                        const el = e.currentTarget;
+                        const calc = (clientX: number) => {
+                            const rect = el.getBoundingClientRect();
+                            const val = Math.min(
+                                max,
+                                Math.max(
+                                    min,
+                                    Math.round(
+                                        ((clientX - rect.left) / rect.width) * (max - min) + min
+                                    ),
+                                ),
+                            );
+                            onChange(val);
+                        };
+                        calc(e.clientX);
+                        const onMove = (e: MouseEvent) => calc(e.clientX);
+                        const onUp = () => {
+                            document.removeEventListener("mousemove", onMove);
+                            document.removeEventListener("mouseup", onUp);
+                        };
+                        document.addEventListener("mousemove", onMove);
+                        document.addEventListener("mouseup", onUp);
+                    }}
+                >
+                    <div
+                        className="absolute inset-y-0 left-0 bg-neutral-300 rounded"
+                        style={{ width: `${(value - min) * factor}%` }}
+                    />
+                </div>
+                <span className="text-xs text-neutral-500 w-7 text-right tabular-nums">
+                    {value}{unit ?? ""}
+                </span>
+            </div>
+        </div>
+    );
 }
 
 export default function Sidebar({
-    rootPath,
     view,
     setView,
-    subfolders,
-    activeFolder,
-    checkedFolders,
-    onSelectFolder,
-    onToggleFolder,
-    onCheckAll,
     onChangeLibrary,
     onRescanLibrary,
-    allTags,
-    activeTags,
-    tagMode,
-    onToggleTag,
-    onSetTagMode,
+    folderMetaVersion
 }: {
-    rootPath: string;
     view: View;
     setView: (v: View) => void;
-    subfolders: FolderNode[];
-    activeFolder: string | null;
-    checkedFolders: Set<string>;
-    onSelectFolder: (folder: string | null) => void;
-    onToggleFolder: (relativePath: string, allPaths: string[]) => void;
-    onCheckAll: () => void;
     onChangeLibrary: () => void;
     onRescanLibrary: () => void;
-    allTags: string[];
-    activeTags: Set<string>;
-    tagMode: "and" | "or";
-    onToggleTag: (tag: string) => void;
-    onSetTagMode: (mode: "and" | "or") => void;
+    folderMetaVersion: number;
 }): JSX.Element {
     const [search, setSearch] = useState("");
     const { status } = useStatus();
+    const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder } = useFolders();
 
-    const isFilterable = view !== "browse";
+    const isFilterable = !view.startsWith("browse");
     const isSearching = search.trim().length > 0;
 
     const visibleFolders = isSearching
-        ? subfolders.filter((n) =>
+        ? folders.filter((n) =>
               n.name.toLowerCase().includes(search.trim().toLowerCase()),
           )
-        : subfolders;
+        : folders;
 
-    const allPaths = subfolders.map((n) => n.relativePath);
+    const allPaths = folders.map((n) => n.relativePath);
     const allChecked = allPaths.every((p) => checkedFolders.has(p));
     const someChecked = allPaths.some((p) => checkedFolders.has(p));
     const isIndeterminate = someChecked && !allChecked;
@@ -376,31 +356,22 @@ export default function Sidebar({
 
     return (
         <aside className="flex w-52 shrink-0 flex-col border-r border-neutral-800 bg-neutral-900 h-full">
-            {subfolders.length > 0 && (
+            {folders.length > 0 && (
                 <div className="flex flex-col flex-1 pb-3 min-h-0">
-                    <h1 className="cursor-pointer text-lg px-3 font-semibold tracking-wide text-neutral-300"
+                    <h1
+                        className="cursor-pointer text-lg px-3 font-semibold tracking-wide text-neutral-300"
                         onClick={handleShowInFolder}
-                        title={"Show in file browser"}
+                        title={"Show in Finder"}
                     >
-                        {rootPath.split("/").pop()}
+                        {rootPath!.split("/").pop()}
                     </h1>
-                    <div className="flex items-center justify-between px-3 mb-2">
-                        {isFilterable && (
-                            <button
-                                onClick={onCheckAll}
-                                className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-                            >
-                                {allChecked ? "None" : "All"}
-                            </button>
-                        )}
-                    </div>
 
-                    <div className="px-2 mb-2 flex items-center gap-1.5">
+                    <div className="px-2 my-2 flex items-center gap-1.5">
                         <input
                             type="text"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search folders…"
+                            placeholder={`Search ${folders.length} folders…`}
                             className="flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors"
                         />
                         {search && (
@@ -424,12 +395,16 @@ export default function Sidebar({
                                         if (el)
                                             el.indeterminate = isIndeterminate;
                                     }}
-                                    onChange={onCheckAll}
+                                    onChange={checkAll}
                                     className="mr-2 shrink-0 accent-white cursor-pointer"
                                 />
                             )}
                             <button
-                                onClick={() => isFilterable ? onCheckAll() : onSelectFolder(null)}
+                                onClick={() =>
+                                    isFilterable
+                                        ? checkAll()
+                                        : setActiveFolder(null)
+                                }
                                 className={`flex-1 truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
                                     !isFilterable && activeFolder === null
                                         ? "text-white font-medium"
@@ -454,8 +429,9 @@ export default function Sidebar({
                                     activeFolder={activeFolder}
                                     isFilterable={isFilterable}
                                     checkedFolders={checkedFolders}
-                                    onSelectFolder={onSelectFolder}
-                                    onToggleFolder={onToggleFolder}
+                                    onSelectFolder={() => setActiveFolder(node.name)}
+                                    onToggleFolder={toggleFolder}
+                                    folderMetaVersion={folderMetaVersion}
                                 />
                             ))
                         ) : (
@@ -485,15 +461,8 @@ export default function Sidebar({
                 />
             </div>
 
-            
-                <TagFilterSection
-                    allTags={allTags}
-                    activeTags={activeTags}
-                    tagMode={tagMode}
-                    onToggleTag={onToggleTag}
-                    onSetTagMode={onSetTagMode}
-                />
-            
+            <TagFilterSection
+            />
 
             <div className="shrink-0 p-3 border-t border-neutral-800">
                 <div className="flex gap-1 p-3 pb-0 shrink-0">

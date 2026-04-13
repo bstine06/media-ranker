@@ -1,9 +1,12 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import type { DbFile } from "../shared/types/types";
+import type { DbFile, DbTag, View } from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { useKeyboardShortcut } from "../hooks/useKeyboard";
 import { useSettings } from "../contexts/SettingsContext";
 import { MediaPlayer } from "./MediaPlayer";
+import { useTags } from "@renderer/contexts/TagsContext";
+import { useFolders } from "@renderer/contexts/FolderContext";
+import { showInFolder } from "@renderer/lib/filesystem";
 
 // Held at module level so GC doesn't collect them before decode finishes
 const preloadCache = new Map<string, HTMLImageElement>();
@@ -40,21 +43,11 @@ function formatTime(seconds: number): string {
 }
 
 export default function CompareView({
-    rootPath,
-    folderPrefixes,
     active,
-    onInspectFile,
-    activeTags,
-    tagMode,
-    onGoToFolder,
+    setView,
 }: {
-    rootPath: string;
-    folderPrefixes: string[] | null;
     active: boolean;
-    onInspectFile: (file: DbFile) => void;
-    activeTags: Set<string>;
-    tagMode: "and" | "or";
-    onGoToFolder: (folderPath: string) => void;
+    setView: (view: View) => void;
 }): JSX.Element {
     const [pair, setPair] = useState<[DbFile, DbFile] | null>(null);
     const [loading, setLoading] = useState(true);
@@ -62,6 +55,9 @@ export default function CompareView({
     const [stats, setStats] = useState({ comparisons: 0 });
     const [hoveredSide, setHoveredSide] = useState<"a" | "b" | null>(null);
     const [score, setScore] = useState(0);
+
+    const { activeTags, tagMode } = useTags();
+    const { rootPath, folderPrefixes, setActiveFolder } = useFolders();
 
     const MAX_SCORE = 3;
 
@@ -83,8 +79,8 @@ export default function CompareView({
 
         window.api.getPair(folderPrefixes, tagList, tagMode).then((next) => {
             if (next) {
-                preloadFile(rootPath, next[0]);
-                preloadFile(rootPath, next[1]);
+                preloadFile(rootPath!, next[0]);
+                preloadFile(rootPath!, next[1]);
             }
         });
     }, [folderPrefixes, rootPath, tagKey, tagMode]);
@@ -192,8 +188,6 @@ export default function CompareView({
 
     return (
         <div className="flex flex-1 flex-col overflow-hidden">
-            
-
             <div className="flex flex-col p-2 overflow-hidden flex-1 min-h-0">
                 <ScoreBar
                     score={score}
@@ -208,7 +202,8 @@ export default function CompareView({
                     }}
                     onSegmentClick={handleDown}
                 />
-                <div className="flex flex-1 overflow-hidden min-h-0"
+                <div
+                    className="flex flex-1 overflow-hidden min-h-0"
                     onMouseLeave={() => {
                         setScore(0);
                         setHoveredSide(null);
@@ -217,7 +212,7 @@ export default function CompareView({
                     <CompareCard
                         file={a}
                         side="a"
-                        rootPath={rootPath}
+                        rootPath={rootPath!}
                         disabled={comparing || !active}
                         hoveredSide={hoveredSide}
                         onScoreHover={(leader, s) => {
@@ -229,14 +224,20 @@ export default function CompareView({
                             setHoveredSide(null);
                         }}
                         onCommit={handleDown}
-                        onInspectFile={onInspectFile}
-                        onGoToFolder={onGoToFolder}
+                        onInspectFile={() => {
+                            showInFolder(rootPath!, a.path)
+                        }}
+                        onGoToFolder={() => {
+                            const folderName = a.path.split("/")[0];
+                            setActiveFolder(folderName);
+                            setView("browse");
+                        }}
                     />
                     <div className="w-8" />
                     <CompareCard
                         file={b}
                         side="b"
-                        rootPath={rootPath}
+                        rootPath={rootPath!}
                         disabled={comparing || !active}
                         hoveredSide={hoveredSide}
                         onScoreHover={(leader, s) => {
@@ -248,8 +249,14 @@ export default function CompareView({
                             setHoveredSide(null);
                         }}
                         onCommit={handleDown}
-                        onInspectFile={onInspectFile}
-                        onGoToFolder={onGoToFolder}
+                        onInspectFile={() => {
+                            showInFolder(rootPath!, b.path)
+                        }}
+                        onGoToFolder={() => {
+                            const folderName = b.path.split("/")[0];
+                            setActiveFolder(folderName);
+                            setView("browse");
+                        }}
                     />
                 </div>
             </div>
@@ -407,11 +414,7 @@ function CompareCard({
                 </div>
                 <button
                     className="shrink-0 rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
-                    onClick={() =>
-                        onGoToFolder(
-                            file.path.split("/")[0],
-                        )
-                    }
+                    onClick={() => onGoToFolder(file.path.split("/")[0])}
                 >
                     Go to folder
                 </button>
@@ -427,9 +430,9 @@ function InlineTagEditor({
     file: DbFile;
     onFocusInput?: (fn: () => void) => void;
 }): JSX.Element {
-    const [tags, setTags] = useState<string[]>([]);
+    const [tags, setTags] = useState<DbTag[]>([]);
     const [input, setInput] = useState("");
-    const [allTags, setAllTags] = useState<string[]>([]);
+    const [allTags, setAllTags] = useState<DbTag[]>([]);
     const [focused, setFocused] = useState(false);
     const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
     const [expanded, setExpanded] = useState(false);
@@ -447,14 +450,14 @@ function InlineTagEditor({
 
     // Suggestions in natural order — we reverse only at render time
     const filtered = input.trim()
-        ? allTags
-              .filter(
-                  (t) =>
-                      t.toLowerCase().includes(input.toLowerCase()) &&
-                      !tags.includes(t),
-              )
-              .slice(0, 6)
-        : [];
+    ? allTags
+          .filter(
+              (t) =>
+                  t.name.toLowerCase().includes(input.toLowerCase()) &&
+                  !tags.some((existing) => existing.id === t.id),
+          )
+          .slice(0, 6)
+    : [];
 
     // visibleSuggestions matches what's rendered: reversed (bottom = closest to input)
     const visibleSuggestions = [...filtered].reverse();
@@ -467,8 +470,7 @@ function InlineTagEditor({
         async (tag: string) => {
             const trimmed = tag.trim().toLowerCase();
             if (!trimmed) return;
-            // Duplicate: just clear input, no-op otherwise
-            if (tags.includes(trimmed)) {
+            if (tags.some((t) => t.name === trimmed)) {
                 setInput("");
                 setHighlightedIndex(-1);
                 return;
@@ -476,7 +478,9 @@ function InlineTagEditor({
             const updated = await window.api.addTag(file.id, trimmed);
             setTags(updated);
             setAllTags((prev) =>
-                prev.includes(trimmed) ? prev : [...prev, trimmed],
+                prev.some((t) => t.name === trimmed)
+                    ? prev
+                    : [...prev, updated[updated.length - 1]],
             );
             setInput("");
             setHighlightedIndex(-1);
@@ -512,7 +516,7 @@ function InlineTagEditor({
                     visibleSuggestions[highlightedIndex]
                 ) {
                     e.preventDefault();
-                    setInput(visibleSuggestions[highlightedIndex]);
+                    setInput(visibleSuggestions[highlightedIndex].name);
                     setHighlightedIndex(-1);
                 }
             } else if (e.key === "Enter" || e.key === ",") {
@@ -521,7 +525,7 @@ function InlineTagEditor({
                     highlightedIndex >= 0 &&
                     visibleSuggestions[highlightedIndex]
                 ) {
-                    addTag(visibleSuggestions[highlightedIndex]);
+                    addTag(visibleSuggestions[highlightedIndex].name);
                 } else {
                     addTag(input);
                 }
@@ -547,12 +551,12 @@ function InlineTagEditor({
             <div className="flex flex-wrap gap-1.5">
                 {visibleTags.map((tag) => (
                     <span
-                        key={tag}
+                        key={tag.id}
                         className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs"
                     >
-                        {tag}
+                        {tag.name}
                         <button
-                            onClick={() => removeTag(tag)}
+                            onClick={() => removeTag(tag.name)}
                             className="text-neutral-600 hover:text-neutral-300 transition-colors leading-none"
                         >
                             ×
@@ -583,8 +587,8 @@ function InlineTagEditor({
                     <div className="absolute left-0 right-0 bottom-full mb-1 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg">
                         {visibleSuggestions.map((tag, i) => (
                             <button
-                                key={tag}
-                                onMouseDown={() => addTag(tag)}
+                                key={tag.id}
+                                onMouseDown={() => addTag(tag.name)}
                                 onMouseEnter={() => setHighlightedIndex(i)}
                                 onMouseLeave={() => setHighlightedIndex(-1)}
                                 className={`w-full text-left px-3 py-1.5 text-xs transition-colors
@@ -594,7 +598,7 @@ function InlineTagEditor({
                                             : "text-neutral-300 hover:bg-neutral-800"
                                     }`}
                             >
-                                {tag}
+                                {tag.name}
                             </button>
                         ))}
                     </div>

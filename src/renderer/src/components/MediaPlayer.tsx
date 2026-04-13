@@ -155,6 +155,9 @@ export function MediaPlayer({
                         alt={file.filename}
                         className="relative h-full w-full object-contain transition-opacity duration-300"
                         style={{ opacity: fullLoaded ? 1 : 0 }}
+                        ref={(el) => {
+                            if (el?.complete) setFullLoaded(true);
+                        }}
                         onLoad={() => setFullLoaded(true)}
                         draggable={false}
                     />
@@ -214,7 +217,7 @@ export function MediaPlayer({
                         style={{ fontSize: "10px" }}
                     >
                         {formatTime(currentTime)} / {formatTime(duration)}
-                    </span>
+                    </span> 
                 </div>
             )}
         </div>

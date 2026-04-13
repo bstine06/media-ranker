@@ -1,31 +1,38 @@
-import { useEffect, useState } from "react";
-import type { DbFile } from "../../shared/types/types";
+import { useCallback, useEffect, useState } from "react";
+import type {
+    DbFile,
+    DbFolderMetadata,
+    DbTag,
+    View,
+} from "../../shared/types/types";
 import MediaTile from "./MediaTile";
 import { useStatus } from "../../contexts/StatusContext";
-import { FolderMetadata, SortMode, ViewMode } from "../types/browserTypes";
+import { SortMode, ViewMode } from "../types/browserTypes";
 import BrowseRow from "./BrowseRow";
 import MetadataView from "./MetadataView";
+import { useFolders } from "@renderer/contexts/FolderContext";
+import { useTags } from "@renderer/contexts/TagsContext";
+import BrowseScrollView from "./BrowseScrollView";
+import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
+import { useSettings } from "@renderer/contexts/SettingsContext";
 
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
 export default function BrowseView({
-    files,
-    rootPath,
-    activeFolder,
-    onFolderRenamed,
-    onInspectFile,
-    allTags,
-    onTagsChanged,
+    onFolderMetadataChanged,
+    setView,
 }: {
-    files: DbFile[];
-    rootPath: string;
-    activeFolder: string | null;
-    onFolderRenamed: (oldRelPath: string, newRelPath: string) => void;
-    onInspectFile: (file: DbFile) => void;
-    allTags: string[];
-    onTagsChanged: () => void;
+    onFolderMetadataChanged: () => void;
+    setView: (view: View) => void;
 }): JSX.Element {
-    const [metadata, setMetadata] = useState<FolderMetadata | null>(null);
+    const [fields, setFields] = useState<
+        { key: string; value: string; type: string }[]
+    >([]);
+    const [folderProfileImage, setFolderProfileImage] = useState<string | null>(
+        null,
+    );
+    const [metadataFields, setMetadataFields] = useState<string[]>([]); // for autocomplete
+    const [metadata, setMetadata] = useState<DbFolderMetadata | null>(null);
     const [editingMetadata, setEditingMetadata] = useState(false);
     const [draftProfileImage, setDraftProfileImage] = useState<
         string | undefined
@@ -35,12 +42,60 @@ export default function BrowseView({
 
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
     const [sortMode, setSortMode] = useState<SortMode>("default");
+    const [folderTags, setFolderTags] = useState<DbTag[]>([]);
+
+    const [files, setFiles] = useState<DbFile[]>([]);
+    const [browseScrollIndex, setBrowseScrollIndex] = useState<number | null>(
+        null,
+    );
 
     const { setStatus, resetStatus } = useStatus();
+    const { rootPath, activeFolder, setActiveFolder } = useFolders();
+    const { refreshTags, activeTags, tagMode } = useTags();
+    const { tileSize } = useSettings();
 
+    //get files on mount, clear browseScroll
+    useEffect(() => {
+        getFilesForFolder(activeFolder, activeTags, tagMode);
+        setBrowseScrollIndex(null);
+    }, [rootPath, activeFolder, activeTags, tagMode]);
+
+    const getFilesForFolder = useCallback(
+        async (
+            folder: string | null,
+            tags: Set<number>,
+            tagMode: "and" | "or",
+        ) => {
+            setActiveFolder(folder);
+            const result: DbFile[] = folder
+                ? await window.api.getFilesInFolder(folder)
+                : await window.api.getAllActiveFiles();
+
+            //filter on tags
+            if (tags.size > 0) {
+                const tagMatchFileIds = await window.api.getFileIdsByTags(
+                    Array.from(tags),
+                    tagMode,
+                );
+                const tagMatchSet = new Set(tagMatchFileIds);
+                const filteredResult = result.filter((f) => {
+                    return tagMatchSet.has(f.id);
+                });
+                setFiles(filteredResult);
+            } else {
+                setFiles(result);
+            }
+        },
+        [],
+    );
+
+    //load folder metadata on folder change
     useEffect(() => {
         if (!activeFolder) {
-            setMetadata(null);
+            setFields([]);
+            setFolderProfileImage(null);
+            setFolderTags([]);
+            setMetadataFields([]);
             setEditingMetadata(false);
             setRenameError(null);
             return;
@@ -48,10 +103,22 @@ export default function BrowseView({
 
         const load = async () => {
             try {
-                const raw = await window.api.readFolderMetadata(activeFolder);
-                setMetadata(raw ?? { fields: [] });
+                const [dbFields, dbFolder, tags, fieldNames] =
+                    await Promise.all([
+                        window.api.getFolderMetadata(activeFolder),
+                        window.api.getFolder(activeFolder),
+                        window.api.getFolderTags(activeFolder),
+                        window.api.getMetadataFields(),
+                    ]);
+                setFields(dbFields);
+                setFolderTags(tags);
+                setMetadataFields(fieldNames);
+                setFolderProfileImage(dbFolder?.profile_image_hash ?? null);
+                console.log(dbFolder?.profile_image_hash);
             } catch {
-                setMetadata({ fields: [] });
+                setFields([]);
+                setFolderProfileImage(null);
+                setFolderTags([]);
             }
         };
 
@@ -71,23 +138,58 @@ export default function BrowseView({
         resetStatus();
     };
 
-    const handleEditStart = (current: FolderMetadata) => {
-        setDraftProfileImage(current.profileImage);
+    const handleEditStart = () => {
+        setDraftProfileImage(folderProfileImage ?? undefined);
         setDraftName(activeFolder ?? "");
         setRenameError(null);
         setEditingMetadata(true);
     };
 
+    const handleAddFolderTag = async (tag: string) => {
+        if (!activeFolder) return;
+        await window.api.addTagToFolder(activeFolder, tag);
+        const tags = await window.api.getFolderTags(activeFolder);
+        setFolderTags(tags);
+        refreshTags();
+    };
+
+    const handleRemoveFolderTag = async (tag: string) => {
+        if (!activeFolder) return;
+        await window.api.removeTagFromFolder(activeFolder, tag);
+        const tags = await window.api.getFolderTags(activeFolder);
+        setFolderTags(tags);
+        refreshTags();
+    };
+
     const handleMetadataSave = async (
-        updated: FolderMetadata,
+        updatedFields: { key: string; value: string; type: string }[],
         newName: string,
     ) => {
         if (!activeFolder) return;
-
         if (newName.trim() === "") {
             setRenameError("Folder name cannot be empty");
             return;
         }
+
+        // Save each field to DB
+        await Promise.all(
+            updatedFields.map((f) =>
+                window.api.setFolderMetadataField(
+                    activeFolder,
+                    f.key,
+                    f.value,
+                    f.type,
+                ),
+            ),
+        );
+
+        // Save profile image
+        await window.api.setFolderProfileImage(
+            activeFolder,
+            draftProfileImage ?? null,
+        );
+        setFolderProfileImage(draftProfileImage ?? null);
+        onFolderMetadataChanged();
 
         if (newName !== activeFolder) {
             const result = await window.api.renameFolder(activeFolder, newName);
@@ -95,27 +197,20 @@ export default function BrowseView({
                 setRenameError(result.error);
                 return;
             }
-            await window.api.writeFolderMetadata(result.newRelPath, updated);
-            setMetadata(updated);
-            setRenameError(null);
-            setEditingMetadata(false);
-            onFolderRenamed(activeFolder, result.newRelPath);
-        } else {
-            await window.api.writeFolderMetadata(activeFolder, updated);
-            setMetadata(updated);
-            setRenameError(null);
-            setEditingMetadata(false);
         }
 
+        setFields(updatedFields);
+        setRenameError(null);
+        setEditingMetadata(false);
         setDraftProfileImage(undefined);
     };
 
-    const handleTileClick = (file: DbFile) => {
+    const handleTileClick = (file: DbFile, index: number) => {
         editingMetadata
             ? setDraftProfileImage((prev) =>
                   prev === file.content_hash ? undefined : file.content_hash,
               )
-            : onInspectFile(file);
+            : setBrowseScrollIndex(index);
     };
 
     const sortedFiles = [...files].sort((a, b) =>
@@ -123,6 +218,70 @@ export default function BrowseView({
             ? b.elo_score - a.elo_score
             : a.filename.localeCompare(b.filename),
     );
+
+    useEffect(() => {
+        const handleAdded = window.api.onMediaAdded(
+            ({ relativePath, hash, mediaType }) => {
+                // only matters if it belongs to the active folder (or we're in all-files view)
+                const folderPath = relativePath
+                    .split("/")
+                    .slice(0, -1)
+                    .join("/");
+                if (activeFolder && folderPath !== activeFolder) return;
+                if (rootPath)
+                    getFilesForFolder(activeFolder, activeTags, tagMode); // still reload for adds — need full DbFile
+            },
+        );
+
+        const handleRemoved = window.api.onMediaRemoved(({ relativePath }) => {
+            // always remove from state regardless of which folder is active
+            setFiles((prev) => prev.filter((f) => f.path !== relativePath));
+        });
+
+        const handleRenamed = window.api.onMediaRenamed(
+            ({ oldRelativePath, relativePath }) => {
+                setFiles((prev) =>
+                    prev.map((f) =>
+                        f.path === oldRelativePath
+                            ? {
+                                  ...f,
+                                  path: relativePath,
+                                  filename:
+                                      relativePath.split("/").pop() ??
+                                      f.filename,
+                              }
+                            : f,
+                    ),
+                );
+            },
+        );
+
+        return () => {
+            handleAdded();
+            handleRemoved();
+            handleRenamed();
+        };
+    }, [rootPath, activeFolder, setActiveFolder]);
+
+    if (rootPath && browseScrollIndex !== null) {
+        return (
+            <BrowseScrollView
+                files={files}
+                startIndex={browseScrollIndex}
+                rootPath={rootPath}
+                onClose={() => setBrowseScrollIndex(null)}
+                active={true}
+                onGoToFolder={() => {
+                    setActiveFolder(
+                        files[browseScrollIndex].path.split("/")[0],
+                    );
+                    setBrowseScrollIndex(null);
+                    setView("browse");
+                }}
+                folderMetaVersion={0}
+            />
+        );
+    }
 
     return (
         <div
@@ -230,7 +389,12 @@ export default function BrowseView({
                 {activeFolder && (
                     <MetadataView
                         folderName={activeFolder}
-                        metadata={metadata ?? { fields: [] }}
+                        fields={fields}
+                        profileImage={folderProfileImage}
+                        metadataFields={metadataFields}
+                        folderTags={folderTags}
+                        onAddFolderTag={handleAddFolderTag}
+                        onRemoveFolderTag={handleRemoveFolderTag}
                         files={files}
                         editing={editingMetadata}
                         draftProfileImage={draftProfileImage}
@@ -243,7 +407,6 @@ export default function BrowseView({
                             setEditingMetadata(false);
                             setRenameError(null);
                         }}
-                        allTags={allTags}
                     />
                 )}
 
@@ -256,20 +419,23 @@ export default function BrowseView({
                         className="flex-1 overflow-y-auto overflow-x-hidden"
                         style={{ scrollbarGutter: "stable" }}
                     >
-                        <div className="grid-media p-4">
-                            {sortedFiles.map((file) => (
+                        <div
+                            className="grid-media p-4"
+                            style={{ '--grid-tile-size': `${tileSize}px` } as React.CSSProperties}
+                        >
+                            {sortedFiles.map((file, i) => (
                                 <div
                                     key={file.id}
-                                    className={`relative cursor-pointer rounded-lg overflow-hidden transition-all ${
+                                    className={`relative cursor-pointer overflow-hidden transition-all ${
                                         draftProfileImage === file.content_hash
                                             ? "ring-2 ring-blue-500 bg-blue-500/10"
                                             : "ring-1 ring-transparent"
                                     }`}
-                                    onClick={() => handleTileClick(file)}
+                                    onClick={() => handleTileClick(file, i)}
                                 >
                                     <MediaTile
                                         file={file}
-                                        rootPath={rootPath}
+                                        rootPath={rootPath!}
                                     />
                                     {draftProfileImage ===
                                         file.content_hash && (
@@ -300,16 +466,8 @@ export default function BrowseView({
                                 key={file.id}
                                 file={file}
                                 rank={sortMode === "rank" ? index + 1 : null}
-                                rootPath={rootPath}
-                                onClick={() =>
-                                    editingMetadata
-                                        ? setDraftProfileImage((prev) =>
-                                              prev === file.content_hash
-                                                  ? undefined
-                                                  : file.content_hash,
-                                          )
-                                        : onInspectFile(file)
-                                }
+                                rootPath={rootPath!}
+                                onClick={() => handleTileClick(file, index)}
                                 isSelected={
                                     draftProfileImage === file.content_hash
                                 }

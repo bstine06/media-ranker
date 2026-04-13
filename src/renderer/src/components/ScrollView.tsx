@@ -4,7 +4,7 @@ import {
     toMediaUrl,
     toThumbnailUrl,
 } from "@renderer/lib/media";
-import { DbFile } from "@renderer/shared/types/types";
+import { DbFile, View } from "@renderer/shared/types/types";
 import React, {
     useCallback,
     useEffect,
@@ -17,6 +17,9 @@ import { MediaPlayer } from "./MediaPlayer";
 import { mergeRefs } from "@renderer/lib/refs";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "./icons/FolderIcon";
+import { useTags } from "@renderer/contexts/TagsContext";
+import { useFolders } from "@renderer/contexts/FolderContext";
+import { showInFolder } from "@renderer/lib/filesystem";
 
 const preloadCache = new Map<string, HTMLImageElement>();
 
@@ -30,7 +33,7 @@ function preloadImage(url: string): Promise<void> {
 
 // ── Single slide ─────────────────────────────────────────────────────────────
 
-const MediaSlide = React.forwardRef<
+export const MediaSlide = React.forwardRef<
     HTMLVideoElement,
     { file: DbFile; rootPath: string; disabled: boolean }
 >(({ file, rootPath, disabled }, ref) => {
@@ -57,21 +60,13 @@ const MediaSlide = React.forwardRef<
 // ── Main view ────────────────────────────────────────────────────────────────
 
 export default function ScrollView({
-    rootPath,
-    folderPrefixes,
     active,
-    onInspectFile,
-    activeTags,
-    tagMode,
-    onGoToFolder,
+    setView,
+    folderMetaVersion,
 }: {
-    rootPath: string;
-    folderPrefixes: string[] | null;
     active: boolean;
-    onInspectFile: (file: DbFile) => void;
-    activeTags: Set<string>;
-    tagMode: "and" | "or";
-    onGoToFolder: (folderPath: string) => void;
+    setView: (view: View) => void;
+    folderMetaVersion: number;
 }): JSX.Element {
     const [history, setHistory] = useState<DbFile[]>([]);
     const [cursor, setCursor] = useState(0);
@@ -79,6 +74,9 @@ export default function ScrollView({
     const [transitioning, setTransitioning] = useState(false);
     // "up" | "down" — which direction the slide is animating out
     const [slideDir, setSlideDir] = useState<"up" | "down">("down");
+
+    const {activeTags, tagMode} = useTags();
+    const {rootPath, folderPrefixes, setActiveFolder} = useFolders();
 
     const [folderProfileHash, setFolderProfileHash] = useState<string | null>(
         null,
@@ -115,14 +113,14 @@ export default function ScrollView({
         if (!currentFolder) return;
         const load = async () => {
             try {
-                const raw = await window.api.readFolderMetadata(currentFolder);
-                setFolderProfileHash(raw.profileImage ?? null);
+                const folder = await window.api.getFolder(currentFolder);
+                setFolderProfileHash(folder?.profile_image_hash ?? null);
             } catch {
                 setFolderProfileHash(null);
             }
         };
         load();
-    }, [currentFolder]);
+    }, [currentFolder, folderMetaVersion]);
 
     // ── Slide state — track both current and previous for overlap transition ─────
     const [prevCursor, setPrevCursor] = useState<number | null>(null);
@@ -175,7 +173,7 @@ export default function ScrollView({
                 );
             }
             if (file && file.media_type !== "video") {
-                preloadImage(toMediaUrl(rootPath, file.path));
+                preloadImage(toMediaUrl(rootPath!, file.path));
             }
             return file;
         },
@@ -225,7 +223,7 @@ export default function ScrollView({
 
     const hasNoFiles = !loading && history.length === 0;
 
-    // watch for the "no files" state and re-trigger the bootstrap 
+    // watch for the "no files" state and re-trigger the bootstrap
     // when filters change, only in this specific case
     useEffect(() => {
         if (!hasNoFiles) return;
@@ -246,18 +244,21 @@ export default function ScrollView({
     }, [folderPrefixes, tagKey, tagMode]);
 
     useEffect(() => {
-    const unsub = window.api.onMediaRenamed(({ oldRelativePath, relativePath }) => {
-        if (prefetchRef.current?.path === oldRelativePath) {
-            prefetchRef.current = {
-                ...prefetchRef.current,
-                path: relativePath,
-                filename: relativePath.split("/").pop() ?? prefetchRef.current.filename,
-            };
-        }
-    });
-    return () => unsub();
-}, []);
-
+        const unsub = window.api.onMediaRenamed(
+            ({ oldRelativePath, relativePath }) => {
+                if (prefetchRef.current?.path === oldRelativePath) {
+                    prefetchRef.current = {
+                        ...prefetchRef.current,
+                        path: relativePath,
+                        filename:
+                            relativePath.split("/").pop() ??
+                            prefetchRef.current.filename,
+                    };
+                }
+            },
+        );
+        return () => unsub();
+    }, []);
 
     // ── navigation ────────────────────────────────────────────────────────────
 
@@ -407,9 +408,9 @@ export default function ScrollView({
     useEffect(() => {
         if (!active) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "ArrowDown" || e.key === "ArrowRight")
+            if (e.key === "ArrowDown")
                 navigate("down");
-            if (e.key === "ArrowUp" || e.key === "ArrowLeft") navigate("up");
+            if (e.key === "ArrowUp") navigate("up");
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
@@ -458,13 +459,10 @@ export default function ScrollView({
         );
 
     return (
-        <div className="relative flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1" onWheel={handleWheel}>
             <div className="relative flex min-h-0 flex-1 flex-col flex-[4]">
                 {/* Media area */}
-                <div
-                    className="relative min-h-0 flex-1 overflow-hidden"
-                    onWheel={handleWheel}
-                >
+                <div className="relative min-h-0 flex-1 overflow-hidden">
                     {([0, 1] as const).map((slot) => (
                         <div
                             key={slot}
@@ -475,7 +473,7 @@ export default function ScrollView({
                                 zIndex: slot === frontSlot ? 2 : 1,
                             }}
                         >
-                            {slotFiles[slot] && (
+                            {(rootPath && slotFiles[slot]) && (
                                 <MediaSlide
                                     file={slotFiles[slot]!}
                                     rootPath={rootPath}
@@ -511,12 +509,11 @@ export default function ScrollView({
                 <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
                     <div
                         className="cursor-pointer flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
-                        onClick={() =>
-                            {const folderName = currentFile.path.split("/")[0];
-                            console.log(folderName)
-                            onGoToFolder(folderName)
-                            }
-                        }
+                        onClick={() => {
+                            const folderName = currentFile.path.split("/")[0];
+                            setActiveFolder(folderName);
+                            setView("browse");
+                        }}
                     >
                         {folderProfileHash ? (
                             <ThumbnailImage
@@ -536,9 +533,10 @@ export default function ScrollView({
                         </span>
                     </div>
                     <span
-                        className="text-neutral-200 font-medium break-all"
+                        className="cursor-pointer text-neutral-200 font-medium break-all"
                         title={currentFile?.filename}
                         style={{ overflowWrap: "break-word", hyphens: "none" }}
+                        onClick={() => showInFolder(rootPath!, currentFile.path)}
                     >
                         {currentFile?.filename ?? "—"}
                     </span>

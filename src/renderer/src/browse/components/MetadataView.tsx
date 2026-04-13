@@ -1,72 +1,82 @@
 // ─── MetadataView ─────────────────────────────────────────────────────────────
 
-import { DbFile } from "@renderer/shared/types/types";
-import { FolderMetadata, URL_RE } from "../types/browserTypes";
+import { DbFile, DbTag } from "@renderer/shared/types/types";
+import { URL_RE } from "../types/browserTypes";
 import { useEffect, useState } from "react";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
+import { useTags } from "@renderer/contexts/TagsContext";
+
+type FieldEntry = { key: string; value: string; type: string };
 
 export default function MetadataView({
     folderName,
-    metadata,
+    folderTags,
+    onAddFolderTag,
+    onRemoveFolderTag,
     files,
     editing,
     draftProfileImage,
     draftName,
     renameError,
     onDraftNameChange,
+    onCancel,
+    fields,
+    profileImage,
+    metadataFields,
     onEditStart,
     onSave,
-    onCancel,
-    allTags,
 }: {
     folderName: string;
-    metadata: FolderMetadata;
+    folderTags: DbTag[];
+    onAddFolderTag: (tag: string) => Promise<void>;
+    onRemoveFolderTag: (tag: string) => Promise<void>;
     files: DbFile[];
     editing: boolean;
     draftProfileImage: string | undefined;
     draftName: string;
     renameError: string | null;
     onDraftNameChange: (name: string) => void;
-    onEditStart: (draft: FolderMetadata) => void;
-    onSave: (updated: FolderMetadata, newName: string) => void;
     onCancel: () => void;
-    allTags: string[];
+    fields: { key: string; value: string; type: string }[];
+    profileImage: string | null;
+    metadataFields: string[]; // for autocomplete
+    onEditStart: () => void;
+    onSave: (
+        updatedFields: { key: string; value: string; type: string }[],
+        newName: string,
+    ) => void;
 }): JSX.Element {
-    const [draftFields, setDraftFields] = useState<FolderMetadata["fields"]>(
-        [],
-    );
+    const [draftFields, setDraftFields] = useState<FieldEntry[]>([]);
 
     // folder tags
-    const [folderMetadata, setFolderMetadata] =
-        useState<FolderMetadata | null>(null);
     const [folderTagInput, setFolderTagInput] = useState("");
 
-    useEffect(() => {
-        setFolderMetadata(metadata);
-    }, [metadata])
+    const { allTags } = useTags();
 
     useEffect(() => {
-        if (editing) setDraftFields(metadata.fields);
+        if (editing) setDraftFields(fields);
     }, [editing]);
 
     const handleSave = () => {
-        const existingMetadata = folderMetadata ?? {}
         onSave(
-            {
-                ...existingMetadata,
-                profileImage: draftProfileImage,
-                fields: draftFields
-                    ? draftFields.filter((f) => f.key.trim() || f.value.trim())
-                    : [],
-            },
+            draftFields
+                ? draftFields.filter((f) => f.key.trim() || f.value.trim())
+                : [],
             draftName,
         );
     };
 
     const addField = () =>
-        setDraftFields((f) => [...(f ?? []), { key: "", value: "" }]);
+        setDraftFields((f) => [
+            ...(f ?? []),
+            { key: "", value: "", type: "string" },
+        ]);
 
-    const updateField = (i: number, part: "key" | "value", val: string) =>
+    const updateField = (
+        i: number,
+        part: "key" | "value" | "type",
+        val: string,
+    ) =>
         setDraftFields((fields) => {
             const next = [...(fields ?? [])];
             next[i] = { ...next[i], [part]: val };
@@ -76,51 +86,26 @@ export default function MetadataView({
     const removeField = (i: number) =>
         setDraftFields((fields) => (fields ?? []).filter((_, j) => j !== i));
 
-    const activeHash = editing ? draftProfileImage : metadata.profileImage;
-    const profileFile = activeHash
-        ? files.find((f) => f.content_hash === activeHash)
-        : null;
+    const activeHash = editing ? draftProfileImage : profileImage;
+
     const activeFields = editing
         ? draftFields
-        : (metadata.fields ?? []).filter((f) => f.key || f.value);
-
+        : fields.filter((f) => f.key || f.value);
 
     const handleAddFolderTag = async (tag: string) => {
-        if (!folderName || !tag.trim()) return;
-        const existing = folderMetadata ?? {};
-        const currentTags = existing.tags ?? [];
-        if (currentTags.includes(tag)) return;
-        const updatedTags = [...currentTags, tag];
-        // Merge write — never clobbers other fields that may exist
-        const onDisk =
-            (await window.api.readFolderMetadata(folderName)) ?? {};
-        await window.api.writeFolderMetadata(folderName, {
-            ...onDisk,
-            tags: updatedTags,
-        });
-        await window.api.addTagToFolder(folderName, tag.trim().toLowerCase());
-        setFolderMetadata({ ...existing, tags: updatedTags });
+        if (!tag.trim()) return;
+        await onAddFolderTag(tag.trim().toLowerCase());
         setFolderTagInput("");
     };
 
     const handleRemoveFolderTag = async (tag: string) => {
-        if (!folderName) return;
-        const existing = folderMetadata ?? {};
-        const updatedTags = (existing.tags ?? []).filter((t) => t !== tag);
-        const onDisk =
-            (await window.api.readFolderMetadata(folderName)) ?? {};
-        await window.api.writeFolderMetadata(folderName, {
-            ...onDisk,
-            tags: updatedTags,
-        });
-        setFolderMetadata({ ...existing, tags: updatedTags });
+        await onRemoveFolderTag(tag);
     };
 
-    const folderTags = folderMetadata?.tags ?? [];
     const filteredTagSuggestions = allTags.filter(
         (t) =>
-            !folderTags.includes(t) &&
-            t.toLowerCase().includes(folderTagInput.toLowerCase()),
+            !folderTags.some((ft) => ft.name === t.name) &&
+            t.name.toLowerCase().includes(folderTagInput.toLowerCase()),
     );
 
     return (
@@ -132,12 +117,11 @@ export default function MetadataView({
                         className={`cursor-pointer w-20 h-20 rounded-xl overflow-hidden ring-1 bg-neutral-800 flex items-center justify-center ${
                             editing ? "ring-neutral-600" : "ring-neutral-700"
                         }`}
-                        onClick={() => !editing && onEditStart(metadata)}
+                        onClick={() => !editing && onEditStart()}
                     >
-                        {profileFile ? (
+                        {activeHash ? (
                             <ThumbnailImage
-                                contentHash={profileFile.content_hash}
-                                isVideo={profileFile.media_type === "video"}
+                                contentHash={activeHash}
                                 className="w-full h-full"
                             />
                         ) : (
@@ -198,6 +182,7 @@ export default function MetadataView({
                                         type="text"
                                         placeholder="key"
                                         value={field.key}
+                                        list="field-keys"
                                         onChange={(e) =>
                                             updateField(
                                                 i,
@@ -207,6 +192,11 @@ export default function MetadataView({
                                         }
                                         className="w-24 shrink-0 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-400 placeholder-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-600"
                                     />
+                                    <datalist id="field-keys">
+                                        {metadataFields.map((name) => (
+                                            <option key={name} value={name} />
+                                        ))}
+                                    </datalist>
                                     <input
                                         type="text"
                                         placeholder="value"
@@ -247,7 +237,8 @@ export default function MetadataView({
                                     <span className="text-xs text-neutral-500 text-right w-24 shrink-0 truncate">
                                         {field.key}
                                     </span>
-                                    {URL_RE.test(field.value) ? (
+                                    {field.type === "url" ||
+                                    URL_RE.test(field.value) ? (
                                         <button
                                             className="text-xs text-blue-400 hover:text-blue-300 hover:underline transition-colors truncate"
                                             onClick={() =>
@@ -307,7 +298,7 @@ export default function MetadataView({
                             </>
                         ) : (
                             <button
-                                onClick={() => onEditStart(metadata)}
+                                onClick={() => onEditStart()}
                                 className="text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 rounded px-3 py-1 transition-colors"
                             >
                                 Edit
@@ -321,13 +312,13 @@ export default function MetadataView({
                         <div className="flex flex-wrap gap-1.5">
                             {folderTags.map((tag) => (
                                 <span
-                                    key={tag}
+                                    key={tag.id}
                                     className="flex items-center gap-1 text-xs bg-neutral-800 text-neutral-300 rounded px-2 py-0.5"
                                 >
-                                    {tag}
+                                    {tag.name}
                                     <button
                                         onClick={() =>
-                                            handleRemoveFolderTag(tag)
+                                            handleRemoveFolderTag(tag.name)
                                         }
                                         className="text-neutral-500 hover:text-neutral-300 transition-colors"
                                     >
@@ -357,13 +348,13 @@ export default function MetadataView({
                                 <div className="absolute top-full mt-1 left-0 right-0 bg-neutral-800 border border-neutral-700 rounded shadow-lg z-10 max-h-40 overflow-y-auto">
                                     {filteredTagSuggestions.map((tag) => (
                                         <button
-                                            key={tag}
+                                            key={tag.id}
                                             onClick={() =>
-                                                handleAddFolderTag(tag)
+                                                handleAddFolderTag(tag.name)
                                             }
                                             className="w-full text-left text-xs text-neutral-300 px-2.5 py-1.5 hover:bg-neutral-700 transition-colors"
                                         >
-                                            {tag}
+                                            {tag.name}
                                         </button>
                                     ))}
                                 </div>

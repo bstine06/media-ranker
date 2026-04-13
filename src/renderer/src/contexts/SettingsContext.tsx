@@ -7,6 +7,8 @@ interface Settings {
     handleVolumeChange: (newVolume: number) => void;
     scrollTime: number; //260ms default
     handleScrollTimeChange: (newScrollTime: number) => void;
+    tileSize: number; //200px default
+    handleTileSizeChange: (newTileSize: number) => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -16,6 +18,8 @@ const SettingsContext = createContext<Settings>({
     handleVolumeChange: (newVolume: number) => {},
     scrollTime: 260,
     handleScrollTimeChange: (newScrollTime: number) => {},
+    tileSize: 200,
+    handleTileSizeChange: (newTileSize: number) => {},
 });
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
@@ -46,6 +50,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setScrollTime(newScrollTime);
     }, []);
 
+    const [tileSize, setTileSize] = useState(200);
+    const handleTileSizeChange = useCallback((newTileSize: number) => {
+        if (newTileSize < 100 || newTileSize > 300) {
+            throw new RangeError(
+                `tileSize must be between 100 and 300, got ${newTileSize}`
+            )
+        } 
+        setTileSize(newTileSize);
+    }, [])
+
     return (
         <SettingsContext.Provider
             value={{
@@ -54,7 +68,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 volume,
                 handleVolumeChange,
                 scrollTime,
-                handleScrollTimeChange
+                handleScrollTimeChange,
+                tileSize,
+                handleTileSizeChange
             }}
         >
             {children}

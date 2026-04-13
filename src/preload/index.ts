@@ -1,7 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import { DbFile } from "@main/db";
-import { getRandomFile } from "@main/random";
+import { DbFile, DbFolder, DbTag } from "@main/db";
 
 export interface FolderNode {
     name: string;
@@ -12,6 +11,20 @@ export interface FolderNode {
 const api = {
     // ── Utility ────────────────────────────────────────────────────────────
     ping: (): Promise<string> => ipcRenderer.invoke("ping"),
+    
+    onProcessMessageSent: (
+        callback: (data: {
+            message: string,
+            progress?: [number, number]
+        }) => void,
+    ) => {
+        const handler = (
+            _event: unknown,
+            data: { message: string, progress?: [number, number] },
+        ) => callback(data);
+        ipcRenderer.on("process:message-sent", handler);
+        return () => ipcRenderer.removeListener("process:message-sent", handler);
+    },
 
     // ── Library setup ──────────────────────────────────────────────────────
     selectRootFolder: (): Promise<string | null> =>
@@ -37,7 +50,8 @@ const api = {
         ipcRenderer.invoke("get-subfolders"),
 
     getAllFiles: (): Promise<unknown[]> => ipcRenderer.invoke("get-all-files"),
-    getAllActiveFiles: (): Promise<unknown[]> => ipcRenderer.invoke("get-all-active-files"),
+    getAllActiveFiles: (): Promise<unknown[]> =>
+        ipcRenderer.invoke("get-all-active-files"),
 
     getFilesInFolder: (folderRelPath: string): Promise<unknown[]> =>
         ipcRenderer.invoke("get-files-in-folder", folderRelPath),
@@ -45,11 +59,42 @@ const api = {
     getThumbnailPath: (hash: string): Promise<string | null> =>
         ipcRenderer.invoke("get-thumbnail-path", hash),
 
-    readFolderMetadata: (folderRelPath: string) =>
-        ipcRenderer.invoke("read-folder-metadata", folderRelPath),
+    getFolderMetadata: (
+        folderRelPath: string,
+    ): Promise<{ key: string; value: string; type: string }[]> =>
+        ipcRenderer.invoke("get-folder-metadata", folderRelPath),
 
-    writeFolderMetadata: (folderRelPath: string, metadata: unknown) =>
-        ipcRenderer.invoke("write-folder-metadata", folderRelPath, metadata),
+    setFolderMetadataField: (
+        folderRelPath: string,
+        key: string,
+        value: string,
+        type?: string,
+    ): Promise<void> =>
+        ipcRenderer.invoke(
+            "set-folder-metadata-field",
+            folderRelPath,
+            key,
+            value,
+            type ?? "string",
+        ),
+
+    deleteFolderMetadataField: (
+        folderRelPath: string,
+        key: string,
+    ): Promise<void> =>
+        ipcRenderer.invoke("delete-folder-metadata-field", folderRelPath, key),
+
+    getMetadataFields: (): Promise<string[]> =>
+        ipcRenderer.invoke("get-metadata-fields"),
+
+    setFolderProfileImage: (
+        folderRelPath: string,
+        hash: string | null,
+    ): Promise<void> =>
+        ipcRenderer.invoke("set-folder-profile-image", folderRelPath, hash),
+
+    getFolder: (folderRelPath: string): Promise<DbFolder | null> =>
+        ipcRenderer.invoke("get-folder", folderRelPath),
 
     renameFolder: (oldRelPath: string, newName: string) =>
         ipcRenderer.invoke("rename-folder", oldRelPath, newName),
@@ -133,9 +178,7 @@ const api = {
         return () => ipcRenderer.removeListener("folder:removed", handler);
     },
 
-    onFolderAdded: (
-        callback: (data: { relativePath: string }) => void,
-    ) => {
+    onFolderAdded: (callback: (data: { relativePath: string }) => void) => {
         const handler = (_event: unknown, data: { relativePath: string }) =>
             callback(data);
         ipcRenderer.on("folder:added", handler);
@@ -143,27 +186,36 @@ const api = {
     },
 
     // ── Tags ───────────────────────────────────────────────────────────────
-    getTags: (fileId: number): Promise<string[]> =>
+    getTags: (fileId: number): Promise<DbTag[]> =>
         ipcRenderer.invoke("get-tags", fileId),
 
-    addTag: (fileId: number, tag: string): Promise<string[]> =>
+    addTag: (fileId: number, tag: string): Promise<DbTag[]> =>
         ipcRenderer.invoke("add-tag", fileId, tag),
 
-    removeTag: (fileId: number, tag: string): Promise<string[]> =>
+    removeTag: (fileId: number, tag: string): Promise<DbTag[]> =>
         ipcRenderer.invoke("remove-tag", fileId, tag),
 
-    getAllTags: (): Promise<string[]> => ipcRenderer.invoke("get-all-tags"),
+    getAllTags: (): Promise<DbTag[]> => ipcRenderer.invoke("get-all-tags"),
 
-    getFileIdsByTags: (tags: string[], mode: "and" | "or"): Promise<number[]> =>
+    getFileIdsByTags: (tags: number[], mode: "and" | "or"): Promise<number[]> =>
         ipcRenderer.invoke("get-file-ids-by-tags", tags, mode),
 
-    addTagToFolder: (folderRelPath: string, tag: string): Promise<number> =>
+    getFilesByTags: (tagIds: number[], mode: "and" | "or", folderPath?: string): Promise<DbFile[]> =>
+        ipcRenderer.invoke("get-files-by-tags", tagIds, mode, folderPath),
+
+    addTagToFolder: (folderRelPath: string, tag: string): Promise<void> =>
         ipcRenderer.invoke("add-tag-to-folder", folderRelPath, tag),
+
+    getFolderTags: (folderRelPath: string): Promise<DbTag[]> =>
+        ipcRenderer.invoke("get-folder-tags", folderRelPath),
+
+    removeTagFromFolder: (folderRelPath: string, tag: string): Promise<void> =>
+        ipcRenderer.invoke("remove-tag-from-folder", folderRelPath, tag),
 
     // ── Scroll ────────────────────────────────────────────────────────
     getRandomFile: (
         folderPrefixes: string[] | null,
-        tagList: string[] | null,
+        tagList: number[] | null,
         tagMode: "and" | "or",
         excludeIds: number[] = [],
     ): Promise<unknown | null> =>
@@ -178,7 +230,7 @@ const api = {
     // ── Comparisons ────────────────────────────────────────────────────────
     getPair: (
         folderPrefixes: string[] | null,
-        tagList: string[] | null,
+        tagList: number[] | null,
         tagMode: "and" | "or",
     ): Promise<[unknown, unknown] | null> =>
         ipcRenderer.invoke("get-pair", folderPrefixes, tagList, tagMode),

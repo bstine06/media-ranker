@@ -41,7 +41,7 @@ export default function MediaTile({
         <>
             <div
                 ref={elementRef as React.RefObject<HTMLDivElement>}
-                className="group relative overflow-hidden rounded-lg bg-neutral-800 cursor-pointer h-full"
+                className="group relative overflow-hidden bg-neutral-800 cursor-pointer h-full"
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
             >

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { DbFile } from "../shared/types/types";
+import { DbFile, DbTag } from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 
 function formatTime(seconds: number): string {
@@ -11,12 +11,13 @@ function formatTime(seconds: number): string {
 // ── Tag Panel ────────────────────────────────────────────────────────────────
 
 export function TagPanel({ file }: { file: DbFile }): JSX.Element {
-    const [tags, setTags] = useState<string[]>([]);
+    const [tags, setTags] = useState<DbTag[]>([]);
     const [input, setInput] = useState("");
-    const [allTags, setAllTags] = useState<string[]>([]);
+    const [allTags, setAllTags] = useState<DbTag[]>([]);
     const [suggestions, setSuggestions] = useState<string[]>([]);
     const [focused, setFocused] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
+    const [highlightedIndex, setHighlightedIndex] = useState(0); // default to 0 so first is always highlighted
 
     // Load tags for this file
     useEffect(() => {
@@ -29,21 +30,41 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     }, []);
 
     const filtered = input.trim()
-        ? allTags.filter(
-              (t) =>
-                  t.toLowerCase().includes(input.toLowerCase()) &&
-                  !tags.includes(t),
-          )
+        ? allTags
+              .filter(
+                  (t) =>
+                      t.name.toLowerCase().includes(input.toLowerCase()) &&
+                      !tags.some((existing) => existing.id === t.id),
+              )
+              .sort((a, b) => {
+                  const aStarts = a.name
+                      .toLowerCase()
+                      .startsWith(input.toLowerCase());
+                  const bStarts = b.name
+                      .toLowerCase()
+                      .startsWith(input.toLowerCase());
+                  if (aStarts && !bStarts) return -1;
+                  if (!aStarts && bStarts) return 1;
+                  return a.name.localeCompare(b.name);
+              })
+              .slice(0, 8)
         : [];
+
+    // reset to 0 whenever suggestions change so first is always pre-highlighted
+    useEffect(() => {
+        setHighlightedIndex(0);
+    }, [input]);
 
     const addTag = useCallback(
         async (tag: string) => {
             const trimmed = tag.trim().toLowerCase();
-            if (!trimmed || tags.includes(trimmed)) return;
+            if (!trimmed || tags.some((t) => t.name === trimmed)) return;
             const updated = await window.api.addTag(file.id, trimmed);
             setTags(updated);
             setAllTags((prev) =>
-                prev.includes(trimmed) ? prev : [...prev, trimmed],
+                prev.some((t) => t.name === trimmed)
+                    ? prev
+                    : [...prev, updated[updated.length - 1]],
             );
             setInput("");
         },
@@ -51,8 +72,8 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     );
 
     const removeTag = useCallback(
-        async (tag: string) => {
-            const updated = await window.api.removeTag(file.id, tag);
+        async (tag: DbTag) => {
+            const updated = await window.api.removeTag(file.id, tag.name);
             setTags(updated);
         },
         [file.id],
@@ -60,9 +81,32 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent<HTMLInputElement>) => {
-            if (e.key === "Enter" || e.key === ",") {
+            // always stop propagation so parent scroll views don't intercept arrows
+            if (["ArrowUp", "ArrowDown", "Tab"].includes(e.key)) {
+                e.stopPropagation();
+            }
+
+            if (e.key === "ArrowDown") {
                 e.preventDefault();
-                addTag(input);
+                setHighlightedIndex((i) =>
+                    Math.min(i + 1, filtered.length - 1),
+                );
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHighlightedIndex((i) => Math.max(i - 1, 0));
+            } else if (e.key === "Tab") {
+                e.preventDefault();
+                if (filtered[highlightedIndex]) {
+                    setInput(filtered[highlightedIndex].name);
+                    setHighlightedIndex(0);
+                }
+            } else if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                if (filtered[highlightedIndex]) {
+                    addTag(filtered[highlightedIndex].name);
+                } else {
+                    addTag(input);
+                }
             } else if (
                 e.key === "Backspace" &&
                 input === "" &&
@@ -74,11 +118,11 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                 inputRef.current?.blur();
             }
         },
-        [input, tags, addTag, removeTag],
+        [input, tags, filtered, highlightedIndex, addTag, removeTag],
     );
 
     return (
-        <div className="flex flex-col w-56 shrink-0 border-neutral-800 bg-neutral-900 overflow-y-auto flex-grow">
+        <div className="flex flex-col w-56 shrink-0 border-neutral-800 bg-neutral-900 overflow-y-auto flex-grow h-full">
             <div className="px-4 py-3 border-b border-neutral-800">
                 <p className="text-xs font-medium text-neutral-400 uppercase tracking-wider">
                     Tags
@@ -89,10 +133,10 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             <div className="flex flex-wrap gap-1.5 px-3 pt-3">
                 {tags.map((tag) => (
                     <span
-                        key={tag}
+                        key={tag.id}
                         className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs group"
                     >
-                        {tag}
+                        {tag.name}
                         <button
                             onClick={() => removeTag(tag)}
                             className="text-neutral-600 hover:text-neutral-300 transition-colors leading-none"
@@ -120,13 +164,18 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                 {/* Suggestions dropdown */}
                 {focused && filtered.length > 0 && (
                     <div className="absolute left-3 right-3 top-full mt-1 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg">
-                        {filtered.slice(0, 8).map((tag) => (
+                        {filtered.map((tag, i) => (
                             <button
-                                key={tag}
-                                onMouseDown={() => addTag(tag)}
-                                className="w-full text-left px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800 transition-colors"
+                                key={tag.id}
+                                onMouseDown={() => addTag(tag.name)}
+                                onMouseEnter={() => setHighlightedIndex(i)}
+                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                                    i === highlightedIndex
+                                        ? "bg-neutral-700 text-neutral-100"
+                                        : "text-neutral-300 hover:bg-neutral-800"
+                                }`}
                             >
-                                {tag}
+                                {tag.name}
                             </button>
                         ))}
                     </div>
@@ -144,51 +193,85 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
 
 // ── FileReplacer ─────────────────────────────────────────────────────────────
 
-function FileReplacer({ file, onReplaced }: { file: DbFile, onReplaced: (updated: DbFile) => void }): JSX.Element {
-  const [status, setStatus] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
+function FileReplacer({
+    file,
+    onReplaced,
+}: {
+    file: DbFile;
+    onReplaced: (updated: DbFile) => void;
+}): JSX.Element {
+    const [status, setStatus] = useState<"idle" | "busy" | "done" | "error">(
+        "idle",
+    );
 
-  async function handleReplace() {
-    const newPath = await window.api.openFile(['jpg', 'jpeg', 'png', 'gif', 'mp4', 'mov', 'm4v'])
-    if (!newPath) return
-    setStatus('busy')
-    try {
-        const updated = await window.api.fileReplace(file.path, newPath)
-        setStatus('done')
-        onReplaced(updated)
-    } catch (err) {
-        console.error(err)
-        setStatus('error')
+    async function handleReplace() {
+        const newPath = await window.api.openFile([
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "mp4",
+            "mov",
+            "m4v",
+        ]);
+        if (!newPath) return;
+        setStatus("busy");
+        try {
+            const updated = await window.api.fileReplace(file.path, newPath);
+            setStatus("done");
+            onReplaced(updated);
+        } catch (err) {
+            console.error(err);
+            setStatus("error");
+        }
     }
-}
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault()
-    if (e.dataTransfer.files.length !== 1) return
-    const newPath = (e.dataTransfer.files[0] as any).path as string
-    if (!newPath) return
-    setStatus('busy')
-    window.api.fileReplace(file.path, newPath)
-        .then((updated) => { setStatus('done'); onReplaced(updated) })
-        .catch((err) => { console.error(err); setStatus('error') })
-    
-}
+    function handleDrop(e: React.DragEvent) {
+        e.preventDefault();
+        if (e.dataTransfer.files.length !== 1) return;
+        const newPath = (e.dataTransfer.files[0] as any).path as string;
+        if (!newPath) return;
+        setStatus("busy");
+        window.api
+            .fileReplace(file.path, newPath)
+            .then((updated) => {
+                setStatus("done");
+                onReplaced(updated);
+            })
+            .catch((err) => {
+                console.error(err);
+                setStatus("error");
+            });
+    }
 
-  const label = { idle: 'Drop file or click here', busy: 'Replacing…', done: 'Replaced!', error: 'Failed — try again' }[status]
-  const border = { idle: 'border-neutral-700', busy: 'border-yellow-600', done: 'border-green-600', error: 'border-red-600' }[status]
+    const label = {
+        idle: "Drop file or click here",
+        busy: "Replacing…",
+        done: "Replaced!",
+        error: "Failed — try again",
+    }[status];
+    const border = {
+        idle: "border-neutral-700",
+        busy: "border-yellow-600",
+        done: "border-green-600",
+        error: "border-red-600",
+    }[status];
 
-  return (
-    <div className="w-56 border-r border-neutral-800">
-    <div
-      className={`cursor-pointer flex flex-col gap-0 p-2 m-2 bg-neutral-900 text-center rounded-xl border-2 border-dashed hover:bg-neutral-800 hover:border-neutral-500 ${border}`}
-      onClick={status === 'busy' ? undefined : handleReplace}
-      onDragOver={e => e.preventDefault()}
-      onDrop={status === 'busy' ? undefined : handleDrop}
-    >
-      <h1 className="text-neutral-400 text-sm font-bold">Replace File</h1>
-      <p className="text-neutral-500 text-xs">{label}</p>
-    </div>
-    </div>
-  )
+    return (
+        <div className="w-56 border-r border-neutral-800">
+            <div
+                className={`cursor-pointer flex flex-col gap-0 p-2 m-2 bg-neutral-900 text-center rounded-xl border-2 border-dashed hover:bg-neutral-800 hover:border-neutral-500 ${border}`}
+                onClick={status === "busy" ? undefined : handleReplace}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={status === "busy" ? undefined : handleDrop}
+            >
+                <h1 className="text-neutral-400 text-sm font-bold">
+                    Replace File
+                </h1>
+                <p className="text-neutral-500 text-xs">{label}</p>
+            </div>
+        </div>
+    );
 }
 
 // ── FileView ─────────────────────────────────────────────────────────────────
@@ -202,10 +285,10 @@ export default function FileView({
     rootPath: string;
     onBack: () => void;
 }): JSX.Element {
-    const [currentFile, setCurrentFile] = useState<DbFile>(initialFile)
+    const [currentFile, setCurrentFile] = useState<DbFile>(initialFile);
     useEffect(() => {
-        setCurrentFile(initialFile)
-    }, [initialFile.content_hash, initialFile.filename, initialFile.path])
+        setCurrentFile(initialFile);
+    }, [initialFile.content_hash, initialFile.filename, initialFile.path]);
 
     const isVideo = currentFile.media_type === "video";
     const fullUrl = toMediaUrl(rootPath, currentFile.path);
@@ -236,9 +319,11 @@ export default function FileView({
         setFullLoaded(false);
         setZoom(1);
         setPan({ x: 0, y: 0 });
-        window.api.getThumbnailPath(currentFile.content_hash).then((absPath) => {
-            if (absPath) setThumbUrl(toThumbnailUrl(absPath));
-        });
+        window.api
+            .getThumbnailPath(currentFile.content_hash)
+            .then((absPath) => {
+                if (absPath) setThumbUrl(toThumbnailUrl(absPath));
+            });
     }, [currentFile.content_hash]);
 
     const toggleFullscreen = useCallback(() => {
@@ -371,6 +456,12 @@ export default function FileView({
         cursor: zoom > 1 ? "grab" : "default",
     };
 
+    const handleShowInFolder = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        // file.path is relative, so reconstruct the absolute path
+        window.api.showInFolder(`${rootPath}/${initialFile.path}`);
+    };
+
     return (
         <div className="flex flex-1 flex-col overflow-hidden">
             {/* Header */}
@@ -395,7 +486,11 @@ export default function FileView({
                             />
                         </svg>
                     </button>
-                    <h2 className="text-sm font-medium text-neutral-300 truncate">
+                    <h2
+                        className="cursor-pointer text-sm font-medium text-neutral-300 truncate"
+                        onClick={handleShowInFolder}
+                        title={"Show in Finder"}
+                    >
                         {currentFile.filename}
                     </h2>
                 </div>
@@ -423,10 +518,7 @@ export default function FileView({
 
             {/* Body */}
             <div className="flex flex-1 overflow-hidden">
-                <div className="flex flex-col justify-between">
-                    <TagPanel file={currentFile} />
-                    <FileReplacer file={currentFile} onReplaced={setCurrentFile} />
-                </div>
+                
 
                 <div className="flex flex-1 flex-col overflow-hidden bg-black">
                     <div
@@ -461,7 +553,10 @@ export default function FileView({
                                         src={thumbUrl}
                                         alt={currentFile.filename}
                                         className="absolute inset-0 h-full w-full object-contain transition-opacity duration-500"
-                                        style={{ opacity: thumbUrl && !fullLoaded ? 1 : 0 }}
+                                        style={{
+                                            opacity:
+                                                thumbUrl && !fullLoaded ? 1 : 0,
+                                        }}
                                     />
                                 )}
                                 <img
@@ -494,7 +589,8 @@ export default function FileView({
                                 {playing ? "⏸" : "▶"}
                             </button>
                             <span className="text-xs text-neutral-400 tabular-nums shrink-0">
-                                {formatTime(currentTime)} / {formatTime(duration)}
+                                {formatTime(currentTime)} /{" "}
+                                {formatTime(duration)}
                             </span>
                             <input
                                 type="range"
@@ -509,7 +605,10 @@ export default function FileView({
                                 }}
                                 onMouseUp={() => setScrubbing(false)}
                                 className="flex-1"
-                                style={{ accentColor: "white", cursor: "pointer" }}
+                                style={{
+                                    accentColor: "white",
+                                    cursor: "pointer",
+                                }}
                             />
                         </div>
                     )}
@@ -525,6 +624,13 @@ export default function FileView({
                             {currentFile.media_type}
                         </p>
                     </div>
+                </div>
+                <div className="flex flex-col justify-between">
+                    <TagPanel file={currentFile} />
+                    <FileReplacer
+                        file={currentFile}
+                        onReplaced={setCurrentFile}
+                    />
                 </div>
             </div>
         </div>

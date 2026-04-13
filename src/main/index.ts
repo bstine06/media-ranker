@@ -1,14 +1,5 @@
-import {
-    app,
-    BrowserWindow,
-    shell,
-    ipcMain,
-    dialog,
-    protocol,
-    net,
-} from "electron";
+import { app, BrowserWindow, shell, ipcMain, dialog, protocol } from "electron";
 import path, { join } from "path";
-import { pathToFileURL } from "url";
 import { is } from "@electron-toolkit/utils";
 import {
     initDb,
@@ -16,11 +7,9 @@ import {
     getAllFiles,
     getFilesByFolder,
     getTagsForFile,
-    addTag,
     getAllTags,
     getFileIdsByTags,
     addTagToFolder,
-    removeTag,
     getDb,
     updateEloScores,
     getFileByPath,
@@ -28,15 +17,26 @@ import {
     reconcileMissingFiles,
     getAllActiveFiles,
     getFilesByPathPrefix,
+    renameFolderPath,
+    upsertTag,
+    addTagToFile,
+    getTagByName,
+    removeTagFromFile,
+    upsertFolder,
+    applyFolderTagsToExistingFiles,
+    getTagsForFolderByPath,
+    removeTagFromFolderByPath,
+    getFolderMetadata,
+    setFolderMetadataField,
+    deleteFolderMetadataField,
+    getAllMetadataFieldNames,
+    setFolderProfileImageByPath,
+    getFolderByPath,
+    getFolderMetadataByPath,
+    getActiveFilesByTags,
 } from "./db";
 import type { DbFile } from "./db";
-import {
-    scanFolder,
-    getSubfolders,
-    getThumbnailPath,
-    getFolderTree,
-    FolderMetadata,
-} from "./scanner";
+import { scanFolder, getThumbnailPath, getFolderTree } from "./scanner";
 import {
     readFileSync,
     writeFileSync,
@@ -76,13 +76,16 @@ function registerIpcHandlers(): void {
     });
 
     ipcMain.handle("open-library", async (_event, folderPath: string) => {
+        
+        const win = BrowserWindow.getAllWindows()[0];
+        
         rootPath = folderPath;
         saveRootPath(folderPath);
         initDb(folderPath);
         reconcileMissingFiles(folderPath);
-        const result = await scanFolder(folderPath);
+        const result = await scanFolder(folderPath, win);
 
-        const win = BrowserWindow.getAllWindows()[0];
+        
 
         // Tell renderer about any missing files (trashed, moved externally, etc.)
         const missing = getMissingFiles();
@@ -129,34 +132,66 @@ function registerIpcHandlers(): void {
         return getFilesByFolder(folderRelPath);
     });
 
+    ipcMain.handle(
+        "get-files-by-tags",
+        (_event, tagIds: number[], mode: "and" | "or", folderPath?: string) => {
+            return getActiveFilesByTags(tagIds, mode, folderPath);
+        },
+    );
+
     ipcMain.handle("get-thumbnail-path", (_event, hash: string) => {
         if (!rootPath) return null;
         const thumbPath = getThumbnailPath(rootPath, hash);
         return existsSync(thumbPath) ? thumbPath : null;
     });
 
-    ipcMain.handle("read-folder-metadata", (_event, folderRelPath: string) => {
-        if (!rootPath) return null;
-        const metaPath = path.join(rootPath, folderRelPath, ".metadata.json");
-        try {
-            if (!existsSync(metaPath)) return null;
-            const raw = readFileSync(metaPath, "utf-8");
-            return JSON.parse(raw);
-        } catch {
-            return null;
-        }
+    ipcMain.handle("get-folder-metadata", (_event, folderRelPath: string) => {
+        return getFolderMetadataByPath(folderRelPath);
     });
 
     ipcMain.handle(
-        "write-folder-metadata",
-        (_event, folderRelPath: string, metadata: unknown) => {
-            if (!rootPath) return;
-            const metaPath = path.join(
-                rootPath,
-                folderRelPath,
-                ".metadata.json",
-            );
-            writeFileSync(metaPath, JSON.stringify(metadata, null, 2), "utf-8");
+        "set-folder-metadata-field",
+        (
+            _event,
+            folderRelPath: string,
+            key: string,
+            value: string,
+            type: string,
+        ) => {
+            setFolderMetadataField(folderRelPath, key, value, type as any);
+        },
+    );
+
+    ipcMain.handle(
+        "delete-folder-metadata-field",
+        (_event, folderRelPath: string, key: string) => {
+            deleteFolderMetadataField(folderRelPath, key);
+        },
+    );
+
+    ipcMain.handle("get-metadata-fields", () => {
+        return getAllMetadataFieldNames();
+    });
+
+    ipcMain.handle(
+        "set-folder-profile-image",
+        (_event, folderRelPath: string, hash: string | null) => {
+            setFolderProfileImageByPath(folderRelPath, hash);
+        },
+    );
+
+    ipcMain.handle("get-folder", (_event, folderRelPath: string) => {
+        return getFolderByPath(folderRelPath);
+    });
+
+    ipcMain.handle("get-folder-tags", (_event, folderRelPath: string) => {
+        return getTagsForFolderByPath(folderRelPath);
+    });
+
+    ipcMain.handle(
+        "remove-tag-from-folder",
+        (_event, folderRelPath: string, tag: string) => {
+            removeTagFromFolderByPath(folderRelPath, tag);
         },
     );
 
@@ -194,6 +229,7 @@ function registerIpcHandlers(): void {
                 ignoredPaths.delete(newAbsPath);
 
                 renameFolderPaths(oldRelPath, newRelPath);
+                renameFolderPath(oldRelPath, newRelPath);
 
                 // Emit exactly what commitFolderRename would have emitted
                 for (const record of affected) {
@@ -273,12 +309,14 @@ function registerIpcHandlers(): void {
     });
 
     ipcMain.handle("add-tag", (_event, fileId: number, tag: string) => {
-        addTag(fileId, tag);
+        const { id: tagId } = upsertTag(tag);
+        addTagToFile(fileId, tagId);
         return getTagsForFile(fileId);
     });
 
     ipcMain.handle("remove-tag", (_event, fileId: number, tag: string) => {
-        removeTag(fileId, tag);
+        const existing = getTagByName(tag);
+        if (existing) removeTagFromFile(fileId, existing.id);
         return getTagsForFile(fileId);
     });
 
@@ -288,15 +326,23 @@ function registerIpcHandlers(): void {
 
     ipcMain.handle(
         "get-file-ids-by-tags",
-        (_event, tags: string[], mode: "and" | "or") => {
-            return getFileIdsByTags(tags, mode);
+        (_event, tags: number[], mode: "and" | "or") => {
+            const tagIds = tags
+                .filter((id): id is number => id !== undefined);
+            return getFileIdsByTags(tagIds, mode);
         },
     );
 
     ipcMain.handle(
         "add-tag-to-folder",
         (_event, folderRelPath: string, tag: string) => {
-            return addTagToFolder(folderRelPath, tag);
+            const folder = upsertFolder(
+                folderRelPath,
+                path.basename(folderRelPath),
+            );
+            const { id: tagId } = upsertTag(tag);
+            addTagToFolder(folder.id, tagId);
+            applyFolderTagsToExistingFiles(folder.id);
         },
     );
 
@@ -307,7 +353,7 @@ function registerIpcHandlers(): void {
         (
             _event,
             folderPrefixes: string[] | null,
-            tagList: string[] | null,
+            tagList: number[] | null,
             tagMode: "and" | "or",
             excludeIds: number[] = [],
         ) => {
@@ -322,7 +368,7 @@ function registerIpcHandlers(): void {
         (
             _event,
             folderPrefixes: string[] | null,
-            tagList: string[] | null,
+            tagList: number[] | null,
             tagMode: "and" | "or",
         ) => {
             return getWeightedPair(folderPrefixes, tagList, tagMode);

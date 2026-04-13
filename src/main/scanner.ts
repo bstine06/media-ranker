@@ -21,9 +21,13 @@ import {
     markFileMissing,
     getFileByPathAny,
     getFileByHashAny,
+    DbFolder,
+    upsertFolder,
+    applyFolderTagsToFile,
 } from "./db";
 import ffmpegPath from "ffmpeg-static";
 import { INTERNAL_NAMES } from "./config";
+import { BrowserWindow } from "electron";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,6 +42,7 @@ export interface ScannedFile {
     relativePath: string;
     filename: string;
     mediaType: MediaType;
+    folderRelPath: string | null; // null = root-level file
 }
 
 export interface ScanResult {
@@ -172,6 +177,7 @@ function walkDir(dirPath: string, rootPath: string): ScannedFile[] {
                 relativePath: relative(rootPath, absPath),
                 filename: basename(entry),
                 mediaType,
+                folderRelPath: relative(rootPath, dirPath) || null,
             });
         }
     }
@@ -179,7 +185,7 @@ function walkDir(dirPath: string, rootPath: string): ScannedFile[] {
     return results;
 }
 
-export async function scanFolder(rootPath: string): Promise<ScanResult> {
+export async function scanFolder(rootPath: string, win: BrowserWindow): Promise<ScanResult> {
     const files = walkDir(rootPath, rootPath);
     const thumbDir = join(rootPath, "_thumbnails");
     ensureDir(thumbDir);
@@ -192,7 +198,35 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
 
     const scannedHashes = new Map<string, string>();
 
+    const getFolderId = (f: ScannedFile): number | null => {
+            if (!f.folderRelPath) return null;
+            // take only the first path segment
+            const topLevel = f.folderRelPath.split("/")[0];
+            return folderCache.get(topLevel)?.id ?? null;
+        };
+
+    const folderCache = new Map<string, DbFolder>();
+    function walkFolders(dirPath: string) {
+        const entries = readdirSync(rootPath);
+        for (const entry of entries) {
+            if (entry.startsWith(".") || INTERNAL_NAMES.has(entry)) continue;
+            const absPath = join(rootPath, entry);
+            try {
+                if (statSync(absPath).isDirectory()) {
+                    const folder = upsertFolder(entry, entry); // relative path is just the name
+                    folderCache.set(entry, folder);
+                }
+            } catch { continue; }
+        }
+    }
+    walkFolders(rootPath);
+
+    let i = 0;
     for (const file of files) {
+        win.webContents.send("process:message-sent", {
+            message: `${file.relativePath}`,
+            progress: [++i, files.length]
+        });
         try {
             const stat = statSync(file.absolutePath);
             const mtime = stat.mtimeMs;
@@ -244,7 +278,7 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
                     console.warn(`Thumbnail failed for ${file.filename}:`, e);
                 });
 
-                upsertFile({
+                const inserted = upsertFile({
                     content_hash: hash,
                     path: file.relativePath,
                     filename: file.filename,
@@ -253,7 +287,11 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
                     size,
                     status: "active",
                     missing_since: null,
+                    folder_id: getFolderId(file),
                 });
+                if (inserted.folder_id != null) {
+                    applyFolderTagsToFile(inserted.id, inserted.folder_id);
+                }
                 added++;
                 //Resurrected/moved via hash match
             } else if (
@@ -286,6 +324,7 @@ export async function scanFolder(rootPath: string): Promise<ScanResult> {
                     size,
                     status: "active",
                     missing_since: null,
+                    folder_id: getFolderId(file),
                 });
                 await ensureThumbnail(
                     thumbDir,

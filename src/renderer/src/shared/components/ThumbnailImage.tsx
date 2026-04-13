@@ -6,11 +6,9 @@ import { useEffect, useState } from "react";
 export default function ThumbnailImage({
     contentHash,
     className,
-    isVideo,
 }: {
     contentHash: string;
     className?: string;
-    isVideo?: boolean;
 }) {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
 
@@ -25,7 +23,7 @@ export default function ThumbnailImage({
             <div
                 className={`flex items-center justify-center bg-neutral-800 text-neutral-600 text-xs ${className}`}
             >
-                {isVideo ? "▶" : "?"}
+                ?
             </div>
         );
     }

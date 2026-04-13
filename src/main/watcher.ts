@@ -1,6 +1,6 @@
 // main/watcher.ts
 import chokidar, { FSWatcher } from "chokidar";
-import { join, relative, extname, basename } from "path";
+import { join, relative, extname, basename, dirname } from "path";
 import { statSync } from "fs";
 import { BrowserWindow } from "electron";
 import {
@@ -15,6 +15,11 @@ import {
     getFileByPathAny,
     getFileByHashAny,
     setFileStatus,
+    getFolderByPath,
+    upsertFolder,
+    deleteFolderByPath,
+    renameFolderPath,
+    applyFolderTagsToFile,
 } from "./db";
 import {
     generateSizedImage,
@@ -110,6 +115,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
     ): void {
         const affected = getFilesByPathPrefix(oldRelativeDir); // fetch before rewriting
         renameFolderPaths(oldRelativeDir, newRelativeDir); // single atomic UPDATE
+        renameFolderPath(oldRelativeDir, newRelativeDir);
         for (const record of affected) {
             const newRelativePath =
                 newRelativeDir + record.path.slice(oldRelativeDir.length);
@@ -192,6 +198,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                             hash,
                             mediaType,
                         });
+                        
                         return;
                     }
 
@@ -255,6 +262,23 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                         missing_since: null,
                     });
 
+                    const dirRelPath = relative(rootPath, dirname(filePath)) || null;
+                    const folder = dirRelPath ? getFolderByPath(dirRelPath) : null;
+                    const inserted = upsertFile({
+                        content_hash: hash,
+                        path: relativePath,
+                        filename: basename(filePath),
+                        media_type: mediaType,
+                        mtime: stat.mtimeMs,
+                        size: stat.size,
+                        status: "active",
+                        missing_since: null,
+                        folder_id: folder?.id ?? null,
+                    });
+                    if (inserted.folder_id != null) {
+                        applyFolderTagsToFile(inserted.id, inserted.folder_id);
+                    }
+
                     win.webContents.send("media:added", {
                         relativePath,
                         hash,
@@ -301,16 +325,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
             pendingUnlinks.delete(content_hash);
             markFileMissing(relativePath);
 
-            // Delete thumbnail — best effort, fire and forget
-            unlink(join(thumbDir, `${content_hash}.jpg`)).catch((err) => {
-                if (err.code !== "ENOENT") {
-                    console.error(
-                        "Failed to delete thumbnail:",
-                        content_hash,
-                        err,
-                    );
-                }
-            });
+            
 
             win.webContents.send("media:removed", { relativePath });
         }, RENAME_WINDOW_MS);
@@ -350,6 +365,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         // Hold the delete and wait to see if a matching addDir arrives.
         const timer = setTimeout(() => {
             pendingDirUnlinks.delete(oldRelativeDir);
+            deleteFolderByPath(oldRelativeDir);
             const affected = getFilesByPathPrefix(oldRelativeDir);
             for (const record of affected) {
                 markFileMissing(record.path);
@@ -408,6 +424,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         // its contents will handle any files inside.
         const timer = setTimeout(() => {
             pendingDirAdds.delete(dirName);
+            upsertFolder(newRelativeDir, dirName);
             win.webContents.send("folder:added", {
                 relativePath: newRelativeDir,
             });
