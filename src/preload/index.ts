@@ -212,6 +212,9 @@ const api = {
     removeTagFromFolder: (folderRelPath: string, tag: string): Promise<void> =>
         ipcRenderer.invoke("remove-tag-from-folder", folderRelPath, tag),
 
+    getMostUsedTags: (folderId?: number): Promise<DbTag[]> =>
+        ipcRenderer.invoke("get-most-used-tags", folderId),
+
     // ── Scroll ────────────────────────────────────────────────────────
     getRandomFile: (
         folderPrefixes: string[] | null,

@@ -296,6 +296,22 @@ function runMigrations(db: Database.Database): void {
         );
         db.pragma("foreign_keys = ON");
     }
+
+    // Migration 4: add composite indexes for tag usage queries
+    const existingIndexes = new Set(
+        (
+            db
+                .prepare(`SELECT name FROM sqlite_master WHERE type='index'`)
+                .all() as { name: string }[]
+        ).map((r) => r.name),
+    );
+
+    if (!existingIndexes.has("idx_files_folder_status")) {
+        db.exec(`CREATE INDEX idx_files_folder_status ON files(folder_id, status)`);
+    }
+    if (!existingIndexes.has("idx_files_status")) {
+        db.exec(`CREATE INDEX idx_files_status ON files(status)`);
+    }
 }
 
 export function closeDb(): void {
@@ -390,6 +406,33 @@ export function removeTagFromFolderByPath(
     const tag = getTagByName(tagName);
     if (!tag) return;
     removeTagFromFolder(folder.id, tag.id);
+}
+
+export function getMostUsedTags(folderId?: number): DbTag[] {
+    const query = folderId != null
+        ? `
+            SELECT t.id, t.name, t.category_id, COUNT(*) as usage_count
+            FROM tags t
+            JOIN file_tags ft ON ft.tag_id = t.id
+            JOIN files f ON f.id = ft.file_id
+            WHERE f.status = 'active'
+              AND f.folder_id = ?
+            GROUP BY t.id
+            ORDER BY usage_count DESC
+          `
+        : `
+            SELECT t.id, t.name, t.category_id, COUNT(*) as usage_count
+            FROM tags t
+            JOIN file_tags ft ON ft.tag_id = t.id
+            JOIN files f ON f.id = ft.file_id
+            WHERE f.status = 'active'
+            GROUP BY t.id
+            ORDER BY usage_count DESC
+          `;
+
+    return getDb()
+        .prepare(query)
+        .all(folderId != null ? [folderId] : []) as DbTag[];
 }
 
 // Stamp folder tags onto all files currently in the folder.
@@ -679,6 +722,12 @@ export function upsertFile(
                 file.content_hash,
             );
         }
+
+         // Apply folder tags in case file moved to a new folder
+        if (file.folder_id != null) {
+            applyFolderTagsToFile(existing.id, file.folder_id);
+        }
+
         return { ...existing, ...file };
     }
 
@@ -697,9 +746,16 @@ export function upsertFile(
             file.folder_id,
         );
 
-    return db
+    const inserted = db
         .prepare(`SELECT * FROM files WHERE id = ?`)
         .get(result.lastInsertRowid) as DbFile;
+
+    // Apply folder tags to newly indexed files
+    if (inserted.folder_id != null) {
+        applyFolderTagsToFile(inserted.id, inserted.folder_id);
+    }
+
+    return inserted;
 }
 
 export function getFileByPath(relativePath: string): DbFile | undefined {
@@ -803,6 +859,20 @@ export function renameFolderPaths(oldPrefix: string, newPrefix: string): void {
 
 export function deleteFileByPath(relativePath: string): void {
     getDb().prepare(`DELETE FROM files WHERE path = ?`).run(relativePath);
+}
+
+export function updateFileFolderAndPath(
+    hash: string,
+    newRelativePath: string,
+    newFilename: string,
+    mtime: number,
+    folderId: number | null,
+): void {
+    getDb()
+        .prepare(
+            `UPDATE files SET path = ?, filename = ?, mtime = ?, folder_id = ? WHERE content_hash = ?`,
+        )
+        .run(newRelativePath, newFilename, mtime, folderId, hash);
 }
 
 export function getActiveFilesByTags(

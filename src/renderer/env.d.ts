@@ -81,6 +81,7 @@ declare global {
                 folderRelPath: string,
                 tag: string,
             ) => Promise<void>;
+            getMostUsedTags: (folderId?: number) => Promise<DbTag[]>;
             getFileIdsByTags: (
                 tags: number[],
                 mode: "and" | "or",

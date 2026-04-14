@@ -134,6 +134,7 @@ export default function App(): JSX.Element {
                         <BrowseView
                             onFolderMetadataChanged={handleFolderMetadataChanged}
                             setView={setView}
+                            active={view==="browse"}
                         />
                     </div>
                     <div

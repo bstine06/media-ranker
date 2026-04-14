@@ -34,6 +34,7 @@ import {
     getFolderByPath,
     getFolderMetadataByPath,
     getActiveFilesByTags,
+    getMostUsedTags,
 } from "./db";
 import type { DbFile } from "./db";
 import { scanFolder, getThumbnailPath, getFolderTree } from "./scanner";
@@ -345,6 +346,11 @@ function registerIpcHandlers(): void {
             applyFolderTagsToExistingFiles(folder.id);
         },
     );
+
+    ipcMain.handle("get-most-used-tags", (_event, folderId?: number) => {
+        return getMostUsedTags(folderId);
+    });
+    
 
     // -- Scroll
 

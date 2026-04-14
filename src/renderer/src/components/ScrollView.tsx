@@ -12,7 +12,6 @@ import React, {
     useRef,
     useState,
 } from "react";
-import { TagPanel } from "./FileView";
 import { MediaPlayer } from "./MediaPlayer";
 import { mergeRefs } from "@renderer/lib/refs";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
@@ -20,6 +19,7 @@ import { FolderIcon } from "./icons/FolderIcon";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { showInFolder } from "@renderer/lib/filesystem";
+import { TagPanel } from "./TagPanel";
 
 const preloadCache = new Map<string, HTMLImageElement>();
 

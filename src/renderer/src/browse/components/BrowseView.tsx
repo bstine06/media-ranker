@@ -19,9 +19,11 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
 export default function BrowseView({
+    active,
     onFolderMetadataChanged,
     setView,
 }: {
+    active: boolean;
     onFolderMetadataChanged: () => void;
     setView: (view: View) => void;
 }): JSX.Element {
@@ -266,11 +268,11 @@ export default function BrowseView({
     if (rootPath && browseScrollIndex !== null) {
         return (
             <BrowseScrollView
-                files={files}
+                files={sortedFiles}
                 startIndex={browseScrollIndex}
                 rootPath={rootPath}
                 onClose={() => setBrowseScrollIndex(null)}
-                active={true}
+                active={active}
                 onGoToFolder={() => {
                     setActiveFolder(
                         files[browseScrollIndex].path.split("/")[0],
