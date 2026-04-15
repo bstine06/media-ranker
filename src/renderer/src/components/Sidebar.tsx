@@ -337,11 +337,13 @@ export default function Sidebar({
     const isFilterable = !view.startsWith("browse");
     const isSearching = search.trim().length > 0;
 
+    const sortedFolders = folders.sort((f1, f2) => f1.name.toLowerCase() < f2.name.toLowerCase() ? -1 : 1);
+
     const visibleFolders = isSearching
         ? folders.filter((n) =>
               n.name.toLowerCase().includes(search.trim().toLowerCase()),
           )
-        : folders;
+        : sortedFolders;
 
     const allPaths = folders.map((n) => n.relativePath);
     const allChecked = allPaths.every((p) => checkedFolders.has(p));
@@ -356,7 +358,7 @@ export default function Sidebar({
 
     return (
         <aside className="flex w-52 shrink-0 flex-col border-r border-neutral-800 bg-neutral-900 h-full">
-            {folders.length > 0 && (
+            {sortedFolders.length > 0 && (
                 <div className="flex flex-col flex-1 pb-3 min-h-0">
                     <h1
                         className="cursor-pointer text-lg px-3 font-semibold tracking-wide text-neutral-300"
@@ -371,7 +373,7 @@ export default function Sidebar({
                             type="text"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder={`Search ${folders.length} folders…`}
+                            placeholder={`Search ${sortedFolders.length} folders…`}
                             className="flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors"
                         />
                         {search && (

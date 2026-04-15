@@ -15,6 +15,9 @@ import { useTags } from "@renderer/contexts/TagsContext";
 import BrowseScrollView from "./BrowseScrollView";
 import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
 import { useSettings } from "@renderer/contexts/SettingsContext";
+import { SlotResolver } from "@renderer/hooks/useScrollSlots";
+import ScrollView from "@renderer/components/ScrollView";
+import { showInFolder } from "@renderer/lib/filesystem";
 
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
@@ -30,7 +33,7 @@ export default function BrowseView({
     const [fields, setFields] = useState<
         { key: string; value: string; type: string }[]
     >([]);
-    const [folderProfileImage, setFolderProfileImage] = useState<string | null>(
+    const [folderProfileHash, setFolderProfileHash] = useState<string | null>(
         null,
     );
     const [metadataFields, setMetadataFields] = useState<string[]>([]); // for autocomplete
@@ -95,7 +98,7 @@ export default function BrowseView({
     useEffect(() => {
         if (!activeFolder) {
             setFields([]);
-            setFolderProfileImage(null);
+            setFolderProfileHash(null);
             setFolderTags([]);
             setMetadataFields([]);
             setEditingMetadata(false);
@@ -115,11 +118,11 @@ export default function BrowseView({
                 setFields(dbFields);
                 setFolderTags(tags);
                 setMetadataFields(fieldNames);
-                setFolderProfileImage(dbFolder?.profile_image_hash ?? null);
+                setFolderProfileHash(dbFolder?.profile_image_hash ?? null);
                 console.log(dbFolder?.profile_image_hash);
             } catch {
                 setFields([]);
-                setFolderProfileImage(null);
+                setFolderProfileHash(null);
                 setFolderTags([]);
             }
         };
@@ -141,7 +144,7 @@ export default function BrowseView({
     };
 
     const handleEditStart = () => {
-        setDraftProfileImage(folderProfileImage ?? undefined);
+        setDraftProfileImage(folderProfileHash ?? undefined);
         setDraftName(activeFolder ?? "");
         setRenameError(null);
         setEditingMetadata(true);
@@ -190,7 +193,7 @@ export default function BrowseView({
             activeFolder,
             draftProfileImage ?? null,
         );
-        setFolderProfileImage(draftProfileImage ?? null);
+        setFolderProfileHash(draftProfileImage ?? null);
         onFolderMetadataChanged();
 
         if (newName !== activeFolder) {
@@ -265,23 +268,26 @@ export default function BrowseView({
         };
     }, [rootPath, activeFolder, setActiveFolder]);
 
+
+    const resolver: SlotResolver = useCallback(async (dir, cursor) => {
+        return sortedFiles[dir === "down" ? cursor + 1 : cursor - 1] ?? null;
+    }, [sortedFiles]);
+
     if (rootPath && browseScrollIndex !== null) {
         return (
-            <BrowseScrollView
-                files={sortedFiles}
-                startIndex={browseScrollIndex}
-                rootPath={rootPath}
-                onClose={() => setBrowseScrollIndex(null)}
-                active={active}
-                onGoToFolder={() => {
-                    setActiveFolder(
-                        files[browseScrollIndex].path.split("/")[0],
-                    );
-                    setBrowseScrollIndex(null);
-                    setView("browse");
-                }}
-                folderMetaVersion={0}
-            />
+            <ScrollView
+                        initialFile={sortedFiles[browseScrollIndex]}
+                        resolver={resolver}
+                        active={active}
+                        rootPath={rootPath!}
+                        folderProfileHash={folderProfileHash}
+                        onFolderClick={(folderName) => {
+                            setActiveFolder(folderName);
+                            setView("browse");
+                        }}
+                        onFileClick={(file) => showInFolder(rootPath!, file.path)}
+                        onClose={() => setBrowseScrollIndex(null)}
+                    />
         );
     }
 
@@ -392,7 +398,7 @@ export default function BrowseView({
                     <MetadataView
                         folderName={activeFolder}
                         fields={fields}
-                        profileImage={folderProfileImage}
+                        profileImage={folderProfileHash}
                         metadataFields={metadataFields}
                         folderTags={folderTags}
                         onAddFolderTag={handleAddFolderTag}

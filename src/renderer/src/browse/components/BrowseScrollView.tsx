@@ -6,9 +6,9 @@ import { MediaPlayer } from "../../components/MediaPlayer";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "../../components/icons/FolderIcon";
 import { formatFileSize } from "@renderer/lib/media";
-import { MediaSlide } from "../../components/ScrollView";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { TagPanel } from "@renderer/components/TagPanel";
+import { MediaSlide } from "@renderer/components/MediaSlide";
 
 // reuse MediaSlide directly from ScrollView or copy it here
 

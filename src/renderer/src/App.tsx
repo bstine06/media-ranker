@@ -10,6 +10,7 @@ import { useTags } from "./contexts/TagsContext";
 import { useFolders } from "./contexts/FolderContext";
 import ScrollView from "./components/ScrollView";
 import CompareView from "./components/CompareView";
+import DiscoverView from "./components/DiscoverView";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -59,6 +60,7 @@ export default function App(): JSX.Element {
     const openLibrary = useCallback(
         async (path: string, activeFolder: string | null = null) => {
             setIsScanning(true);
+            await new Promise(resolve => setTimeout(resolve, 1000));
             setWelcomeMessage("Scanning the selected library...");
             setStatus(activeFolder ? "Rescanning..." : "Opening library...");
             setRootPath(path);
@@ -156,7 +158,7 @@ export default function App(): JSX.Element {
                                 : "hidden"
                         }
                     >
-                        <ScrollView
+                        <DiscoverView
                             active={view === "scroll"}
                             setView={setView}
                             folderMetaVersion={folderMetaVersion}

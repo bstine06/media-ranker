@@ -1,4 +1,4 @@
-export type View = "browse" | "compare" | "file" | "scroll" | "browse-scroll";
+export type View = "browse" | "compare" | "file" | "scroll" | "tag-manager";
 
 export interface DbFile {
     id: number;

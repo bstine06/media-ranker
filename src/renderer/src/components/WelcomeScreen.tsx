@@ -28,26 +28,35 @@ export default function WelcomeScreen({
             <p className="text-neutral-400">
                 {message || "Choose a folder to begin."}
             </p>
-            <p className="text-neutral-400 text-left">{backendMessage || ""}</p>
-            {backendProgress && (
-                <div className="flex flex-col gap-2">
+            <p className="text-neutral-400 text-left h-5">
+                {backendMessage || ""}
+            </p>
+            <div
+                className="flex flex-col gap-2 invisible"
+                style={backendProgress ? { visibility: "visible" } : {}}
+            >
+                <div className="h-16 flex flex-col gap-2 items-center justify-center">
                     <div className="flex items-center gap-2">
                         <div className="relative w-24 h-1 bg-neutral-700 rounded">
                             <div
                                 className="absolute inset-y-0 left-0 bg-neutral-300 rounded"
                                 style={{
-                                    width: `${(backendProgress[0] / backendProgress[1]) * 100}%`,
+                                    width: `${((backendProgress?.[0] ?? 0) / (backendProgress?.[1] ?? 1)) * 100}%`,
                                 }}
                             />
                         </div>
                     </div>
                     <div className="flex justify-between">
-                        <p className="text-neutral-400 text-center">{`${backendProgress[0]}`}</p>
+                        <p className="text-neutral-400 text-center">
+                            {backendProgress?.[0] ?? 0}
+                        </p>
                         <p className="text-neutral-400 text-center">/</p>
-                        <p className="text-neutral-400 text-center">{`${backendProgress[1]}`}</p>
+                        <p className="text-neutral-400 text-center">
+                            {backendProgress?.[1] ?? 0}
+                        </p>
                     </div>
                 </div>
-            )}
+            </div>
             <button
                 onClick={onSelect}
                 disabled={isLoading}
