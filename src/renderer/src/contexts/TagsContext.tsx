@@ -51,6 +51,7 @@ interface Tags {
 
     // upgrade tags
     getTagsWithCategory: (tags: DbTag[]) => DbTagWithCategory[];
+    tagMap: Map<number, DbTagWithCategory>;
 }
 
 const TagsContext = createContext<Tags>({
@@ -70,6 +71,7 @@ const TagsContext = createContext<Tags>({
     updateCategory: async () => {},
     deleteCategory: async () => {},
     getTagsWithCategory: () => [],
+    tagMap: new Map(),
 });
 
 export function TagsProvider({ children }: { children: React.ReactNode }) {
@@ -104,11 +106,13 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     }, [allTagsWithCategory]);
 
     const getTagsWithCategory = useCallback(
-        (tags: DbTag[]) => {
-            return tags.map((t) => tagMap.get(t.id)!);
-        },
-        [tagMap],
-    );
+    (tags: DbTag[]) => {
+        return tags
+            .map((t) => tagMap.get(t.id))
+            .filter((t): t is DbTagWithCategory => t != null);
+    },
+    [tagMap],
+);
 
     // --- Filtering ---
 
@@ -216,7 +220,8 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
                 createCategory,
                 updateCategory,
                 deleteCategory,
-                getTagsWithCategory
+                getTagsWithCategory,
+                tagMap
             }}
         >
             {children}

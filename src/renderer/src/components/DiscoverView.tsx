@@ -35,6 +35,7 @@ export default function DiscoverView({
     const [history, setHistory] = useState<DbFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [initialFile, setInitialFile] = useState<DbFile | null>(null);
+    const [currentFile, setCurrentFile] = useState<DbFile | null>(null);
     const [folderProfileHash, setFolderProfileHash] = useState<string | null>(
         null,
     );
@@ -145,7 +146,7 @@ export default function DiscoverView({
     }, [folderPrefixes, tagKey, tagMode]);
 
     // Folder profile image
-    const currentFolder = initialFile?.path.split("/")[0] ?? null;
+    const currentFolder = (currentFile ?? initialFile)?.path.split("/")[0] ?? null;
     useEffect(() => {
         if (!currentFolder) return;
         window.api
@@ -220,6 +221,7 @@ export default function DiscoverView({
                 setView("browse");
             }}
             onFileClick={(file) => showInFolder(rootPath!, file.path)}
+            onFileChange={(file) => setCurrentFile(file)}
         />
     );
 }

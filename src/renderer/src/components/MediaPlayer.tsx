@@ -118,7 +118,6 @@ export function MediaPlayer({
         <div
             className={`relative overflow-hidden bg-black cursor-pointer select-none ${className}`}
             onMouseMove={handleMouseMove}
-            onClick={handleClick}
         >
             {isVideo ? (
                 <video
@@ -136,6 +135,7 @@ export function MediaPlayer({
                     }}
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
+                    onClick={togglePlay}
                 />
             ) : (
                 <>

@@ -1,6 +1,10 @@
 import { useTags } from "@renderer/contexts/TagsContext";
-import { DbTag, DbTagCategory, DbTagWithCategory } from "@renderer/shared/types/types";
-import React, { useState } from "react";
+import {
+    DbTag,
+    DbTagCategory,
+    DbTagWithCategory,
+} from "@renderer/shared/types/types";
+import React, { useEffect, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
 
 type FocusTarget =
@@ -11,8 +15,14 @@ type FocusTarget =
     | null;
 
 const PRESET_COLORS = [
-    "#7F77DD", "#1D9E75", "#D85A30", "#378ADD",
-    "#D4537E", "#BA7517", "#639922", "#E24B4A",
+    "#7F77DD",
+    "#1D9E75",
+    "#D85A30",
+    "#378ADD",
+    "#D4537E",
+    "#BA7517",
+    "#639922",
+    "#E24B4A",
 ];
 
 const PRESET_ICONS = ["●", "▲", "■", "◆", "★"];
@@ -22,9 +32,13 @@ const PRESET_ICONS = ["●", "▲", "■", "◆", "★"];
 function CategoryEditor({
     category,
     onDone,
+    onToggleQuickAdd,
+    isQuickAdding,
 }: {
     category: DbTagCategory | null;
     onDone: () => void;
+    onToggleQuickAdd?: () => void;
+    isQuickAdding?: boolean;
 }) {
     const [name, setName] = useState(category?.name ?? "");
     const [color, setColor] = useState(category?.color ?? PRESET_COLORS[0]);
@@ -45,7 +59,9 @@ function CategoryEditor({
 
     const handleSave = async () => {
         if (category) {
-            const updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon">> = {};
+            const updates: Partial<
+                Pick<DbTagCategory, "name" | "color" | "icon">
+            > = {};
             if (name !== category.name) updates.name = name;
             if (color !== category.color) updates.color = color;
             if (icon !== category.icon) updates.icon = icon;
@@ -74,6 +90,22 @@ function CategoryEditor({
                 <span className="text-xs leading-none">{icon}</span>
                 {name || "Category name"}
             </div>
+            {category && (
+                <div className="flex gap-3 items-center">
+                    <button
+                        onClick={onToggleQuickAdd}
+                        className={`px-3 py-1.5 w-fit text-xs ${isQuickAdding ? "bg-neutral-200 text-neutral-900 border-neutral-400 hover:bg-neutral-100" : "text-neutral-400 border-neutral-700 hover:bg-neutral-800"}  border  rounded-md  transition-colors`}
+                    >
+                        {"Quick Add"}
+                    </button>
+                    <span className="text-xs italic text-neutral-500">
+                        {isQuickAdding 
+                            ? "Stop Quick Adding" 
+                            : "Click tags in the tag list to quickly add them to this category"
+                        }
+                    </span>
+                </div>
+            )}
 
             <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
@@ -98,7 +130,10 @@ function CategoryEditor({
                             className="w-6 h-6 rounded-full transition-transform hover:scale-110 focus:outline-none"
                             style={{
                                 background: c,
-                                boxShadow: color === c ? `0 0 0 2px #fff, 0 0 0 3px ${c}` : "none",
+                                boxShadow:
+                                    color === c
+                                        ? `0 0 0 2px #fff, 0 0 0 3px ${c}`
+                                        : "none",
                             }}
                         />
                     ))}
@@ -113,7 +148,10 @@ function CategoryEditor({
                     {PRESET_ICONS.map((ic) => (
                         <button
                             key={ic}
-                            onClick={() => { setIcon(ic); setCustomIcon(""); }}
+                            onClick={() => {
+                                setIcon(ic);
+                                setCustomIcon("");
+                            }}
                             className={`w-8 h-8 rounded-md text-sm border transition-colors ${
                                 icon === ic && !customIcon
                                     ? "bg-neutral-600 border-neutral-500 text-neutral-100"
@@ -153,6 +191,7 @@ function CategoryEditor({
                 >
                     {category ? "Save changes" : "Create category"}
                 </button>
+
                 {category && (
                     <button
                         onClick={handleDelete}
@@ -197,13 +236,20 @@ function NewTagEditor({ onDone }: { onDone: () => void }) {
 
             <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                    Category <span className="normal-case text-neutral-600">(optional)</span>
+                    Category{" "}
+                    <span className="normal-case text-neutral-600">
+                        (optional)
+                    </span>
                 </label>
                 <select
                     className="bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
                     value={categoryId ?? ""}
                     onChange={(e) =>
-                        setCategoryId(e.target.value === "" ? null : Number(e.target.value))
+                        setCategoryId(
+                            e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                        )
                     }
                 >
                     <option value="">— none —</option>
@@ -244,7 +290,9 @@ function TagEditor({
     onDone: () => void;
 }) {
     const [name, setName] = useState(tag.name);
-    const [categoryId, setCategoryId] = useState<number | null>(tag.category_id);
+    const [categoryId, setCategoryId] = useState<number | null>(
+        tag.category_id,
+    );
     const { allCategories, updateTag, deleteTag } = useTags();
 
     const handleSave = async () => {
@@ -278,7 +326,11 @@ function TagEditor({
                     className="bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
                     value={categoryId ?? ""}
                     onChange={(e) =>
-                        setCategoryId(e.target.value === "" ? null : Number(e.target.value))
+                        setCategoryId(
+                            e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                        )
                     }
                 >
                     <option value="">— none —</option>
@@ -317,14 +369,24 @@ function TagEditor({
 // ─── TagManagerView ───────────────────────────────────────────────────────────
 
 export default function TagManagerView(): JSX.Element {
-    const { allTags, allCategories, refreshTags } = useTags();
+    const { allTags, allCategories, refreshTags, updateTag } = useTags();
     const [focus, setFocus] = useState<FocusTarget>(null);
-    const [collapsedCategories, setCollapsedCategories] = useState<Set<number>>(new Set());
+    const [collapsedCategories, setCollapsedCategories] = useState<Set<number>>(
+        new Set(),
+    );
     const [uncategorizedCollapsed, setUncategorizedCollapsed] = useState(false);
+    const [isQuickAdding, setIsQuickAdding] = useState(false);
+    const [draggedTag, setDraggedTag] = useState<DbTag | null>(null)
 
     React.useEffect(() => {
         refreshTags();
     }, []);
+
+    useEffect(() => {
+        if (focus === null || focus.kind !== "category") {
+            setIsQuickAdding(false);
+        }
+    }, [focus]);
 
     const toggleCollapsed = (id: number) => {
         setCollapsedCategories((prev) => {
@@ -332,6 +394,15 @@ export default function TagManagerView(): JSX.Element {
             next.has(id) ? next.delete(id) : next.add(id);
             return next;
         });
+        console.log(draggedTag);
+    };
+
+    const toggleQuickAdd = () => {
+        if (isQuickAdding) {
+            setIsQuickAdding(false);
+        } else {
+            setIsQuickAdding(true);
+        }
     };
 
     const tagsByCategory = allCategories.map((cat) => ({
@@ -342,16 +413,31 @@ export default function TagManagerView(): JSX.Element {
 
     const handleDone = () => setFocus(null);
 
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+    }
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>, categoryId: number | null) => {
+        if (!draggedTag) return;
+        updateTag(draggedTag.id, draggedTag.name, categoryId);
+        setDraggedTag(null);
+    };
+
     return (
-        <div className="flex flex-1 flex-col overflow-hidden w-full min-h-full">
+        <div className="flex flex-1 flex-col overflow-hidden w-full">
             <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3 flex-shrink-0">
-                <h2 className="text-sm font-medium text-neutral-300">Tag Manager</h2>
+                <h2 className="text-sm font-medium text-neutral-300">
+                    Tag Manager
+                </h2>
             </div>
 
-            <div className="flex flex-1 overflow-hidden" onClick={() => setFocus(null)}>
+            <div
+                className="flex flex-1 overflow-hidden"
+                onClick={() => setFocus(null)}
+            >
                 {/* Sidebar */}
                 <div
-                    className="w-48 flex-shrink-0 border-r border-neutral-800 overflow-y-auto flex flex-col"
+                    className="w-64 flex-shrink-0 border-r border-neutral-800 overflow-y-auto flex flex-col"
                     onClick={(e) => e.stopPropagation()}
                 >
                     <div className="p-2 flex items-center justify-between">
@@ -371,17 +457,25 @@ export default function TagManagerView(): JSX.Element {
 
                     <div className="p-2 flex flex-col gap-0.5">
                         {tagsByCategory.map(({ category, tags: catTags }) => {
-                            const isCollapsed = collapsedCategories.has(category.id);
-                            const isSelected = focus?.kind === "category" && focus.item.id === category.id;
+                            const isCollapsed = collapsedCategories.has(
+                                category.id,
+                            );
+                            const isSelected =
+                                focus?.kind === "category" &&
+                                focus.item.id === category.id;
                             return (
                                 <React.Fragment key={category.id}>
+                                    <div onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, category.id)}>
                                     <button
                                         onClick={() => {
                                             // Single click selects; clicking selected category toggles collapse
                                             if (isSelected) {
                                                 toggleCollapsed(category.id);
                                             } else {
-                                                setFocus({ kind: "category", item: category });
+                                                setFocus({
+                                                    kind: "category",
+                                                    item: category,
+                                                });
                                             }
                                         }}
                                         className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors text-left w-full ${
@@ -395,41 +489,72 @@ export default function TagManagerView(): JSX.Element {
                                         </span>
                                         <span
                                             className="text-[10px] leading-none flex-shrink-0"
-                                            style={{ color: category.color ?? "#888" }}
+                                            style={{
+                                                color: category.color ?? "#888",
+                                            }}
                                         >
                                             {category.icon ?? "●"}
                                         </span>
                                         {category.name}
                                     </button>
 
-                                    {!isCollapsed && catTags.map((tag) => (
-                                        <button
-                                            key={tag.id}
-                                            onClick={() => setFocus({ kind: "tag", item: tag })}
-                                            className={`flex items-center gap-2 pl-6 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${
-                                                focus?.kind === "tag" && focus.item.id === tag.id
-                                                    ? "bg-neutral-700 text-neutral-100"
-                                                    : "text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300"
-                                            }`}
-                                        >
-                                            <span
-                                                className="text-[10px] leading-none flex-shrink-0"
-                                                style={{ color: category.color ?? "#888" }}
+                                    {!isCollapsed &&
+                                        catTags.map((tag) => (
+                                            <button
+                                                key={tag.id}
+                                                draggable={!isQuickAdding}
+                                            onDragStart={() => setDraggedTag(tag)}
+                                                onClick={() => {
+                                                if (
+                                                    focus &&
+                                                    focus.kind === "category" &&
+                                                    focus.item &&
+                                                    isQuickAdding
+                                                ) {
+                                                    updateTag(
+                                                        tag.id,
+                                                        tag.name,
+                                                        focus.item.id === tag.category_id ? null : focus.item.id,
+                                                    );
+                                                } else {
+                                                    setFocus({
+                                                        kind: "tag",
+                                                        item: tag,
+                                                    });
+                                                }
+                                            }}
+                                                className={`flex items-center gap-2 pl-10 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${
+                                                    focus?.kind === "tag" &&
+                                                    focus.item.id === tag.id
+                                                        ? "bg-neutral-700 text-neutral-100"
+                                                        : "text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300"
+                                                }`}
                                             >
-                                                {category.icon ?? "●"}
-                                            </span>
-                                            {tag.name}
-                                        </button>
-                                    ))}
+                                                <span
+                                                    className="text-[10px] leading-none flex-shrink-0"
+                                                    style={{
+                                                        color:
+                                                            category.color ??
+                                                            "#888",
+                                                    }}
+                                                >
+                                                    {category.icon ?? "●"}
+                                                </span>
+                                                {tag.name}
+                                            </button>
+                                        ))}
+                                        </div>
                                 </React.Fragment>
                             );
                         })}
 
-                        {uncategorized.length > 0 && (
-                            <>
+                        {(
+                            <div onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, null)}>
                                 <div className="h-px bg-neutral-800 my-1" />
                                 <button
-                                    onClick={() => setUncategorizedCollapsed((v) => !v)}
+                                    onClick={() =>
+                                        setUncategorizedCollapsed((v) => !v)
+                                    }
                                     className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider text-neutral-600 hover:text-neutral-400 transition-colors text-left w-full"
                                 >
                                     <span className="text-[10px] w-3 flex-shrink-0">
@@ -438,22 +563,45 @@ export default function TagManagerView(): JSX.Element {
                                     Uncategorized
                                 </button>
 
-                                {!uncategorizedCollapsed && uncategorized.map((tag) => (
-                                    <button
-                                        key={tag.id}
-                                        onClick={() => setFocus({ kind: "tag", item: tag })}
-                                        className={`flex items-center gap-2 pl-6 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${
-                                            focus?.kind === "tag" && focus.item.id === tag.id
-                                                ? "bg-neutral-700 text-neutral-100"
-                                                : "text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300"
-                                        }`}
-                                    >
-                                        <span className="w-1.5 h-1.5 rounded-full bg-neutral-700 flex-shrink-0" />
-                                        {tag.name}
-                                    </button>
-                                ))}
-                            </>
+                                {!uncategorizedCollapsed &&
+                                    uncategorized.map((tag) => (
+                                        <button
+                                            draggable={!isQuickAdding}
+                                            onDragStart={() => setDraggedTag(tag)}
+                                            key={tag.id}
+                                            onClick={() => {
+                                                if (
+                                                    focus &&
+                                                    focus.kind === "category" &&
+                                                    focus.item &&
+                                                    isQuickAdding
+                                                ) {
+                                                    updateTag(
+                                                        tag.id,
+                                                        tag.name,
+                                                        focus.item.id,
+                                                    );
+                                                } else {
+                                                    setFocus({
+                                                        kind: "tag",
+                                                        item: tag,
+                                                    });
+                                                }
+                                            }}
+                                            className={`flex items-center gap-2 pl-6 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${
+                                                focus?.kind === "tag" &&
+                                                focus.item.id === tag.id
+                                                    ? "bg-neutral-700 text-neutral-100"
+                                                    : "text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300"
+                                            }`}
+                                        >
+                                            <span className="w-1.5 h-1.5 rounded-full bg-neutral-700 flex-shrink-0" />
+                                            {tag.name}
+                                        </button>
+                                    ))}
+                            </div>
                         )}
+                        
                     </div>
                 </div>
 
@@ -465,7 +613,9 @@ export default function TagManagerView(): JSX.Element {
                     {focus === null && (
                         <div className="flex flex-col items-center justify-center h-full gap-2 text-neutral-600">
                             <TagIcon className="w-10 h-10" />
-                            <span className="text-sm">Select a tag or category to edit</span>
+                            <span className="text-sm">
+                                Select a tag or category to edit
+                            </span>
                         </div>
                     )}
                     {focus?.kind === "newCategory" && (
@@ -479,6 +629,8 @@ export default function TagManagerView(): JSX.Element {
                             key={focus.item.id}
                             category={focus.item}
                             onDone={handleDone}
+                            onToggleQuickAdd={toggleQuickAdd}
+                            isQuickAdding={isQuickAdding}
                         />
                     )}
                     {focus?.kind === "tag" && (

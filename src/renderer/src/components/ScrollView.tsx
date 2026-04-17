@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
@@ -17,6 +17,7 @@ export default function ScrollView({
     onFolderClick,
     onFileClick,
     onClose,
+    onFileChange,
 }: {
     initialFile: DbFile | null;
     resolver: SlotResolver;
@@ -26,6 +27,7 @@ export default function ScrollView({
     onFolderClick: (folderName: string) => void;
     onFileClick: (file: DbFile) => void;
     onClose?: () => void;
+    onFileChange?: (file: DbFile) => void
 }): JSX.Element {
     const {
         slotFiles,
@@ -43,24 +45,29 @@ export default function ScrollView({
 
     const videoRefs = [videoRef0, videoRef1];
 
-    if (!currentFile) return (
-        <div className="flex flex-1 items-center justify-center text-neutral-500">
-            No files
-        </div>
-    );
+    useEffect(() => {
+        if (currentFile) onFileChange?.(currentFile);
+    }, [currentFile]);
+
+    if (!currentFile)
+        return (
+            <div className="flex flex-1 items-center justify-center text-neutral-500">
+                No files
+            </div>
+        );
 
     return (
-        <div className="relative flex min-h-0 flex-1" onWheel={handleWheel}>
+        <div className="relative flex min-h-0 flex-1">
             {onClose && (
-    <button
-        onClick={onClose}
-        className="absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
-    >
-        ← Back
-    </button>
-)}
-            <div className="relative flex min-h-0 flex-1 flex-col flex-[4]">
-                <div className="relative min-h-0 flex-1 overflow-hidden">
+                <button
+                    onClick={onClose}
+                    className="absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
+                >
+                    ← Back
+                </button>
+            )}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+                <div className="relative min-h-0 flex-1 overflow-hidden" onWheel={handleWheel}>
                     {([0, 1] as const).map((slot) => (
                         <div
                             key={slot}
@@ -89,20 +96,28 @@ export default function ScrollView({
                             onClick={() => navigate("up")}
                             disabled={!canGoUp}
                             className="rounded-full bg-neutral-800 p-2 text-white disabled:opacity-20 hover:bg-black/80"
-                        >▲</button>
+                        >
+                            ▲
+                        </button>
                         <button
                             onClick={() => navigate("down")}
                             className="rounded-full bg-neutral-800 p-2 text-white hover:bg-black/80"
-                        >▼</button>
+                        >
+                            ▼
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <div className="w-56">
+            <div
+                className="w-56 flex flex-col h-full overflow-hidden"
+            >
                 <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
                     <div
                         className="cursor-pointer flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
-                        onClick={() => onFolderClick(currentFile.path.split("/")[0])}
+                        onClick={() =>
+                            onFolderClick(currentFile.path.split("/")[0])
+                        }
                     >
                         {folderProfileHash ? (
                             <ThumbnailImage
@@ -127,7 +142,9 @@ export default function ScrollView({
                         {currentFile.filename ?? "—"}
                     </span>
                     <span className="text-neutral-500 text-xs">
-                        {currentFile.size != null ? formatFileSize(currentFile.size) : "—"}
+                        {currentFile.size != null
+                            ? formatFileSize(currentFile.size)
+                            : "—"}
                     </span>
                 </div>
                 <TagPanel file={currentFile} />

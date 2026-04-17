@@ -189,7 +189,9 @@ function SettingsSection(): JSX.Element {
         scrollTime,
         handleScrollTimeChange,
         tileSize,
-        handleTileSizeChange
+        handleTileSizeChange,
+        showTagCategoryNames,
+        toggleShowTagCategoryNames
     } = useSettings();
     const [open, setOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -231,6 +233,22 @@ function SettingsSection(): JSX.Element {
                             }`}
                         >
                             {hoverPreviewEnabled ? "on" : "off"}
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
+                        <p className="text-xs text-neutral-500">
+                            Show Tag Category Names
+                        </p>
+                        <button
+                            onClick={toggleShowTagCategoryNames}
+                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
+                                showTagCategoryNames
+                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                            }`}
+                        >
+                            {showTagCategoryNames ? "on" : "off"}
                         </button>
                     </div>
 

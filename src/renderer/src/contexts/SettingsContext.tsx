@@ -9,6 +9,8 @@ interface Settings {
     handleScrollTimeChange: (newScrollTime: number) => void;
     tileSize: number; //200px default
     handleTileSizeChange: (newTileSize: number) => void;
+    showTagCategoryNames: boolean;
+    toggleShowTagCategoryNames: () => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -20,6 +22,8 @@ const SettingsContext = createContext<Settings>({
     handleScrollTimeChange: (newScrollTime: number) => {},
     tileSize: 200,
     handleTileSizeChange: (newTileSize: number) => {},
+    showTagCategoryNames: true,
+    toggleShowTagCategoryNames: () => {},
 });
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
@@ -60,6 +64,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setTileSize(newTileSize);
     }, [])
 
+    const [showTagCategoryNames, setShowTagCategoryNames] = useState<boolean>(true);
+    const toggleShowTagCategoryNames = useCallback(() => {
+        setShowTagCategoryNames((tgn) => !tgn)
+    }, []);
+
     return (
         <SettingsContext.Provider
             value={{
@@ -70,7 +79,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 scrollTime,
                 handleScrollTimeChange,
                 tileSize,
-                handleTileSizeChange
+                handleTileSizeChange,
+                showTagCategoryNames,
+                toggleShowTagCategoryNames,
             }}
         >
             {children}
