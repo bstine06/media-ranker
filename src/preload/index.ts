@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import { DbFile, DbFolder, DbTag } from "@main/db";
+import { DbFile, DbFolder, DbTag, DbTagCategory, getAllTagCategories } from "@main/db";
 
 export interface FolderNode {
     name: string;
@@ -244,6 +244,53 @@ const api = {
         margin: number,
     ): Promise<{ newWinnerScore: number; newLoserScore: number } | null> =>
         ipcRenderer.invoke("record-comparison", winnerId, loserId, margin),
+
+    // Tag manager
+
+    createTag: (
+        name: string, 
+        categoryId: number | null,
+    ): Promise<DbTag> =>
+        ipcRenderer.invoke("create-tag", name, categoryId),
+    
+    updateTag: (
+        id: number,
+        name: string,
+        categoryId: number | null,
+    ): Promise<void> =>
+        ipcRenderer.invoke("update-tag", id, name, categoryId),
+
+    deleteTag: (
+        id: number,
+    ): Promise<void> =>
+        ipcRenderer.invoke("delete-tag", id),
+
+    // Tag category manager
+
+    getAllTagCategories: (): Promise<DbTagCategory[]> =>
+        ipcRenderer.invoke("get-all-tag-categories"),
+
+    createTagCategory: (
+        name: string,
+        color: string,
+        icon: string
+    ): Promise<DbTagCategory> =>
+        ipcRenderer.invoke("create-tag-category", name, color, icon),
+
+    updateTagCategory: (
+        id: number,
+        updates: {
+            name?: string,
+            color?: string | null,
+            icon?: string | null
+        },
+    ): Promise<void> =>
+        ipcRenderer.invoke("update-tag-category", id, updates),
+
+    deleteTagCategory: (
+        id: number,
+    ): Promise<void> =>
+        ipcRenderer.invoke("delete-tag-category", id),
 };
 
 if (process.contextIsolated) {

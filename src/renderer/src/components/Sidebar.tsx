@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DbFile, DbTag, FolderNode } from "../shared/types/types";
+import type { DbFile, DbTag, FolderNode, View } from "../shared/types/types";
 import NavItem from "./NavItem";
 import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
@@ -7,8 +7,9 @@ import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "./icons/FolderIcon";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { useTags } from "@renderer/contexts/TagsContext";
-
-type View = "browse" | "compare" | "file" | "scroll" |"browse-scroll";
+import { CompareIcon } from "./icons/CompareIcon";
+import { ScrollIcon } from "./icons/ScrollIcon";
+import { TagIcon } from "./icons/TagIcon";
 
 function FolderItem({
     node,
@@ -334,7 +335,7 @@ export default function Sidebar({
     const { status } = useStatus();
     const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder } = useFolders();
 
-    const isFilterable = !view.startsWith("browse");
+    const isFilterable = !view.startsWith("browse") && view!=="tag-manager";
     const isSearching = search.trim().length > 0;
 
     const sortedFolders = folders.sort((f1, f2) => f1.name.toLowerCase() < f2.name.toLowerCase() ? -1 : 1);
@@ -402,11 +403,14 @@ export default function Sidebar({
                                 />
                             )}
                             <button
-                                onClick={() =>
-                                    isFilterable
-                                        ? checkAll()
-                                        : setActiveFolder(null)
-                                }
+                                onClick={() => {
+                                    if (isFilterable) {
+                                        checkAll();
+                                        return;
+                                    }
+                                    if (view==="tag-manager") setView("browse");
+                                    setActiveFolder(null);
+                                }}
                                 className={`flex-1 truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
                                     !isFilterable && activeFolder === null
                                         ? "text-white font-medium"
@@ -431,7 +435,10 @@ export default function Sidebar({
                                     activeFolder={activeFolder}
                                     isFilterable={isFilterable}
                                     checkedFolders={checkedFolders}
-                                    onSelectFolder={() => setActiveFolder(node.name)}
+                                    onSelectFolder={() => {
+                                        if (view==="tag-manager") setView("browse")
+                                        setActiveFolder(node.name)
+                                    }}
                                     onToggleFolder={toggleFolder}
                                     folderMetaVersion={folderMetaVersion}
                                 />
@@ -445,26 +452,36 @@ export default function Sidebar({
                 </div>
             )}
 
-            <div className="flex gap-1 p-3 shrink-0">
+            
+
+            <TagFilterSection
+            />
+            <div className="flex gap-1 p-3 shrink-0 bg-neutral-950/40 rounded-2xl">
                 <NavItem
-                    label="Browse"
+                    title={"Browse"}
+                    icon={<FolderIcon className="w-5"/>}
                     active={view === "browse"}
                     onClick={() => setView("browse")}
                 />
                 <NavItem
-                    label="Compare"
+                    title={"Compare and Rate"}
+                    icon={<CompareIcon className="w-5"/>}
                     active={view === "compare"}
                     onClick={() => setView("compare")}
                 />
                 <NavItem
-                    label="Scroll"
+                    title={"Infinite Scroll"}
+                    icon={<ScrollIcon className="w-5"/>}
                     active={view === "scroll"}
                     onClick={() => setView("scroll")}
                 />
+                <NavItem
+                    title={"Tag Manager"}
+                    icon={<TagIcon className="w-5"/>}
+                    active={view === "tag-manager"}
+                    onClick={() => setView("tag-manager")}
+                />
             </div>
-
-            <TagFilterSection
-            />
 
             <div className="shrink-0 p-3 border-t border-neutral-800">
                 <div className="flex gap-1 p-3 pb-0 shrink-0">

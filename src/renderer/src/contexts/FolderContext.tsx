@@ -95,7 +95,6 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
 
     // on mount, try to restore saved root path
     useEffect(() => {
-        console.log("attempt get root path");
         window.api.getRootPath().then((path) => {
             if (path) {
                 setRootPath(path);

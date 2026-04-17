@@ -1,9 +1,9 @@
 import { useTags } from "@renderer/contexts/TagsContext";
-import { DbFile, DbTag } from "@renderer/shared/types/types";
+import { DbFile, DbTag, DbTagWithCategory } from "@renderer/shared/types/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function TagPanel({ file }: { file: DbFile }): JSX.Element {
-    const [tags, setTags] = useState<DbTag[]>([]);
+    const [tags, setTags] = useState<DbTagWithCategory[]>([]);
     const [input, setInput] = useState("");
     const [focused, setFocused] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -13,10 +13,18 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
         global: DbTag[];
     }>({ folder: [], global: [] });
 
-    const { allTags, refreshTags } = useTags();
+    const { allTags, refreshTags, getTagsWithCategory } = useTags();
+
+    const addCategoryToTags = (tags: DbTag[]): DbTagWithCategory[] => {
+        return getTagsWithCategory(tags);
+    };
 
     useEffect(() => {
-        window.api.getTags(file.id).then(setTags);
+        const loadTags = async () => {
+            const fileTags = await window.api.getTags(file.id);
+            setTags(addCategoryToTags(fileTags));
+        };
+        loadTags();
     }, [file.id]);
 
     useEffect(() => {
@@ -71,7 +79,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             const trimmed = tag.trim().toLowerCase();
             if (!trimmed || tags.some((t) => t.name === trimmed)) return;
             const updated = await window.api.addTag(file.id, trimmed);
-            setTags(updated);
+            setTags(addCategoryToTags(updated));
             await refreshTags();
             setInput("");
         },
@@ -81,7 +89,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     const removeTag = useCallback(
         async (tag: DbTag) => {
             const updated = await window.api.removeTag(file.id, tag.name);
-            setTags(updated);
+            setTags(addCategoryToTags(updated));
         },
         [file.id],
     );
@@ -138,18 +146,30 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             {/* Tag chips */}
             <div className="flex flex-wrap gap-1.5 px-3 pt-3">
                 {tags.map((tag) => (
-                    <span
-                        key={tag.id}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs group"
-                    >
-                        {tag.name}
-                        <button
-                            onClick={() => removeTag(tag)}
-                            className="text-neutral-600 hover:text-neutral-300 transition-colors leading-none"
+                    <>
+                        <span
+                            key={tag.id}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs group"
                         >
-                            ×
-                        </button>
-                    </span>
+                            {tag.category && (
+                                <span
+                                    className="text-[10px] leading-none flex-shrink-0"
+                                    style={{
+                                        color: tag.category.color ?? "#888",
+                                    }}
+                                >
+                                    {tag.category.icon ?? "●"}
+                                </span>
+                            )}
+                            {tag.name}
+                            <button
+                                onClick={() => removeTag(tag)}
+                                className="text-neutral-600 hover:text-neutral-300 transition-colors leading-none"
+                            >
+                                ×
+                            </button>
+                        </span>
+                    </>
                 ))}
             </div>
 

@@ -37,6 +37,8 @@ export interface DbTag {
 export interface DbTagCategory {
     id: number;
     name: string;
+    color: string;
+    icon: string;
 }
 
 export interface DbMetadataField {
@@ -93,7 +95,9 @@ export function initDb(rootPath: string): Database.Database {
     db.exec(`
         CREATE TABLE IF NOT EXISTS tag_categories (
             id   INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT    NOT NULL UNIQUE
+            name TEXT    NOT NULL UNIQUE,
+            color TEXT   NOT NULL,
+            icon  TEXT   NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS tags (
@@ -311,6 +315,20 @@ function runMigrations(db: Database.Database): void {
     }
     if (!existingIndexes.has("idx_files_status")) {
         db.exec(`CREATE INDEX idx_files_status ON files(status)`);
+    }
+
+    // Migration 5: add color and icon columns to tag_categories if missing
+    const tagCategoryCols = new Set(
+        (
+            db.prepare(`PRAGMA table_info(tag_categories)`).all() as { name: string }[]
+        ).map((c) => c.name),
+    );
+
+    if (!tagCategoryCols.has("color")) {
+        db.exec(`ALTER TABLE tag_categories ADD COLUMN color TEXT`);
+    }
+    if (!tagCategoryCols.has("icon")) {
+        db.exec(`ALTER TABLE tag_categories ADD COLUMN icon TEXT`);
     }
 }
 
@@ -565,10 +583,30 @@ export function setFolderProfileImageByPath(folderPath: string, hash: string | n
 
 // ── Tag queries ──────────────────────────────────────────────────────────────
 
-export function upsertTag(name: string): DbTag {
+export function upsertTag(name: string, categoryId: number | null = null): DbTag {
     const db = getDb();
-    db.prepare(`INSERT OR IGNORE INTO tags (name) VALUES (?)`).run(name);
-    return db.prepare(`SELECT * FROM tags WHERE name = ?`).get(name) as DbTag;
+
+    db.prepare(`
+        INSERT INTO tags (name, category_id)
+        VALUES (?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+            category_id = excluded.category_id
+    `).run(name, categoryId);
+
+    return db
+        .prepare(`SELECT * FROM tags WHERE name = ?`)
+        .get(name) as DbTag;
+}
+
+export function updateTag(id: number, name: string, categoryId: number | null): DbTag {
+    const db = getDb();
+
+    return db.prepare(`
+        UPDATE tags
+        SET name = ?, category_id = ?
+        WHERE id = ?
+        RETURNING *
+    `).get(name, categoryId, id) as DbTag;
 }
 
 export function getTagByName(name: string): DbTag | undefined {
@@ -593,11 +631,21 @@ export function deleteTag(tagId: number): void {
 
 // ── Tag category queries ─────────────────────────────────────────────────────
 
-export function upsertTagCategory(name: string): DbTagCategory {
+export function upsertTagCategory(
+    name: string,
+    color: string,
+    icon: string
+): DbTagCategory {
     const db = getDb();
-    db.prepare(`INSERT OR IGNORE INTO tag_categories (name) VALUES (?)`).run(
-        name,
-    );
+
+    db.prepare(`
+        INSERT INTO tag_categories (name, color, icon)
+        VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+            color = excluded.color,
+            icon = excluded.icon
+    `).run(name, color, icon);
+
     return db
         .prepare(`SELECT * FROM tag_categories WHERE name = ?`)
         .get(name) as DbTagCategory;
@@ -613,6 +661,38 @@ export function deleteTagCategory(categoryId: number): void {
     // Tags in this category become uncategorized via ON DELETE SET NULL
     getDb().prepare(`DELETE FROM tag_categories WHERE id = ?`).run(categoryId);
 }
+
+export function updateTagCategory(id: number, updates: { name?: string; color?: string | null; icon?: string | null }): DbTagCategory {
+    const db = getDb();
+
+    const fields = Object.entries(updates)
+        .filter(([_, v]) => v !== undefined)
+        .map(([k]) => `${k} = ?`);
+    const values = Object.entries(updates)
+        .filter(([_, v]) => v !== undefined)
+        .map(([_, v]) => v);
+
+    if (fields.length === 0) return db.prepare(`SELECT * FROM tag_categories WHERE id = ?`).get(id) as DbTagCategory;
+
+    return db.prepare(`
+        UPDATE tag_categories
+        SET ${fields.join(", ")}
+        WHERE id = ?
+        RETURNING *
+    `).get([...values, id]) as DbTagCategory;
+}
+
+// ipcMain.handle("update-tag-category", (
+//         _event,
+//         id: number,
+//         updates: {
+//             name?: string,
+//             color?: string | null,
+//             icon?: string | null
+//         }
+//     ) => {
+//         updateTagCategory(id, updates);
+//     })
 
 // ── File tag queries ─────────────────────────────────────────────────────────
 

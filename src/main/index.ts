@@ -35,6 +35,12 @@ import {
     getFolderMetadataByPath,
     getActiveFilesByTags,
     getMostUsedTags,
+    getAllTagCategories,
+    deleteTagCategory,
+    updateTag,
+    deleteTag,
+    upsertTagCategory,
+    updateTagCategory,
 } from "./db";
 import type { DbFile } from "./db";
 import { scanFolder, getThumbnailPath, getFolderTree } from "./scanner";
@@ -350,7 +356,6 @@ function registerIpcHandlers(): void {
     ipcMain.handle("get-most-used-tags", (_event, folderId?: number) => {
         return getMostUsedTags(folderId);
     });
-    
 
     // -- Scroll
 
@@ -407,6 +412,45 @@ function registerIpcHandlers(): void {
             return { newWinnerScore, newLoserScore };
         },
     );
+
+    // tag manager
+
+    ipcMain.handle("create-tag", (_event, name: string, categoryId: number | null) => {
+        return upsertTag(name, categoryId);
+    });
+
+    ipcMain.handle("update-tag", (_event, id: number, name: string, categoryId: number | null) => {
+        return updateTag(id, name, categoryId);
+    });
+
+    ipcMain.handle("delete-tag", (_event, id: number) => {
+        deleteTag(id);
+    });
+
+    ipcMain.handle("get-all-tag-categories", (_event) => {
+        return getAllTagCategories();
+    });
+
+    ipcMain.handle("create-tag-category", (_event, name: string, color: string, icon: string) => {
+        upsertTagCategory(name, color, icon);
+    });
+
+    ipcMain.handle("update-tag-category", (
+        _event,
+        id: number,
+        updates: {
+            name?: string,
+            color?: string | null,
+            icon?: string | null
+        }
+    ) => {
+        updateTagCategory(id, updates);
+    })
+
+    ipcMain.handle("delete-tag-category", (_event, id: number) => {
+        deleteTagCategory(id);
+    })
+    
 }
 
 function createWindow(): void {

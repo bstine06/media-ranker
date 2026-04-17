@@ -11,6 +11,7 @@ import { useFolders } from "./contexts/FolderContext";
 import ScrollView from "./components/ScrollView";
 import CompareView from "./components/CompareView";
 import DiscoverView from "./components/DiscoverView";
+import TagManagerView from "./components/TagManagerView";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -32,8 +33,6 @@ export default function App(): JSX.Element {
     const { setStatus, resetStatus } = useStatus();
     const { rootPath, setRootPath, refreshFolders, activeFolder, setActiveFolder, resetFolders } = useFolders();
     const { resetTags } = useTags();
-
-    useEffect
 
     useEffect(() => {
         window.api.onLibraryInvalid(() => {
@@ -162,6 +161,16 @@ export default function App(): JSX.Element {
                             active={view === "scroll"}
                             setView={setView}
                             folderMetaVersion={folderMetaVersion}
+                        />
+                    </div>
+                    <div
+                        className={
+                            view === "tag-manager"
+                                ? "flex flex-1 flex-col overflow-hidden"
+                                : "hidden"
+                        }
+                    >
+                        <TagManagerView
                         />
                     </div>
                 </main>

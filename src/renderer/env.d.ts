@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory } from "./src/shared/types/types";
 
 export {};
 
@@ -143,6 +143,16 @@ declare global {
                 newAbsPath: string,
             ) => Promise<DbFile>;
             openFile: (extensions: string[]) => Promise<string | null>;
+            // Tag CRUD
+            createTag: (name: string, categoryId: number | null) => Promise<DbTag>;
+            updateTag: (id: number, name: string, categoryId: number | null) => Promise<void>;
+            deleteTag: (id: number) => Promise<void>;
+
+            // Category CRUD
+            getAllTagCategories: () => Promise<DbTagCategory[]>;
+            createTagCategory: (name: string, color: string, icon: string) => Promise<DbTagCategory>;
+            updateTagCategory: (id: number, updates: { name?: string; color?: string | null; icon?: string | null }) => Promise<void>;
+            deleteTagCategory: (id: number) => Promise<void>;
         };
     }
 }

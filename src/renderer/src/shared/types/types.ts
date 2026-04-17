@@ -22,6 +22,17 @@ export interface DbTag {
     category_id: number | null;
 }
 
+export interface DbTagCategory {
+    id: number;
+    name: string;
+    color: string;
+    icon: string;
+}
+
+export interface DbTagWithCategory extends DbTag {
+    category: DbTagCategory | null;
+}
+
 export interface DbFolder {
     id: number;
     path: string;
