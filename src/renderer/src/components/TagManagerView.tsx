@@ -15,14 +15,16 @@ type FocusTarget =
     | null;
 
 const PRESET_COLORS = [
-    "#7F77DD",
-    "#1D9E75",
-    "#D85A30",
-    "#378ADD",
-    "#D4537E",
-    "#BA7517",
-    "#639922",
-    "#E24B4A",
+    "#FFFFFF", // pure white (max contrast)
+    "#FFFF00", // electric yellow
+    "#00FFFF", // cyan
+    "#FF00FF", // magenta
+    "#39FF14", // neon green
+    "#FF3131", // bright red
+    "#66FF66", // light green
+    "#66CCFF", // light sky blue
+    "#FF66CC", // bright pink
+    "#FFD700", // gold (high luminance)
 ];
 
 const PRESET_ICONS = ["●", "▲", "■", "◆", "★"];

@@ -33,8 +33,10 @@ export function MediaPlayer({
     className = "",
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const imgRef = useRef<HTMLImageElement>(null);
 
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+    const [startLoadingFull, setStartLoadingFull] = useState(false);
     const [fullLoaded, setFullLoaded] = useState(false);
 
     const isVideo = file.media_type === "video";
@@ -47,13 +49,28 @@ export function MediaPlayer({
     const [scrubbing, setScrubbing] = useState(false);
     const wasPlayingRef = useRef(false);
 
+    // Load thumbnail first, THEN start loading full image
     useEffect(() => {
         setThumbUrl(null);
+        setStartLoadingFull(false);
         setFullLoaded(false);
         setCurrentTime(0);
-        window.api.getThumbnailPath(file.content_hash).then((absPath) => {
-            if (absPath) setThumbUrl(toThumbnailUrl(absPath));
-        });
+        
+        (async () => {
+            const absPath = await window.api.getThumbnailPath(file.content_hash);
+            if (absPath) {
+                const thumbPath = toThumbnailUrl(absPath);
+                setThumbUrl(thumbPath);
+                
+                // Wait a tiny bit for thumbnail to render, then start full image
+                setTimeout(() => {
+                    setStartLoadingFull(true);
+                }, 50);
+            } else {
+                // No thumbnail, just start loading full image
+                setStartLoadingFull(true);
+            }
+        })();
     }, [file.content_hash]);
 
     useEffect(() => {
@@ -107,7 +124,6 @@ export function MediaPlayer({
         [],
     );
 
-    // Add this helper above the component (or inside it):
     function formatTime(seconds: number): string {
         const s = Math.floor(seconds);
         const m = Math.floor(s / 60);
@@ -138,31 +154,45 @@ export function MediaPlayer({
                     onClick={togglePlay}
                 />
             ) : (
-                <>
+                <div className="relative h-full w-full bg-neutral-900">
+                    {/* Blurred thumbnail - render immediately when available */}
                     {thumbUrl && (
-                        <img
-                            src={thumbUrl}
-                            alt={file.filename}
-                            className="absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
+                        <div 
+                            className="absolute inset-0 z-10 transition-opacity duration-500"
                             style={{
-                                filter: "blur(8px)",
                                 opacity: fullLoaded ? 0 : 1,
                             }}
+                        >
+                            <img
+                                src={thumbUrl}
+                                alt=""
+                                className="h-full w-full object-contain"
+                                style={{
+                                    filter: "blur(12px)",
+                                    transform: "scale(1.1)",
+                                }}
+                            />
+                        </div>
+                    )}
+                    
+                    {/* Full resolution image - only start loading after thumbnail is ready */}
+                    {startLoadingFull && (
+                        <img
+                            ref={imgRef}
+                            src={fullUrl}
+                            alt={file.filename}
+                            className="relative h-full w-full object-contain transition-opacity duration-500"
+                            style={{ 
+                                opacity: fullLoaded ? 1 : 0,
+                            }}
+                            onLoad={() => setFullLoaded(true)}
+                            onError={() => setFullLoaded(true)}
+                            draggable={false}
                         />
                     )}
-                    <img
-                        src={fullUrl}
-                        alt={file.filename}
-                        className="relative h-full w-full object-contain transition-opacity duration-300"
-                        style={{ opacity: fullLoaded ? 1 : 0 }}
-                        ref={(el) => {
-                            if (el?.complete) setFullLoaded(true);
-                        }}
-                        onLoad={() => setFullLoaded(true)}
-                        draggable={false}
-                    />
+                    
                     {showLoadingCover && <LoadingCover />}
-                </>
+                </div>
             )}
 
             {isGif && (

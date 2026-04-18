@@ -583,15 +583,23 @@ export function setFolderProfileImageByPath(folderPath: string, hash: string | n
 
 // ── Tag queries ──────────────────────────────────────────────────────────────
 
-export function upsertTag(name: string, categoryId: number | null = null): DbTag {
+export function upsertTag(name: string, categoryId?: number | null): DbTag {
     const db = getDb();
 
-    db.prepare(`
-        INSERT INTO tags (name, category_id)
-        VALUES (?, ?)
-        ON CONFLICT(name) DO UPDATE SET
-            category_id = excluded.category_id
-    `).run(name, categoryId);
+    if (categoryId === undefined) {
+        db.prepare(`
+            INSERT INTO tags (name)
+            VALUES (?)
+            ON CONFLICT(name) DO NOTHING
+        `).run(name);
+    } else {
+        db.prepare(`
+            INSERT INTO tags (name, category_id)
+            VALUES (?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                category_id = excluded.category_id
+        `).run(name, categoryId);
+    }
 
     return db
         .prepare(`SELECT * FROM tags WHERE name = ?`)

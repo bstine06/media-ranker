@@ -321,7 +321,7 @@ function registerIpcHandlers(): void {
     });
 
     ipcMain.handle("add-tag", (_event, fileId: number, tag: string) => {
-        const { id: tagId } = upsertTag(tag);
+        const { id: tagId } = upsertTag(tag, undefined);
         addTagToFile(fileId, tagId);
         return getTagsForFile(fileId);
     });
