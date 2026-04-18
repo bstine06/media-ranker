@@ -153,6 +153,9 @@ declare global {
             createTagCategory: (name: string, color: string, icon: string) => Promise<DbTagCategory>;
             updateTagCategory: (id: number, updates: { name?: string; color?: string | null; icon?: string | null }) => Promise<void>;
             deleteTagCategory: (id: number) => Promise<void>;
+
+            // file drag out
+            dragFileOut: (file: DbFile) => Promise<void>;
         };
     }
 }

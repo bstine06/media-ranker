@@ -658,7 +658,7 @@ export function getAllTagCategories(): DbTagCategory[] {
 }
 
 export function deleteTagCategory(categoryId: number): void {
-    // Tags in this category become uncategorized via ON DELETE SET NULL
+    // Tags in this category become uncategorized via ON DELETE NULL
     getDb().prepare(`DELETE FROM tag_categories WHERE id = ?`).run(categoryId);
 }
 

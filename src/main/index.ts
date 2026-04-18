@@ -1,4 +1,12 @@
-import { app, BrowserWindow, shell, ipcMain, dialog, protocol } from "electron";
+import {
+    app,
+    BrowserWindow,
+    shell,
+    ipcMain,
+    dialog,
+    protocol,
+    nativeImage,
+} from "electron";
 import path, { join } from "path";
 import { is } from "@electron-toolkit/utils";
 import {
@@ -83,16 +91,13 @@ function registerIpcHandlers(): void {
     });
 
     ipcMain.handle("open-library", async (_event, folderPath: string) => {
-        
         const win = BrowserWindow.getAllWindows()[0];
-        
+
         rootPath = folderPath;
         saveRootPath(folderPath);
         initDb(folderPath);
         reconcileMissingFiles(folderPath);
         const result = await scanFolder(folderPath, win);
-
-        
 
         // Tell renderer about any missing files (trashed, moved externally, etc.)
         const missing = getMissingFiles();
@@ -334,8 +339,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "get-file-ids-by-tags",
         (_event, tags: number[], mode: "and" | "or") => {
-            const tagIds = tags
-                .filter((id): id is number => id !== undefined);
+            const tagIds = tags.filter((id): id is number => id !== undefined);
             return getFileIdsByTags(tagIds, mode);
         },
     );
@@ -415,13 +419,19 @@ function registerIpcHandlers(): void {
 
     // tag manager
 
-    ipcMain.handle("create-tag", (_event, name: string, categoryId: number | null) => {
-        return upsertTag(name, categoryId);
-    });
+    ipcMain.handle(
+        "create-tag",
+        (_event, name: string, categoryId: number | null) => {
+            return upsertTag(name, categoryId);
+        },
+    );
 
-    ipcMain.handle("update-tag", (_event, id: number, name: string, categoryId: number | null) => {
-        return updateTag(id, name, categoryId);
-    });
+    ipcMain.handle(
+        "update-tag",
+        (_event, id: number, name: string, categoryId: number | null) => {
+            return updateTag(id, name, categoryId);
+        },
+    );
 
     ipcMain.handle("delete-tag", (_event, id: number) => {
         deleteTag(id);
@@ -431,26 +441,48 @@ function registerIpcHandlers(): void {
         return getAllTagCategories();
     });
 
-    ipcMain.handle("create-tag-category", (_event, name: string, color: string, icon: string) => {
-        upsertTagCategory(name, color, icon);
-    });
+    ipcMain.handle(
+        "create-tag-category",
+        (_event, name: string, color: string, icon: string) => {
+            upsertTagCategory(name, color, icon);
+        },
+    );
 
-    ipcMain.handle("update-tag-category", (
-        _event,
-        id: number,
-        updates: {
-            name?: string,
-            color?: string | null,
-            icon?: string | null
-        }
-    ) => {
-        updateTagCategory(id, updates);
-    })
+    ipcMain.handle(
+        "update-tag-category",
+        (
+            _event,
+            id: number,
+            updates: {
+                name?: string;
+                color?: string | null;
+                icon?: string | null;
+            },
+        ) => {
+            updateTagCategory(id, updates);
+        },
+    );
 
     ipcMain.handle("delete-tag-category", (_event, id: number) => {
         deleteTagCategory(id);
-    })
-    
+    });
+
+    ipcMain.handle("drag-file-out", async (event, file: DbFile) => {
+        if (!file || !rootPath) return;
+        const filePath = join(rootPath, file.path);
+        const iconPath = join(
+            app.getAppPath(),
+            "src",
+            "main",
+            "assets",
+            "file_icon.png",
+        );
+
+        event.sender.startDrag({
+            file: filePath,
+            icon: nativeImage.createFromPath(iconPath),
+        });
+    });
 }
 
 function createWindow(): void {
