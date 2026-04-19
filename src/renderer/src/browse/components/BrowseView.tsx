@@ -12,7 +12,6 @@ import BrowseRow from "./BrowseRow";
 import MetadataView from "./MetadataView";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { useTags } from "@renderer/contexts/TagsContext";
-import BrowseScrollView from "./BrowseScrollView";
 import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { SlotResolver } from "@renderer/hooks/useScrollSlots";
@@ -23,11 +22,9 @@ import { showInFolder } from "@renderer/lib/filesystem";
 
 export default function BrowseView({
     active,
-    onFolderMetadataChanged,
     setView,
 }: {
     active: boolean;
-    onFolderMetadataChanged: () => void;
     setView: (view: View) => void;
 }): JSX.Element {
     const [fields, setFields] = useState<
@@ -55,7 +52,7 @@ export default function BrowseView({
     );
 
     const { setStatus, resetStatus } = useStatus();
-    const { rootPath, activeFolder, setActiveFolder } = useFolders();
+    const { rootPath, activeFolder, setActiveFolder, handleFolderMetadataChanged } = useFolders();
     const { refreshTags, activeTags, tagMode } = useTags();
     const { tileSize } = useSettings();
 
@@ -194,7 +191,7 @@ export default function BrowseView({
             draftProfileImage ?? null,
         );
         setFolderProfileHash(draftProfileImage ?? null);
-        onFolderMetadataChanged();
+        handleFolderMetadataChanged();
 
         if (newName !== activeFolder) {
             const result = await window.api.renameFolder(activeFolder, newName);

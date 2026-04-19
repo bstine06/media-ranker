@@ -7,11 +7,6 @@ export const MediaSlide = React.forwardRef<
     { file: DbFile; rootPath: string; disabled: boolean }
 >(({ file, rootPath, disabled }, ref) => {
     const localRef = useRef<HTMLVideoElement>(null);
-    const handleClick = useCallback(() => {
-        localRef.current?.paused
-            ? localRef.current.play()
-            : localRef.current!.pause();
-    }, []);
     return (
         <div className="relative flex h-full w-full flex-col bg-black">
             <MediaPlayer
@@ -19,7 +14,6 @@ export const MediaSlide = React.forwardRef<
                 rootPath={rootPath}
                 muted={false}
                 className="h-full w-full"
-                onClick={handleClick}
                 disabled={disabled}
             />
         </div>

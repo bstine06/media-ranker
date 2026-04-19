@@ -7,6 +7,8 @@ import { MediaPlayer } from "./MediaPlayer";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { showInFolder } from "@renderer/lib/filesystem";
+import { TagPill } from "./TagPill";
+import SingleFileView from "./SingleFileView";
 
 // Held at module level so GC doesn't collect them before decode finishes
 const preloadCache = new Map<string, HTMLImageElement>();
@@ -55,6 +57,7 @@ export default function CompareView({
     const [stats, setStats] = useState({ comparisons: 0 });
     const [hoveredSide, setHoveredSide] = useState<"a" | "b" | null>(null);
     const [score, setScore] = useState(0);
+    const [inspectedFile, setInspectedFile] = useState<DbFile | null>(null);
 
     const { activeTags, tagMode } = useTags();
     const { rootPath, folderPrefixes, setActiveFolder } = useFolders();
@@ -88,6 +91,8 @@ export default function CompareView({
     useEffect(() => {
         loadPair();
     }, [loadPair]);
+
+    useEffect(() => {}, [inspectedFile]);
 
     const handlePick = useCallback(
         async (winnerId: number, loserId: number, margin: number) => {
@@ -186,6 +191,15 @@ export default function CompareView({
 
     const [a, b] = pair;
 
+    if (inspectedFile) {
+        return (<SingleFileView
+            onClose={() => setInspectedFile(null)}
+            file={inspectedFile}
+            active={active}
+            setView={setView}
+        />)
+    }
+
     return (
         <div className="flex flex-1 flex-col overflow-hidden">
             <div className="flex flex-col p-2 overflow-hidden flex-1 min-h-0">
@@ -225,7 +239,7 @@ export default function CompareView({
                         }}
                         onCommit={handleDown}
                         onInspectFile={() => {
-                            showInFolder(rootPath!, a.path)
+                            setInspectedFile(a);
                         }}
                         onGoToFolder={() => {
                             const folderName = a.path.split("/")[0];
@@ -250,7 +264,7 @@ export default function CompareView({
                         }}
                         onCommit={handleDown}
                         onInspectFile={() => {
-                            showInFolder(rootPath!, b.path)
+                            setInspectedFile(b);
                         }}
                         onGoToFolder={() => {
                             const folderName = b.path.split("/")[0];
@@ -387,13 +401,7 @@ function CompareCard({
                 onClick={disabled ? undefined : onCommit}
                 onMouseMove={handleMouseMove}
                 className="flex-1"
-            />
-
-            <InlineTagEditor
-                file={file}
-                onFocusInput={(fn) => {
-                    focusTagInput.current = fn;
-                }}
+                clickToPauseEnabled={false}
             />
 
             <div className="shrink-0 border-t border-neutral-800 bg-neutral-900 px-4 py-3 flex items-center justify-between gap-2">
@@ -418,201 +426,6 @@ function CompareCard({
                 >
                     Go to folder
                 </button>
-            </div>
-        </div>
-    );
-}
-
-function InlineTagEditor({
-    file,
-    onFocusInput,
-}: {
-    file: DbFile;
-    onFocusInput?: (fn: () => void) => void;
-}): JSX.Element {
-    const [tags, setTags] = useState<DbTag[]>([]);
-    const [input, setInput] = useState("");
-    const [allTags, setAllTags] = useState<DbTag[]>([]);
-    const [focused, setFocused] = useState(false);
-    const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
-    const [expanded, setExpanded] = useState(false);
-    const inputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        window.api.getTags(file.id).then(setTags);
-        window.api.getAllTags().then(setAllTags);
-    }, [file.id]);
-
-    // Expose focus function to parent for T hotkey
-    useEffect(() => {
-        onFocusInput?.(() => inputRef.current?.focus());
-    }, [onFocusInput]);
-
-    // Suggestions in natural order — we reverse only at render time
-    const filtered = input.trim()
-    ? allTags
-          .filter(
-              (t) =>
-                  t.name.toLowerCase().includes(input.toLowerCase()) &&
-                  !tags.some((existing) => existing.id === t.id),
-          )
-          .slice(0, 6)
-    : [];
-
-    // visibleSuggestions matches what's rendered: reversed (bottom = closest to input)
-    const visibleSuggestions = [...filtered].reverse();
-
-    useEffect(() => {
-        setHighlightedIndex(-1);
-    }, [input]);
-
-    const addTag = useCallback(
-        async (tag: string) => {
-            const trimmed = tag.trim().toLowerCase();
-            if (!trimmed) return;
-            if (tags.some((t) => t.name === trimmed)) {
-                setInput("");
-                setHighlightedIndex(-1);
-                return;
-            }
-            const updated = await window.api.addTag(file.id, trimmed);
-            setTags(updated);
-            setAllTags((prev) =>
-                prev.some((t) => t.name === trimmed)
-                    ? prev
-                    : [...prev, updated[updated.length - 1]],
-            );
-            setInput("");
-            setHighlightedIndex(-1);
-        },
-        [file.id, tags],
-    );
-
-    const removeTag = useCallback(
-        async (tag: string) => {
-            const updated = await window.api.removeTag(file.id, tag);
-            setTags(updated);
-        },
-        [file.id],
-    );
-
-    const handleKeyDown = useCallback(
-        (e: React.KeyboardEvent<HTMLInputElement>) => {
-            const num = visibleSuggestions.length;
-
-            if (e.key === "ArrowUp") {
-                // Up = move toward top of list visually (away from input)
-                e.preventDefault();
-                setHighlightedIndex((i) => (i < 0 ? num - 1 : i - 1));
-            } else if (e.key === "ArrowDown") {
-                // Down = move toward bottom of list visually (toward input)
-                e.preventDefault();
-                highlightedIndex === num - 1
-                    ? setHighlightedIndex(-1)
-                    : setHighlightedIndex((i) => (i >= num - 1 ? 0 : i + 1));
-            } else if (e.key === "Tab") {
-                if (
-                    highlightedIndex >= 0 &&
-                    visibleSuggestions[highlightedIndex]
-                ) {
-                    e.preventDefault();
-                    setInput(visibleSuggestions[highlightedIndex].name);
-                    setHighlightedIndex(-1);
-                }
-            } else if (e.key === "Enter" || e.key === ",") {
-                e.preventDefault();
-                if (
-                    highlightedIndex >= 0 &&
-                    visibleSuggestions[highlightedIndex]
-                ) {
-                    addTag(visibleSuggestions[highlightedIndex].name);
-                } else {
-                    addTag(input);
-                }
-            } else if (e.key === "Escape") {
-                if (highlightedIndex >= 0) {
-                    setHighlightedIndex(-1);
-                } else {
-                    inputRef.current?.blur();
-                }
-            }
-        },
-        [visibleSuggestions, highlightedIndex, input, addTag],
-    );
-
-    const chipsPerRow = 3;
-    const maxVisible = 2 * chipsPerRow;
-    const showExpand = !expanded && tags.length > maxVisible;
-    const visibleTags = expanded ? tags : tags.slice(0, maxVisible);
-
-    return (
-        <div className="flex flex-col gap-2 px-3 py-2 border-t border-neutral-800 bg-neutral-950">
-            {/* Tag chips — max 2 rows with expand option */}
-            <div className="flex flex-wrap gap-1.5">
-                {visibleTags.map((tag) => (
-                    <span
-                        key={tag.id}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs"
-                    >
-                        {tag.name}
-                        <button
-                            onClick={() => removeTag(tag.name)}
-                            className="text-neutral-600 hover:text-neutral-300 transition-colors leading-none"
-                        >
-                            ×
-                        </button>
-                    </span>
-                ))}
-                {showExpand && (
-                    <button
-                        onClick={() => setExpanded(true)}
-                        className="px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-500 text-xs hover:text-neutral-300 transition-colors"
-                    >
-                        +{tags.length - maxVisible} more
-                    </button>
-                )}
-                {expanded && tags.length > maxVisible && (
-                    <button
-                        onClick={() => setExpanded(false)}
-                        className="px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-500 text-xs hover:text-neutral-300 transition-colors"
-                    >
-                        less
-                    </button>
-                )}
-            </div>
-
-            {/* Input + suggestions */}
-            <div className="relative">
-                {focused && visibleSuggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 bottom-full mb-1 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg">
-                        {visibleSuggestions.map((tag, i) => (
-                            <button
-                                key={tag.id}
-                                onMouseDown={() => addTag(tag.name)}
-                                onMouseEnter={() => setHighlightedIndex(i)}
-                                onMouseLeave={() => setHighlightedIndex(-1)}
-                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors
-                                    ${
-                                        i === highlightedIndex
-                                            ? "bg-neutral-700 text-white"
-                                            : "text-neutral-300 hover:bg-neutral-800"
-                                    }`}
-                            >
-                                {tag.name}
-                            </button>
-                        ))}
-                    </div>
-                )}
-                <input
-                    ref={inputRef}
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onFocus={() => setFocused(true)}
-                    placeholder="Add tag…"
-                    className="w-full bg-neutral-900 border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-neutral-500 transition-colors"
-                />
             </div>
         </div>
     );

@@ -26,11 +26,9 @@ function preloadImage(url: string): Promise<void> {
 export default function DiscoverView({
     active,
     setView,
-    folderMetaVersion,
 }: {
     active: boolean;
     setView: (view: View) => void;
-    folderMetaVersion: number;
 }): JSX.Element {
     const [history, setHistory] = useState<DbFile[]>([]);
     const [loading, setLoading] = useState(true);
@@ -41,7 +39,7 @@ export default function DiscoverView({
     );
 
     const { activeTags, tagMode } = useTags();
-    const { rootPath, folderPrefixes, setActiveFolder } = useFolders();
+    const { rootPath, folderPrefixes, setActiveFolder, folderMetaVersion } = useFolders();
 
     const prefetchRef = useRef<DbFile | null>(null);
     const historyRef = useRef<DbFile[]>([]);
@@ -146,7 +144,8 @@ export default function DiscoverView({
     }, [folderPrefixes, tagKey, tagMode]);
 
     // Folder profile image
-    const currentFolder = (currentFile ?? initialFile)?.path.split("/")[0] ?? null;
+    const currentFolder =
+        (currentFile ?? initialFile)?.path.split("/")[0] ?? null;
     useEffect(() => {
         if (!currentFolder) return;
         window.api
@@ -176,23 +175,37 @@ export default function DiscoverView({
     const resolver: SlotResolver = useCallback(async (dir, cursor) => {
         const h = historyRef.current;
 
-        if (dir === "up") return h[cursor - 1] ?? null;
+        if (dir === "up") {
+            // cursor is the current index, cursor-1 is the previous item
+            return h[cursor - 1] ?? null;
+        }
 
+        // dir === "down"
+        // Check if we already have the next item in history
+        if (cursor + 1 < h.length) {
+            return h[cursor + 1];
+        }
+
+        // Need to fetch a new item
         const candidate = prefetchRef.current;
         prefetchRef.current = null;
         const isDupe = candidate && h.some((f) => f.id === candidate.id);
         const next = isDupe
             ? await fetchOneRef.current(h)
             : (candidate ?? (await fetchOneRef.current(h)));
+
         if (!next) return null;
+
         setHistory((prev) => {
             const updated = [...prev, next];
             historyRef.current = updated;
             return updated;
         });
+
         fetchOneRef.current([...h, next]).then((f) => {
             prefetchRef.current = f;
         });
+
         return next;
     }, []);
 

@@ -59,6 +59,7 @@ export function useScrollSlots({
     const videoRefs = [videoRef0, videoRef1];
 
     const [canGoUp, setCanGoUp] = useState(false);
+    const [canGoDown, setCanGoDown] = useState(false);
 
     const navigate = useCallback(async (dir: "up" | "down") => {
         if (lockedRef.current) return;

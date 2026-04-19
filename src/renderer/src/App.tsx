@@ -24,12 +24,6 @@ export default function App(): JSX.Element {
 
     const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
 
-    const [folderMetaVersion, setFolderMetaVersion] = useState(0);
-
-    const handleFolderMetadataChanged = useCallback(() => {
-        setFolderMetaVersion((v) => v + 1);
-    }, []);
-
     const { setStatus, resetStatus } = useStatus();
     const { rootPath, setRootPath, refreshFolders, activeFolder, setActiveFolder, resetFolders } = useFolders();
     const { resetTags } = useTags();
@@ -121,7 +115,6 @@ export default function App(): JSX.Element {
                     setView={setView}
                     onChangeLibrary={handleSelectFolder}
                     onRescanLibrary={handleRescanLibrary}
-                    folderMetaVersion={folderMetaVersion}
                 />
 
                 <main className="flex flex-1 flex-col overflow-hidden bg-neutral-950 min-w-0">
@@ -133,7 +126,6 @@ export default function App(): JSX.Element {
                         }
                     >
                         <BrowseView
-                            onFolderMetadataChanged={handleFolderMetadataChanged}
                             setView={setView}
                             active={view==="browse"}
                         />
@@ -160,7 +152,6 @@ export default function App(): JSX.Element {
                         <DiscoverView
                             active={view === "scroll"}
                             setView={setView}
-                            folderMetaVersion={folderMetaVersion}
                         />
                     </div>
                     <div

@@ -341,17 +341,15 @@ export default function Sidebar({
     setView,
     onChangeLibrary,
     onRescanLibrary,
-    folderMetaVersion
 }: {
     view: View;
     setView: (v: View) => void;
     onChangeLibrary: () => void;
     onRescanLibrary: () => void;
-    folderMetaVersion: number;
 }): JSX.Element {
     const [search, setSearch] = useState("");
     const { status } = useStatus();
-    const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder } = useFolders();
+    const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion } = useFolders();
 
     const isFilterable = !view.startsWith("browse") && view!=="tag-manager";
     const isSearching = search.trim().length > 0;

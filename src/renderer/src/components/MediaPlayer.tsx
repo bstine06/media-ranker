@@ -21,6 +21,7 @@ interface MediaPlayerProps {
     disabled?: boolean;
     muted?: boolean;
     className?: string;
+    clickToPauseEnabled?: boolean;
 }
 
 export function MediaPlayer({
@@ -31,6 +32,7 @@ export function MediaPlayer({
     disabled = false,
     muted = true,
     className = "",
+    clickToPauseEnabled = true
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -48,6 +50,7 @@ export function MediaPlayer({
     const [duration, setDuration] = useState(0);
     const [scrubbing, setScrubbing] = useState(false);
     const wasPlayingRef = useRef(false);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // Load thumbnail first, THEN start loading full image
     useEffect(() => {
@@ -72,6 +75,10 @@ export function MediaPlayer({
             }
         })();
     }, [file.content_hash]);
+
+    useEffect(() => {
+        containerRef.current?.focus();
+    }, []);
 
     useEffect(() => {
         if (!videoRef.current) return;
@@ -106,8 +113,8 @@ export function MediaPlayer({
         [disabled, onMouseMove],
     );
 
-    const togglePlay = useCallback((e: React.MouseEvent) => {
-        e.stopPropagation();
+    const togglePlay = useCallback((e?: React.MouseEvent) => {
+        e?.stopPropagation();
         if (!videoRef.current) return;
         videoRef.current.paused
             ? videoRef.current.play()
@@ -130,11 +137,26 @@ export function MediaPlayer({
         return `${m}:${String(s % 60).padStart(2, "0")}`;
     }
 
+    useEffect(() => {
+        videoRef.current?.focus();
+    }, []);
+
+    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        togglePlay();
+    }
+}, [togglePlay]);
+
     return (
         <div
-            className={`relative overflow-hidden bg-black cursor-pointer select-none ${className}`}
-            onMouseMove={handleMouseMove}
-        >
+    className={`relative overflow-hidden bg-black cursor-pointer select-none ${className}`}
+    onMouseMove={handleMouseMove}
+    onKeyDown={handleKeyDown}  // ← Add this
+    ref={containerRef}
+    tabIndex={0}
+>
             {isVideo ? (
                 <video
                     ref={videoRef}
@@ -151,10 +173,10 @@ export function MediaPlayer({
                     }}
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
-                    onClick={togglePlay}
+                    onClick={clickToPauseEnabled ? togglePlay : handleClick}
                 />
             ) : (
-                <div className="relative h-full w-full bg-neutral-900">
+                <div className="relative h-full w-full bg-neutral-900" onClick={handleClick}>
                     {/* Blurred thumbnail - render immediately when available */}
                     {thumbUrl && (
                         <div 
@@ -188,6 +210,7 @@ export function MediaPlayer({
                             onLoad={() => setFullLoaded(true)}
                             onError={() => setFullLoaded(true)}
                             draggable={false}
+                            
                         />
                     )}
                     

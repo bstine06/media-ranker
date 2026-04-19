@@ -27,6 +27,7 @@ export interface DbTagCategory {
     name: string;
     color: string;
     icon: string;
+    order_index: number;
 }
 
 export interface DbTagWithCategory extends DbTag {
@@ -52,3 +53,12 @@ export interface FolderNode {
     relativePath: string;
     children: FolderNode[];
 }
+
+export type TagGroup = {
+    label: string;
+    color: string | null;
+    icon: string | null;
+    tags: DbTagWithCategory[];
+    categoryId: number | null;
+    orderIndex?: number;
+};

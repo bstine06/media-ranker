@@ -101,10 +101,9 @@ function CategoryEditor({
                         {"Quick Add"}
                     </button>
                     <span className="text-xs italic text-neutral-500">
-                        {isQuickAdding 
-                            ? "Stop Quick Adding" 
-                            : "Click tags in the tag list to quickly add them to this category"
-                        }
+                        {isQuickAdding
+                            ? "Stop Quick Adding"
+                            : "Click tags in the tag list to quickly add them to this category"}
                     </span>
                 </div>
             )}
@@ -371,14 +370,17 @@ function TagEditor({
 // ─── TagManagerView ───────────────────────────────────────────────────────────
 
 export default function TagManagerView(): JSX.Element {
-    const { allTags, allCategories, refreshTags, updateTag } = useTags();
+    const { allTags, allCategories, refreshTags, updateTag, updateCategory } =
+        useTags();
     const [focus, setFocus] = useState<FocusTarget>(null);
     const [collapsedCategories, setCollapsedCategories] = useState<Set<number>>(
         new Set(),
     );
     const [uncategorizedCollapsed, setUncategorizedCollapsed] = useState(false);
     const [isQuickAdding, setIsQuickAdding] = useState(false);
-    const [draggedTag, setDraggedTag] = useState<DbTag | null>(null)
+    const [draggedTag, setDraggedTag] = useState<DbTag | null>(null);
+    const [draggedCategory, setDraggedCategory] =
+        useState<DbTagCategory | null>(null);
 
     React.useEffect(() => {
         refreshTags();
@@ -399,6 +401,24 @@ export default function TagManagerView(): JSX.Element {
         console.log(draggedTag);
     };
 
+    const handleCategoryReorder = (
+        dragged: DbTagCategory,
+        target: DbTagCategory,
+    ) => {
+        const reordered = [...allCategories];
+        const draggedIndex = reordered.findIndex((c) => c.id === dragged.id);
+        const targetIndex = reordered.findIndex((c) => c.id === target.id);
+
+        reordered.splice(draggedIndex, 1);
+        reordered.splice(targetIndex, 0, dragged);
+
+        reordered.forEach((cat, index) => {
+            updateCategory(cat.id, { order_index: index });
+        });
+
+        refreshTags();
+    };
+
     const toggleQuickAdd = () => {
         if (isQuickAdding) {
             setIsQuickAdding(false);
@@ -417,9 +437,12 @@ export default function TagManagerView(): JSX.Element {
 
     const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
-    }
+    };
 
-    const handleDrop = (e: React.DragEvent<HTMLDivElement>, categoryId: number | null) => {
+    const handleDrop = (
+        e: React.DragEvent<HTMLDivElement>,
+        categoryId: number | null,
+    ) => {
         if (!draggedTag) return;
         updateTag(draggedTag.id, draggedTag.name, categoryId);
         setDraggedTag(null);
@@ -467,91 +490,134 @@ export default function TagManagerView(): JSX.Element {
                                 focus.item.id === category.id;
                             return (
                                 <React.Fragment key={category.id}>
-                                    <div onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, category.id)}>
-                                    <button
-                                        onClick={() => {
-                                            // Single click selects; clicking selected category toggles collapse
-                                            if (isSelected) {
-                                                toggleCollapsed(category.id);
-                                            } else {
-                                                setFocus({
-                                                    kind: "category",
-                                                    item: category,
-                                                });
-                                            }
-                                        }}
-                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors text-left w-full ${
-                                            isSelected
-                                                ? "bg-neutral-700 text-neutral-100"
-                                                : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
-                                        }`}
+                                    <div
+                                        onDragOver={handleDragOver}
+                                        onDrop={(e) =>
+                                            handleDrop(e, category.id)
+                                        }
                                     >
-                                        <span className="text-[10px] text-neutral-600 w-3 flex-shrink-0">
-                                            {isCollapsed ? "▸" : "▾"}
-                                        </span>
-                                        <span
-                                            className="text-[10px] leading-none flex-shrink-0"
-                                            style={{
-                                                color: category.color ?? "#888",
+                                        <button
+                                            draggable
+                                            onDragStart={() =>
+                                                setDraggedCategory(category)
+                                            }
+                                            onDragOver={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
                                             }}
-                                        >
-                                            {category.icon ?? "●"}
-                                        </span>
-                                        {category.name}
-                                    </button>
-
-                                    {!isCollapsed &&
-                                        catTags.map((tag) => (
-                                            <button
-                                                key={tag.id}
-                                                draggable={!isQuickAdding}
-                                            onDragStart={() => setDraggedTag(tag)}
-                                                onClick={() => {
+                                            onDrop={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
                                                 if (
-                                                    focus &&
-                                                    focus.kind === "category" &&
-                                                    focus.item &&
-                                                    isQuickAdding
+                                                    draggedCategory &&
+                                                    draggedCategory.id !==
+                                                        category.id
                                                 ) {
-                                                    updateTag(
-                                                        tag.id,
-                                                        tag.name,
-                                                        focus.item.id === tag.category_id ? null : focus.item.id,
+                                                    // Reorder logic here
+                                                    handleCategoryReorder(
+                                                        draggedCategory,
+                                                        category,
+                                                    );
+                                                }
+                                            }}
+                                            onClick={() => {
+                                                // Single click selects; clicking selected category toggles collapse
+                                                if (isSelected) {
+                                                    toggleCollapsed(
+                                                        category.id,
                                                     );
                                                 } else {
                                                     setFocus({
-                                                        kind: "tag",
-                                                        item: tag,
+                                                        kind: "category",
+                                                        item: category,
                                                     });
                                                 }
                                             }}
-                                                className={`flex items-center gap-2 pl-10 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${
-                                                    focus?.kind === "tag" &&
-                                                    focus.item.id === tag.id
-                                                        ? "bg-neutral-700 text-neutral-100"
-                                                        : "text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300"
-                                                }`}
+                                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors text-left w-full ${
+                                                isSelected
+                                                    ? "bg-neutral-700 text-neutral-100"
+                                                    : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                                            }`}
+                                        >
+                                            <span className="text-[10px] text-neutral-600 w-3 flex-shrink-0">
+                                                {isCollapsed ? "▸" : "▾"}
+                                            </span>
+                                            <span
+                                                className="text-[10px] leading-none flex-shrink-0"
+                                                style={{
+                                                    color:
+                                                        category.color ??
+                                                        "#888",
+                                                }}
                                             >
-                                                <span
-                                                    className="text-[10px] leading-none flex-shrink-0"
-                                                    style={{
-                                                        color:
-                                                            category.color ??
-                                                            "#888",
+                                                {category.icon ?? "●"}
+                                            </span>
+                                            {category.name}
+                                        </button>
+
+                                        {!isCollapsed &&
+                                            catTags.map((tag) => (
+                                                <button
+                                                    key={tag.id}
+                                                    draggable={!isQuickAdding}
+                                                    onDragStart={() =>
+                                                        setDraggedTag(tag)
+                                                    }
+                                                    onClick={() => {
+                                                        if (
+                                                            focus &&
+                                                            focus.kind ===
+                                                                "category" &&
+                                                            focus.item &&
+                                                            isQuickAdding
+                                                        ) {
+                                                            updateTag(
+                                                                tag.id,
+                                                                tag.name,
+                                                                focus.item
+                                                                    .id ===
+                                                                    tag.category_id
+                                                                    ? null
+                                                                    : focus.item
+                                                                          .id,
+                                                            );
+                                                        } else {
+                                                            setFocus({
+                                                                kind: "tag",
+                                                                item: tag,
+                                                            });
+                                                        }
                                                     }}
+                                                    className={`flex items-center gap-2 pl-10 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${
+                                                        focus?.kind === "tag" &&
+                                                        focus.item.id === tag.id
+                                                            ? "bg-neutral-700 text-neutral-100"
+                                                            : "text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300"
+                                                    }`}
                                                 >
-                                                    {category.icon ?? "●"}
-                                                </span>
-                                                {tag.name}
-                                            </button>
-                                        ))}
-                                        </div>
+                                                    <span
+                                                        className="text-[10px] leading-none flex-shrink-0"
+                                                        style={{
+                                                            color:
+                                                                category.color ??
+                                                                "#888",
+                                                        }}
+                                                    >
+                                                        {category.icon ?? "●"}
+                                                    </span>
+                                                    {tag.name}
+                                                </button>
+                                            ))}
+                                    </div>
                                 </React.Fragment>
                             );
                         })}
 
-                        {(
-                            <div onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, null)}>
+                        {
+                            <div
+                                onDragOver={handleDragOver}
+                                onDrop={(e) => handleDrop(e, null)}
+                            >
                                 <div className="h-px bg-neutral-800 my-1" />
                                 <button
                                     onClick={() =>
@@ -569,7 +635,9 @@ export default function TagManagerView(): JSX.Element {
                                     uncategorized.map((tag) => (
                                         <button
                                             draggable={!isQuickAdding}
-                                            onDragStart={() => setDraggedTag(tag)}
+                                            onDragStart={() =>
+                                                setDraggedTag(tag)
+                                            }
                                             key={tag.id}
                                             onClick={() => {
                                                 if (
@@ -602,8 +670,7 @@ export default function TagManagerView(): JSX.Element {
                                         </button>
                                     ))}
                             </div>
-                        )}
-                        
+                        }
                     </div>
                 </div>
 

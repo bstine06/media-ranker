@@ -11,7 +11,6 @@ const DragContext = createContext<DragContextValue | null>(null);
 
 export function DragProvider({ children }: { children: ReactNode }) {
   const {rootPath} = useFolders();
-  console.log(rootPath);
     const startDrag = useCallback((e: React.DragEvent, file: DbFile) => {
   e.dataTransfer.effectAllowed = "copy"
   e.dataTransfer.setData("text/uri-list", `file://${rootPath}/${file.path}`)

@@ -90,8 +90,12 @@ export default function ScrollView({
                     ))}
                 </div>
 
-                <div className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none">
-                    <div className="flex flex-col gap-2 opacity-0 hover:opacity-100 duration-500 pointer-events-auto">
+                <div className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group" onKeyDown={(e) => {
+                if (e.key === ' ') {
+                    e.preventDefault(); // Stops the scroll behavior
+                }
+            }}>
+                    <div className="flex flex-col gap-2 pointer-events-auto opacity-20 group-hover:opacity-100 duration-500">
                         <button
                             onClick={() => navigate("up")}
                             disabled={!canGoUp}
@@ -110,7 +114,7 @@ export default function ScrollView({
             </div>
 
             <div
-                className="w-56 flex flex-col h-full overflow-hidden"
+                className="w-72 flex flex-col h-full overflow-hidden"
             >
                 <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
                     <div
@@ -141,10 +145,13 @@ export default function ScrollView({
                     >
                         {currentFile.filename ?? "—"}
                     </span>
-                    <span className="text-neutral-500 text-xs">
-                        {currentFile.size != null
+                    <span className="text-neutral-500 capitalize text-xs">
+                        {`${currentFile.size != null
                             ? formatFileSize(currentFile.size)
-                            : "—"}
+                            : "—"}`}
+                    </span>
+                    <span className="text-neutral-500 text-xs">
+                        {`${Math.round(currentFile.elo_score)} pts`}
                     </span>
                 </div>
                 <TagPanel file={currentFile} />

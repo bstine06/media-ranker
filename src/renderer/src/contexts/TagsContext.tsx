@@ -45,7 +45,7 @@ interface Tags {
     ) => Promise<void>;
     updateCategory: (
         id: number,
-        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon">>,
+        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index">>,
     ) => Promise<void>;
     deleteCategory: (id: number) => Promise<void>;
 
@@ -178,18 +178,18 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     );
 
     const updateCategory = useCallback(
-        async (
-            id: number,
-            updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon">>,
-        ) => {
-            await window.api.updateTagCategory(id, updates);
-            // Optimistic update
-            setAllCategories((prev) =>
-                prev.map((c) => (c.id === id ? { ...c, ...updates } : c)),
-            );
-        },
-        [],
-    );
+    async (
+        id: number,
+        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index">>,
+    ) => {
+        await window.api.updateTagCategory(id, updates);
+        // Optimistic update
+        setAllCategories((prev) =>
+            prev.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+        );
+    },
+    [],
+);
 
     const deleteCategory = useCallback(async (id: number) => {
         await window.api.deleteTagCategory(id);

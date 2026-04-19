@@ -1,5 +1,5 @@
 import { useTags } from "@renderer/contexts/TagsContext";
-import { DbFile, DbTag, DbTagWithCategory } from "@renderer/shared/types/types";
+import { DbFile, DbTag, DbTagWithCategory, TagGroup } from "@renderer/shared/types/types";
 import {
     ReactNode,
     useCallback,
@@ -10,33 +10,7 @@ import {
 } from "react";
 import { TagPill } from "./TagPill";
 import { useSettings } from "@renderer/contexts/SettingsContext";
-
-type TagGroup = {
-    label: string;
-    color: string | null;
-    icon: string | null;
-    tags: DbTagWithCategory[];
-};
-
-function groupByCategory(tags: DbTagWithCategory[]) {
-    const groups = new Map<string, TagGroup>();
-
-    for (const tag of tags) {
-        const key =
-            tag.category_id != null ? String(tag.category_id) : "uncategorized";
-        if (!groups.has(key)) {
-            groups.set(key, {
-                label: tag.category?.name ?? "Uncategorized",
-                color: tag.category?.color ?? null,
-                icon: tag.category?.icon ?? null,
-                tags: [],
-            });
-        }
-        groups.get(key)!.tags.push(tag);
-    }
-
-    return Array.from(groups.values());
-}
+import CategoryGroup from "./CategoryGroup";
 
 export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     const [tags, setTags] = useState<DbTag[]>([]);
@@ -72,30 +46,39 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     }, [file.id]);
 
     useEffect(() => {
-        Promise.all([
-            file.folder_id
-                ? window.api.getMostUsedTags(file.folder_id)
-                : Promise.resolve([]),
-            window.api.getMostUsedTags(),
-        ]).then(([folderTags, globalTags]) => {
-            const currentIds = new Set(tags.map((t) => t.id));
+    Promise.all([
+        file.folder_id
+            ? window.api.getMostUsedTags(file.folder_id)
+            : Promise.resolve([]),
+        window.api.getMostUsedTags(), // ← Use this for sort order
+        window.api.getAllTags(),       // ← Use this for complete list
+    ]).then(([folderTags, sortedGlobalTags, allGlobalTags]) => {
+        const currentIds = new Set(tags.map((t) => t.id));
 
-            const topFolder = folderTags
-                .filter((t) => !currentIds.has(t.id))
-                .slice(0, 20);
+        const topFolder = folderTags
+            .filter((t) => !currentIds.has(t.id))
+            .slice(0, 20);
 
-            const folderIds = new Set(topFolder.map((t) => t.id));
+        // Create a map of tag ID -> popularity rank
+        const popularityRank = new Map(
+            sortedGlobalTags.map((t, i) => [t.id, i])
+        );
 
-            const topGlobal = globalTags
-                .filter((t) => !currentIds.has(t.id) && !folderIds.has(t.id))
-                .slice(0, 20);
-
-            setPopularTags({
-                folder: getTagsWithCategory(topFolder),
-                global: getTagsWithCategory(topGlobal),
+        // Sort all tags by popularity (tags not in getMostUsedTags go to end)
+        const allGlobal = allGlobalTags
+            .filter((t) => !currentIds.has(t.id))
+            .sort((a, b) => {
+                const rankA = popularityRank.get(a.id) ?? Infinity;
+                const rankB = popularityRank.get(b.id) ?? Infinity;
+                return rankA - rankB;
             });
+
+        setPopularTags({
+            folder: getTagsWithCategory(topFolder),
+            global: getTagsWithCategory(allGlobal),
         });
-    }, [file.folder_id, tags, getTagsWithCategory]);
+    });
+}, [file.folder_id, tags, getTagsWithCategory]);
 
     const filtered = useMemo(() => {
         if (!input.trim()) return [];
@@ -143,71 +126,77 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     );
 
     const groupByCategory = useCallback((tags: DbTagWithCategory[]) => {
-        const map = new Map<string, TagGroup>();
+    const map = new Map<string, TagGroup>();
 
-        for (const tag of tags) {
-            const key =
-                tag.category_id != null
-                    ? `cat-${tag.category_id}`
-                    : "uncategorized";
+    for (const tag of tags) {
+        const key =
+            tag.category_id != null
+                ? `cat-${tag.category_id}`
+                : "uncategorized";
 
-            if (!map.has(key)) {
-                map.set(key, {
-                    label: tag.category?.name ?? "Uncategorized",
-                    color: tag.category?.color ?? null,
-                    icon: tag.category?.icon ?? null,
-                    tags: [],
-                });
-            }
-
-            map.get(key)!.tags.push(tag);
+        if (!map.has(key)) {
+            map.set(key, {
+                label: tag.category?.name ?? "Uncategorized",
+                color: tag.category?.color ?? null,
+                icon: tag.category?.icon ?? null,
+                tags: [],
+                categoryId: tag.category_id ?? null,
+                orderIndex: tag.category?.order_index ?? Infinity, // ← Add this
+            });
         }
 
-        return Array.from(map.values());
-    }, []);
+        map.get(key)!.tags.push(tag);
+    }
 
-    type CategoryGroupProps = {
-        group: TagGroup;
-        applied: boolean;
-    };
+    // Sort groups by order_index (nulls/uncategorized last)
+    return Array.from(map.values()).sort((a, b) => {
+        if (a.categoryId === null) return 1;
+        if (b.categoryId === null) return -1;
+        return (a.orderIndex ?? Infinity) - (b.orderIndex ?? Infinity);
+    });
+}, []);
 
-    const CategoryGroup = ({ group, applied }: CategoryGroupProps) => (
-        <div className="mb-2">
-            {showTagCategoryNames && (
-                <div className="flex items-center gap-2 mb-1 opacity-70">
-                    {group.icon && (
-                        <span style={{ color: group.color ?? undefined }}>
-                            {group.icon}
-                        </span>
-                    )}
-                    <span className="text-[10px] uppercase tracking-wide">
-                        {group.label}
-                    </span>
-                </div>
-            )}
-
-            <div className={applied ? "flex flex-wrap gap-1.5" : "flex gap-1.5 overflow-x-auto pb-1 [&>*]:flex-shrink-0"} 
-     style={!applied ? { scrollbarWidth: 'thin' } : {}}>
-                {group.tags.map((tag) => (
-                    applied
-                        ? <TagPill
-                                key={tag.id}
-                                tag={tag}
-                                onRemove={() => removeTag(tag)}
-                            />
-                        : <TagPill
-                                key={tag.id}
-                                tag={tag}
-                                onAdd={() => addTag(tag.name)}
-                            />
-                    
-                ))}
-            </div>
-        </div>
-    );
+    // keyboard
+    useEffect(() => {
+        if (!focused) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                e.stopPropagation();
+                setHighlightedIndex((i) =>
+                    Math.min(i + 1, filtered.length - 1),
+                );
+            }
+            if (e.key === "ArrowUp") {
+                e.preventDefault();
+                e.stopPropagation();
+                setHighlightedIndex((i) => Math.max(i - 1, -1));
+            }
+            if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                setFocused(false);
+            }
+            if (e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                setInput((i) => i + " ")
+            }
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, [focused, filtered.length]); // Add filtered.length as dependency
 
     return (
-        <div className="flex flex-col w-56 h-full bg-neutral-900 border-neutral-800 overflow-y-auto" style={{scrollbarGutter: "stable"}}>
+        <div
+            className="flex flex-col w-full h-full bg-neutral-900 border-neutral-800 overflow-y-auto"
+            style={{ scrollbarGutter: "stable" }}
+            onKeyDown={(e) => {
+                if (e.key === ' ') {
+                    e.preventDefault(); // Stops the scroll behavior
+                }
+            }}
+        >
             {/* Header */}
             <div className="px-4 py-3 border-b border-neutral-800">
                 <p className="text-[11px] uppercase tracking-wider text-neutral-400 font-medium">
@@ -218,7 +207,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             {/* Applied tags */}
             <div className="px-3 py-3 space-y-2">
                 {groupByCategory(tagsWithCategory).map((g) => (
-                    <CategoryGroup key={g.label} applied={true} group={g} />
+                    <CategoryGroup key={g.label} applied={true} group={g} onRemoveTag={removeTag} onAddTag={addTag}/>
                 ))}
             </div>
 
@@ -315,6 +304,8 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                                             key={g.label}
                                             applied={false}
                                             group={g}
+                                            onRemoveTag={removeTag}
+                                            onAddTag={addTag}
                                         />
                                     ),
                                 )}
@@ -330,6 +321,8 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                                             key={g.label}
                                             applied={false}
                                             group={g}
+                                            onRemoveTag={removeTag}
+                                            onAddTag={addTag}
                                         />
                                     ),
                                 )}

@@ -25,6 +25,10 @@ interface FolderContextValue {
     setAllChecked: (paths: string[]) => void;
     folderPrefixes: string[] | null; // derived — null means "all"
 
+    // Folder metadata to prompt changes throughout app
+    folderMetaVersion: number;
+    handleFolderMetadataChanged: () => void;
+
     // Cleanup
     resetFolders: () => void;
 }
@@ -41,6 +45,8 @@ const FolderContext = createContext<FolderContextValue>({
     checkAll: () => {},
     setAllChecked: () => {},
     folderPrefixes: null,
+    folderMetaVersion: 0,
+    handleFolderMetadataChanged: () => {},
     resetFolders: () => {}
 });
 
@@ -92,6 +98,11 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
     const [checkedFolders, setCheckedFolders] = useState<Set<string>>(
         new Set(),
     );
+    const [folderMetaVersion, setFolderMetaVersion] = useState(0);
+    
+    const handleFolderMetadataChanged = useCallback(() => {
+        setFolderMetaVersion((v) => v + 1);
+    }, []);
 
     // on mount, try to restore saved root path
     useEffect(() => {
@@ -235,6 +246,8 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
                 checkAll,
                 setAllChecked,
                 folderPrefixes,
+                folderMetaVersion,
+                handleFolderMetadataChanged,
                 resetFolders
             }}
         >
