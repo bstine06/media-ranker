@@ -187,15 +187,20 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
         return () => window.removeEventListener("keydown", onKey, true);
     }, [focused, filtered.length]); // Add filtered.length as dependency
 
+    useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+        }
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+}, []);
+
     return (
         <div
             className="flex flex-col w-full h-full bg-neutral-900 border-neutral-800 overflow-y-auto"
             style={{ scrollbarGutter: "stable" }}
-            onKeyDown={(e) => {
-                if (e.key === ' ') {
-                    e.preventDefault(); // Stops the scroll behavior
-                }
-            }}
         >
             {/* Header */}
             <div className="px-4 py-3 border-b border-neutral-800">

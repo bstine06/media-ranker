@@ -32,7 +32,7 @@ export function MediaPlayer({
     disabled = false,
     muted = true,
     className = "",
-    clickToPauseEnabled = true
+    clickToPauseEnabled = true,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -51,6 +51,7 @@ export function MediaPlayer({
     const [scrubbing, setScrubbing] = useState(false);
     const wasPlayingRef = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const [isHovered, setIsHovered] = useState(false);
 
     // Load thumbnail first, THEN start loading full image
     useEffect(() => {
@@ -141,22 +142,56 @@ export function MediaPlayer({
         videoRef.current?.focus();
     }, []);
 
-    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === " ") {
-        e.preventDefault();
-        e.stopPropagation();
-        togglePlay();
-    }
-}, [togglePlay]);
+    // keyboard
+useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+        // For TikTok view: work when not disabled and not muted
+        // For CompareView: work when hovered (which makes muted=false)
+        // So: work when not disabled AND (not muted OR hovered)
+        if (disabled || (muted && !isHovered) || !isVideo) return;
+        
+        // Ignore if typing in an input
+        if (e.target instanceof HTMLInputElement || 
+            e.target instanceof HTMLTextAreaElement) {
+            return;
+        }
+        
+        if (e.key === " ") {
+            console.log("SPACE!");
+            e.preventDefault();
+            togglePlay();
+        }
+        
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            e.preventDefault();
+            if (!videoRef.current) return;
+            
+            const skipAmount = e.key === "ArrowLeft" ? -3 : 3;
+            const newTime = videoRef.current.currentTime + skipAmount;
+            
+            // If out of bounds, restart
+            if (newTime < 0 || newTime > videoRef.current.duration + 2.6) {
+                videoRef.current.currentTime = 0;
+            } else if (newTime > videoRef.current.duration) {
+                videoRef.current.currentTime = videoRef.current.duration - 0.3;
+            } else {
+                videoRef.current.currentTime = newTime;
+            }
+        }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+}, [togglePlay, disabled, muted, isHovered, isVideo]);
 
     return (
         <div
-    className={`relative overflow-hidden bg-black cursor-pointer select-none ${className}`}
-    onMouseMove={handleMouseMove}
-    onKeyDown={handleKeyDown}  // ← Add this
-    ref={containerRef}
-    tabIndex={0}
->
+            className={`relative overflow-hidden bg-black cursor-pointer select-none ${className}`}
+            onMouseMove={handleMouseMove}
+            ref={containerRef}
+            tabIndex={0}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
             {isVideo ? (
                 <video
                     ref={videoRef}
