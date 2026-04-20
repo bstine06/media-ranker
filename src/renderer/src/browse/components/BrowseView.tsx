@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
     DbFile,
     DbFolderMetadata,
@@ -43,7 +43,8 @@ export default function BrowseView({
     const [renameError, setRenameError] = useState<string | null>(null);
 
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
-    const [sortMode, setSortMode] = useState<SortMode>("default");
+    const [sortMode, setSortMode] = useState<SortMode>("alphabetical");
+    const [sortDirection, setSortDirection] = useState<"up" | "down">("down");
     const [folderTags, setFolderTags] = useState<DbTag[]>([]);
 
     const [files, setFiles] = useState<DbFile[]>([]);
@@ -52,7 +53,12 @@ export default function BrowseView({
     );
 
     const { setStatus, resetStatus } = useStatus();
-    const { rootPath, activeFolder, setActiveFolder, handleFolderMetadataChanged } = useFolders();
+    const {
+        rootPath,
+        activeFolder,
+        setActiveFolder,
+        handleFolderMetadataChanged,
+    } = useFolders();
     const { refreshTags, activeTags, tagMode } = useTags();
     const { tileSize } = useSettings();
 
@@ -208,6 +214,7 @@ export default function BrowseView({
     };
 
     const handleTileClick = (file: DbFile, index: number) => {
+        console.log("handle tile click", index)
         editingMetadata
             ? setDraftProfileImage((prev) =>
                   prev === file.content_hash ? undefined : file.content_hash,
@@ -215,11 +222,17 @@ export default function BrowseView({
             : setBrowseScrollIndex(index);
     };
 
-    const sortedFiles = [...files].sort((a, b) =>
-        sortMode === "rank"
-            ? b.elo_score - a.elo_score
-            : a.filename.localeCompare(b.filename),
-    );
+    const sortedFiles = useMemo(() => {
+        return [...files].sort((a, b) => {
+            let d = 0;
+            switch (sortMode) {
+                case "rank": d = b.elo_score - a.elo_score; break;
+                case "fileSize": d = b.size - a.size; break;
+                case "alphabetical": default: d = a.filename.localeCompare(b.filename);
+            }
+            return sortDirection === "down" ? d : d*(-1);
+        });
+    }, [files, sortMode, sortDirection]);
 
     useEffect(() => {
         const handleAdded = window.api.onMediaAdded(
@@ -265,26 +278,41 @@ export default function BrowseView({
         };
     }, [rootPath, activeFolder, setActiveFolder]);
 
-
-    const resolver: SlotResolver = useCallback(async (dir, cursor) => {
-        return sortedFiles[dir === "down" ? cursor + 1 : cursor - 1] ?? null;
-    }, [sortedFiles]);
+    const resolver: SlotResolver = useCallback(
+        async (dir, cursor) => {
+            console.log(browseScrollIndex);
+            if (browseScrollIndex === null) return null;
+            const newIndexUnbounded =
+                dir === "down" ? browseScrollIndex + 1 : browseScrollIndex - 1;
+            const newIndex =
+                newIndexUnbounded < 0
+                    ? 0
+                    : newIndexUnbounded > sortedFiles.length - 1
+                      ? sortedFiles.length - 1
+                      : newIndexUnbounded;
+            if (browseScrollIndex === newIndex) return null;
+            setBrowseScrollIndex(newIndex);
+            cursor = newIndex;
+            return sortedFiles[newIndex] ?? null;
+        },
+        [sortedFiles, browseScrollIndex],
+    );
 
     if (rootPath && browseScrollIndex !== null) {
         return (
             <ScrollView
-                        initialFile={sortedFiles[browseScrollIndex]}
-                        resolver={resolver}
-                        active={active}
-                        rootPath={rootPath!}
-                        folderProfileHash={folderProfileHash}
-                        onFolderClick={(folderName) => {
-                            setActiveFolder(folderName);
-                            setView("browse");
-                        }}
-                        onFileClick={(file) => showInFolder(rootPath!, file.path)}
-                        onClose={() => setBrowseScrollIndex(null)}
-                    />
+                initialFile={sortedFiles[browseScrollIndex]}
+                resolver={resolver}
+                active={active}
+                rootPath={rootPath!}
+                folderProfileHash={folderProfileHash}
+                onFolderClick={(folderName) => {
+                    setActiveFolder(folderName);
+                    setView("browse");
+                }}
+                onFileClick={(file) => showInFolder(rootPath!, file.path)}
+                onClose={() => setBrowseScrollIndex(null)}
+            />
         );
     }
 
@@ -301,38 +329,132 @@ export default function BrowseView({
                     {activeFolder ?? "All Files"}
                 </h2>
                 <div className="flex items-center gap-3">
-                    <button
-                        onClick={() =>
-                            setSortMode((m) =>
-                                m === "default" ? "rank" : "default",
-                            )
-                        }
-                        title={
-                            sortMode === "rank"
-                                ? "Sorted by rank — click to reset"
-                                : "Sort by rank"
-                        }
-                        className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
-                            sortMode === "rank"
-                                ? "bg-neutral-700 text-neutral-200"
-                                : "text-neutral-600 hover:text-neutral-400"
-                        }`}
-                    >
-                        <svg
-                            className="w-3 h-3"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setSortMode("alphabetical")}
+                            title="Sort alphabetically"
+                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                                sortMode === "alphabetical"
+                                    ? "bg-neutral-700 text-neutral-200"
+                                    : "text-neutral-600 hover:text-neutral-400"
+                            }`}
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12"
-                            />
-                        </svg>
-                        {sortMode === "rank" ? "Ranked" : "Rank"}
-                    </button>
+                            <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75M3 18h9.75"
+                                />
+                            </svg>
+                            A-Z
+                        </button>
+
+                        <button
+                            onClick={() => setSortMode("rank")}
+                            title="Sort by rank"
+                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                                sortMode === "rank"
+                                    ? "bg-neutral-700 text-neutral-200"
+                                    : "text-neutral-600 hover:text-neutral-400"
+                            }`}
+                        >
+                            <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12"
+                                />
+                            </svg>
+                            Rank
+                        </button>
+
+                        <button
+                            onClick={() => setSortMode("fileSize")}
+                            title="Sort by file size"
+                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                                sortMode === "fileSize"
+                                    ? "bg-neutral-700 text-neutral-200"
+                                    : "text-neutral-600 hover:text-neutral-400"
+                            }`}
+                        >
+                            <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"
+                                />
+                            </svg>
+                            Size
+                        </button>
+                    </div>
+
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setSortDirection("up")}
+                            title="Sort ascending"
+                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                                sortDirection === "up"
+                                    ? "bg-neutral-700 text-neutral-200"
+                                    : "text-neutral-600 hover:text-neutral-400"
+                            }`}
+                        >
+                            <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M4.5 15.75l7.5-7.5 7.5 7.5"
+                                />
+                            </svg>
+                        </button>
+
+                        <button
+                            onClick={() => setSortDirection("down")}
+                            title="Sort descending"
+                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                                sortDirection === "down"
+                                    ? "bg-neutral-700 text-neutral-200"
+                                    : "text-neutral-600 hover:text-neutral-400"
+                            }`}
+                        >
+                            <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                />
+                            </svg>
+                        </button>
+                    </div>
 
                     <div className="flex items-center rounded bg-neutral-800 p-0.5">
                         <button
@@ -426,7 +548,11 @@ export default function BrowseView({
                     >
                         <div
                             className="grid-media p-4"
-                            style={{ '--grid-tile-size': `${tileSize}px` } as React.CSSProperties}
+                            style={
+                                {
+                                    "--grid-tile-size": `${tileSize}px`,
+                                } as React.CSSProperties
+                            }
                         >
                             {sortedFiles.map((file, i) => (
                                 <div

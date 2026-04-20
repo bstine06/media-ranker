@@ -13,7 +13,7 @@ export interface ScrollSlotsState {
     videoRef1: React.RefObject<HTMLVideoElement>;
     currentFile: DbFile | null;
     cursor: number;
-    canGoUp: boolean;
+    setCursor: (i: number) => void;
     handleWheel: (e: React.WheelEvent) => void;
     navigate: (dir: "up" | "down") => void;
 }
@@ -58,12 +58,8 @@ export function useScrollSlots({
     const videoRef1 = useRef<HTMLVideoElement>(null);
     const videoRefs = [videoRef0, videoRef1];
 
-    const [canGoUp, setCanGoUp] = useState(false);
-    const [canGoDown, setCanGoDown] = useState(false);
-
     const navigate = useCallback(async (dir: "up" | "down") => {
         if (lockedRef.current) return;
-        if (dir === "up" && !canGoUp) return;
 
         lockedRef.current = true;
         videoRefs[frontSlot].current?.pause();
@@ -111,12 +107,7 @@ export function useScrollSlots({
                 }, scrollTimeRef.current + 20);
             });
         });
-    }, [frontSlot, resolver, canGoUp]);
-
-    // Update canGoUp based on cursor
-    useEffect(() => {
-        setCanGoUp(cursor > 0);
-    }, [cursor]);
+    }, [frontSlot, resolver]);
 
     // Keyboard
     useEffect(() => {
@@ -168,7 +159,7 @@ export function useScrollSlots({
         videoRef1,
         currentFile: slotFiles[frontSlot],
         cursor,
-        canGoUp,
+        setCursor,
         handleWheel,
         navigate,
     };

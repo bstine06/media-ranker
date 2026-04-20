@@ -1,5 +1,10 @@
 import { useTags } from "@renderer/contexts/TagsContext";
-import { DbFile, DbTag, DbTagWithCategory, TagGroup } from "@renderer/shared/types/types";
+import {
+    DbFile,
+    DbTag,
+    DbTagWithCategory,
+    TagGroup,
+} from "@renderer/shared/types/types";
 import {
     ReactNode,
     useCallback,
@@ -46,39 +51,35 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     }, [file.id]);
 
     useEffect(() => {
-    Promise.all([
-        file.folder_id
-            ? window.api.getMostUsedTags(file.folder_id)
-            : Promise.resolve([]),
-        window.api.getMostUsedTags(), // ← Use this for sort order
-        window.api.getAllTags(),       // ← Use this for complete list
-    ]).then(([folderTags, sortedGlobalTags, allGlobalTags]) => {
-        const currentIds = new Set(tags.map((t) => t.id));
+        Promise.all([
+            file.folder_id
+                ? window.api.getMostUsedTags(file.folder_id)
+                : Promise.resolve([]),
+            window.api.getMostUsedTags(), // ← Use this for sort order
+            window.api.getAllTags(), // ← Use this for complete list
+        ]).then(([folderTags, sortedGlobalTags, allGlobalTags]) => {
+            const currentIds = new Set(tags.map((t) => t.id));
 
-        const topFolder = folderTags
-            .filter((t) => !currentIds.has(t.id))
-            .slice(0, 20);
+            const topFolder = folderTags;
 
-        // Create a map of tag ID -> popularity rank
-        const popularityRank = new Map(
-            sortedGlobalTags.map((t, i) => [t.id, i])
-        );
+            // Create a map of tag ID -> popularity rank
+            const popularityRank = new Map(
+                sortedGlobalTags.map((t, i) => [t.id, i]),
+            );
 
-        // Sort all tags by popularity (tags not in getMostUsedTags go to end)
-        const allGlobal = allGlobalTags
-            .filter((t) => !currentIds.has(t.id))
-            .sort((a, b) => {
+            // Sort all tags by popularity (tags not in getMostUsedTags go to end)
+            const allGlobal = allGlobalTags.sort((a, b) => {
                 const rankA = popularityRank.get(a.id) ?? Infinity;
                 const rankB = popularityRank.get(b.id) ?? Infinity;
                 return rankA - rankB;
             });
 
-        setPopularTags({
-            folder: getTagsWithCategory(topFolder),
-            global: getTagsWithCategory(allGlobal),
+            setPopularTags({
+                folder: getTagsWithCategory(topFolder),
+                global: getTagsWithCategory(allGlobal),
+            });
         });
-    });
-}, [file.folder_id, tags, getTagsWithCategory]);
+    }, [file.folder_id, tags, getTagsWithCategory]);
 
     const filtered = useMemo(() => {
         if (!input.trim()) return [];
@@ -126,35 +127,35 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     );
 
     const groupByCategory = useCallback((tags: DbTagWithCategory[]) => {
-    const map = new Map<string, TagGroup>();
+        const map = new Map<string, TagGroup>();
 
-    for (const tag of tags) {
-        const key =
-            tag.category_id != null
-                ? `cat-${tag.category_id}`
-                : "uncategorized";
+        for (const tag of tags) {
+            const key =
+                tag.category_id != null
+                    ? `cat-${tag.category_id}`
+                    : "uncategorized";
 
-        if (!map.has(key)) {
-            map.set(key, {
-                label: tag.category?.name ?? "Uncategorized",
-                color: tag.category?.color ?? null,
-                icon: tag.category?.icon ?? null,
-                tags: [],
-                categoryId: tag.category_id ?? null,
-                orderIndex: tag.category?.order_index ?? Infinity, // ← Add this
-            });
+            if (!map.has(key)) {
+                map.set(key, {
+                    label: tag.category?.name ?? "Uncategorized",
+                    color: tag.category?.color ?? null,
+                    icon: tag.category?.icon ?? null,
+                    tags: [],
+                    categoryId: tag.category_id ?? null,
+                    orderIndex: tag.category?.order_index ?? Infinity, // ← Add this
+                });
+            }
+
+            map.get(key)!.tags.push(tag);
         }
 
-        map.get(key)!.tags.push(tag);
-    }
-
-    // Sort groups by order_index (nulls/uncategorized last)
-    return Array.from(map.values()).sort((a, b) => {
-        if (a.categoryId === null) return 1;
-        if (b.categoryId === null) return -1;
-        return (a.orderIndex ?? Infinity) - (b.orderIndex ?? Infinity);
-    });
-}, []);
+        // Sort groups by order_index (nulls/uncategorized last)
+        return Array.from(map.values()).sort((a, b) => {
+            if (a.categoryId === null) return 1;
+            if (b.categoryId === null) return -1;
+            return (a.orderIndex ?? Infinity) - (b.orderIndex ?? Infinity);
+        });
+    }, []);
 
     // keyboard
     useEffect(() => {
@@ -180,7 +181,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             if (e.key === " ") {
                 e.preventDefault();
                 e.stopPropagation();
-                setInput((i) => i + " ")
+                setInput((i) => i + " ");
             }
         };
         window.addEventListener("keydown", onKey, true);
@@ -188,14 +189,15 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     }, [focused, filtered.length]); // Add filtered.length as dependency
 
     useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-            e.preventDefault();
-        }
-    };
-    window.addEventListener("keydown", onKey, { capture: true });
-    return () => window.removeEventListener("keydown", onKey, { capture: true });
-}, []);
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                e.preventDefault();
+            }
+        };
+        window.addEventListener("keydown", onKey, { capture: true });
+        return () =>
+            window.removeEventListener("keydown", onKey, { capture: true });
+    }, []);
 
     return (
         <div
@@ -212,12 +214,19 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             {/* Applied tags */}
             <div className="px-3 py-3 space-y-2">
                 {groupByCategory(tagsWithCategory).map((g) => (
-                    <CategoryGroup key={g.label} applied={true} group={g} onRemoveTag={removeTag} onAddTag={addTag}/>
+                    <CategoryGroup
+                        key={g.label}
+                        applied={true}
+                        activeTags={tagsWithCategory}
+                        group={g}
+                        onRemoveTag={removeTag}
+                        onAddTag={addTag}
+                    />
                 ))}
             </div>
 
             {/* Input */}
-            <div className="px-3 py-2 relative">
+            <div className="px-3 pb-1 relative">
                 <input
                     ref={inputRef}
                     value={input}
@@ -260,23 +269,15 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                 )}
             </div>
 
-            {/* Helper
-            <div className="px-3 pb-3 text-[10px] text-neutral-600">
-                Enter or comma to add
-            </div> */}
-
-            <div className="px-4 py-3 border-t border-neutral-800">
-                <p className="text-[11px] uppercase tracking-wider text-neutral-400 font-medium">
+            <div className="flex px-4 py-3 items-center border-neutral-800">
+                <p className="text-[11px] flex grow text-neutral-400 font-medium">
                     Popular
                 </p>
-            </div>
-
-            <div className="flex items-center justify-around px-3 py-2 border-t border-neutral-800">
                 <button
                     onClick={() => setSuggestionMode("folder")}
-                    className={`text-[10px] p-1 rounded-sm  uppercase tracking-wide ${
+                    className={`text-xs p-1 rounded-sm flex-grow uppercase tracking-wide ${
                         suggestionMode === "folder"
-                            ? "text-neutral-800 bg-neutral-300"
+                            ? "text-neutral-200 bg-neutral-600"
                             : "text-neutral-600"
                     }`}
                 >
@@ -285,9 +286,9 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
 
                 <button
                     onClick={() => setSuggestionMode("global")}
-                    className={`text-[10px] p-1 rounded-sm uppercase tracking-wide ${
+                    className={`text-xs p-1 rounded-sm flex-grow uppercase tracking-wide ${
                         suggestionMode === "global"
-                            ? "text-neutral-800 bg-neutral-300"
+                            ? "text-neutral-200 bg-neutral-600"
                             : "text-neutral-600"
                     }`}
                 >
@@ -302,12 +303,13 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                 <div className="px-3 pb-4 space-y-4 border-t border-neutral-800 pt-3">
                     {popularTags.folder.length > 0 &&
                         suggestionMode === "folder" && (
-                            <div className="opacity-80">
+                            <div className="">
                                 {groupByCategory(popularTags.folder).map(
                                     (g) => (
                                         <CategoryGroup
                                             key={g.label}
                                             applied={false}
+                                            activeTags={tagsWithCategory}
                                             group={g}
                                             onRemoveTag={removeTag}
                                             onAddTag={addTag}
@@ -319,12 +321,13 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
 
                     {popularTags.global.length > 0 &&
                         suggestionMode === "global" && (
-                            <div className="opacity-70">
+                            <div className="">
                                 {groupByCategory(popularTags.global).map(
                                     (g) => (
                                         <CategoryGroup
                                             key={g.label}
                                             applied={false}
+                                            activeTags={tagsWithCategory}
                                             group={g}
                                             onRemoveTag={removeTag}
                                             onAddTag={addTag}

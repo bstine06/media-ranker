@@ -38,7 +38,6 @@ export default function ScrollView({
         videoRef1,
         currentFile,
         cursor,
-        canGoUp,
         handleWheel,
         navigate,
     } = useScrollSlots({ initialFile, resolver, active });
@@ -98,7 +97,6 @@ export default function ScrollView({
                     <div className="flex flex-col gap-2 pointer-events-auto opacity-20 group-hover:opacity-100 duration-500">
                         <button
                             onClick={() => navigate("up")}
-                            disabled={!canGoUp}
                             className="rounded-full bg-neutral-800 p-2 text-white disabled:opacity-20 hover:bg-black/80"
                         >
                             ▲

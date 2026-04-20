@@ -7,11 +7,12 @@ import { useState, useRef, useEffect } from "react";
 interface TagPillProps {
   tag: DbTagWithCategory;
   onRemove?: () => void;   // renders × button when present
+  applied: boolean;
   onAdd?: () => void;      // renders + prefix when present
   className?: string;
 }
 
-export function TagPill({ tag, onRemove, onAdd, className }: TagPillProps) {
+export function TagPill({ tag, onRemove, applied, onAdd, className }: TagPillProps) {
   const color = tag.category?.color ?? "#888";
   const icon = tag.category?.icon ?? "●";
 
@@ -95,7 +96,9 @@ export function TagPill({ tag, onRemove, onAdd, className }: TagPillProps) {
   return (
     <>
       <span
-        className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs group ${className}`}
+        className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs group ${
+          applied ? "border border-neutral-500" : ""
+        } ${className}`}
         onContextMenu={handleContextMenu}
       >
         {tag.category && !showTagCategoryNames && (

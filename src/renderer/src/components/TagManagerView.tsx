@@ -382,8 +382,9 @@ export default function TagManagerView(): JSX.Element {
     const [draggedCategory, setDraggedCategory] =
         useState<DbTagCategory | null>(null);
 
-    React.useEffect(() => {
+    useEffect(() => {
         refreshTags();
+        setCollapsedCategories(new Set(allCategories.map((c) => c.id)));
     }, []);
 
     useEffect(() => {
@@ -502,22 +503,25 @@ export default function TagManagerView(): JSX.Element {
                                                 setDraggedCategory(category)
                                             }
                                             onDragOver={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
+                                                if (draggedCategory) {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                }
                                             }}
                                             onDrop={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                if (
-                                                    draggedCategory &&
-                                                    draggedCategory.id !==
+                                                if (draggedCategory) {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    if (
+                                                        draggedCategory.id !==
                                                         category.id
-                                                ) {
-                                                    // Reorder logic here
-                                                    handleCategoryReorder(
-                                                        draggedCategory,
-                                                        category,
-                                                    );
+                                                    ) {
+                                                        // Reorder logic here
+                                                        handleCategoryReorder(
+                                                            draggedCategory,
+                                                            category,
+                                                        );
+                                                    }
                                                 }
                                             }}
                                             onClick={() => {

@@ -6,11 +6,12 @@ import { TagPill } from "./TagPill";
 type CategoryGroupProps = {
     group: TagGroup;
     applied: boolean;
+    activeTags: DbTagWithCategory[];
     onRemoveTag: (tag: DbTagWithCategory) => void;
     onAddTag: (tagName: string) => void;
 };
 
-const CategoryGroup = ({ group, applied, onRemoveTag, onAddTag }: CategoryGroupProps) => {
+const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag }: CategoryGroupProps) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(false);
@@ -25,6 +26,8 @@ const CategoryGroup = ({ group, applied, onRemoveTag, onAddTag }: CategoryGroupP
         }
     };
 
+    const activeTagIds = new Set(activeTags.map(t => t.id));
+
     useEffect(() => {
         if (!applied) {
             checkScroll();
@@ -34,9 +37,9 @@ const CategoryGroup = ({ group, applied, onRemoveTag, onAddTag }: CategoryGroupP
     }, [applied, group.tags]);
 
     return (
-        <div className="mb-2">
+        <div className="mb-1">
             {showTagCategoryNames && (
-                <div className="flex items-center gap-2 mb-1 opacity-70">
+                <div className="flex items-center gap-2 opacity-70">
                     {group.icon && (
                         <span style={{ color: group.color ?? undefined }}>
                             {group.icon}
@@ -58,21 +61,18 @@ const CategoryGroup = ({ group, applied, onRemoveTag, onAddTag }: CategoryGroupP
                     }
                     onScroll={checkScroll}
                 >
-                    {group.tags.map((tag) =>
-                        applied ? (
+                    {group.tags.map((tag) => {
+                        const isActive = activeTagIds.has(tag.id);
+                        return (
                             <TagPill
                                 key={tag.id}
                                 tag={tag}
-                                onRemove={() => onRemoveTag(tag)}
+                                applied={isActive}
+                                onRemove={isActive ? () => onRemoveTag(tag) : undefined}
+                                onAdd={!isActive ? () => onAddTag(tag.name) : undefined}
                             />
-                        ) : (
-                            <TagPill
-                                key={tag.id}
-                                tag={tag}
-                                onAdd={() => onAddTag(tag.name)}
-                            />
-                        ),
-                    )}
+                        );
+                    })}
                 </div>
 
                 {!applied && canScrollLeft && (
