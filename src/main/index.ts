@@ -457,6 +457,7 @@ function registerIpcHandlers(): void {
                 name?: string;
                 color?: string | null;
                 icon?: string | null;
+                order_index?: number;
             },
         ) => {
             updateTagCategory(id, updates);

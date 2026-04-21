@@ -39,6 +39,7 @@ export interface DbTagCategory {
     name: string;
     color: string;
     icon: string;
+    order_index: number;
 }
 
 export interface DbMetadataField {
@@ -311,7 +312,9 @@ function runMigrations(db: Database.Database): void {
     );
 
     if (!existingIndexes.has("idx_files_folder_status")) {
-        db.exec(`CREATE INDEX idx_files_folder_status ON files(folder_id, status)`);
+        db.exec(
+            `CREATE INDEX idx_files_folder_status ON files(folder_id, status)`,
+        );
     }
     if (!existingIndexes.has("idx_files_status")) {
         db.exec(`CREATE INDEX idx_files_status ON files(status)`);
@@ -320,7 +323,9 @@ function runMigrations(db: Database.Database): void {
     // Migration 5: add color and icon columns to tag_categories if missing
     const tagCategoryCols = new Set(
         (
-            db.prepare(`PRAGMA table_info(tag_categories)`).all() as { name: string }[]
+            db.prepare(`PRAGMA table_info(tag_categories)`).all() as {
+                name: string;
+            }[]
         ).map((c) => c.name),
     );
 
@@ -329,6 +334,25 @@ function runMigrations(db: Database.Database): void {
     }
     if (!tagCategoryCols.has("icon")) {
         db.exec(`ALTER TABLE tag_categories ADD COLUMN icon TEXT`);
+    }
+
+    // Migration 6: add order_index to tag_categories if missing
+    const tagCategoryCols2 = new Set(
+        (
+            db.prepare(`PRAGMA table_info(tag_categories)`).all() as {
+                name: string;
+            }[]
+        ).map((c) => c.name),
+    );
+    if (!tagCategoryCols2.has("order_index")) {
+        // Fixed: was checking tagCategoryCols and "icon"
+        db.exec(
+            `ALTER TABLE tag_categories ADD COLUMN order_index INTEGER DEFAULT 0`,
+        );
+        // Initialize order_index based on existing IDs for deterministic ordering
+        db.exec(
+            `UPDATE tag_categories SET order_index = id WHERE order_index = 0`,
+        );
     }
 }
 
@@ -427,8 +451,9 @@ export function removeTagFromFolderByPath(
 }
 
 export function getMostUsedTags(folderId?: number): DbTag[] {
-    const query = folderId != null
-        ? `
+    const query =
+        folderId != null
+            ? `
             SELECT t.id, t.name, t.category_id, COUNT(*) as usage_count
             FROM tags t
             JOIN file_tags ft ON ft.tag_id = t.id
@@ -438,7 +463,7 @@ export function getMostUsedTags(folderId?: number): DbTag[] {
             GROUP BY t.id
             ORDER BY usage_count DESC
           `
-        : `
+            : `
             SELECT t.id, t.name, t.category_id, COUNT(*) as usage_count
             FROM tags t
             JOIN file_tags ft ON ft.tag_id = t.id
@@ -540,7 +565,9 @@ export function getAllMetadataFields(): DbMetadataField[] {
 }
 
 // Path-based wrappers for IPC layer
-export function getFolderMetadataByPath(folderPath: string): { key: string; value: string; type: string }[] {
+export function getFolderMetadataByPath(
+    folderPath: string,
+): { key: string; value: string; type: string }[] {
     const folder = getFolderByPath(folderPath);
     if (!folder) return [];
     return getFolderMetadata(folder.id).map((f) => ({
@@ -561,7 +588,10 @@ export function setFolderMetadataField(
     setFolderMetadata(folder.id, field.id, value);
 }
 
-export function deleteFolderMetadataField(folderPath: string, key: string): void {
+export function deleteFolderMetadataField(
+    folderPath: string,
+    key: string,
+): void {
     const folder = getFolderByPath(folderPath);
     if (!folder) return;
     const field = getDb()
@@ -575,7 +605,10 @@ export function getAllMetadataFieldNames(): string[] {
     return getAllMetadataFields().map((f) => f.name);
 }
 
-export function setFolderProfileImageByPath(folderPath: string, hash: string | null): void {
+export function setFolderProfileImageByPath(
+    folderPath: string,
+    hash: string | null,
+): void {
     const folder = getFolderByPath(folderPath);
     if (!folder) return;
     setFolderProfileImage(folder.id, hash);
@@ -587,34 +620,44 @@ export function upsertTag(name: string, categoryId?: number | null): DbTag {
     const db = getDb();
 
     if (categoryId === undefined) {
-        db.prepare(`
+        db.prepare(
+            `
             INSERT INTO tags (name)
             VALUES (?)
             ON CONFLICT(name) DO NOTHING
-        `).run(name);
+        `,
+        ).run(name);
     } else {
-        db.prepare(`
+        db.prepare(
+            `
             INSERT INTO tags (name, category_id)
             VALUES (?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 category_id = excluded.category_id
-        `).run(name, categoryId);
+        `,
+        ).run(name, categoryId);
     }
 
-    return db
-        .prepare(`SELECT * FROM tags WHERE name = ?`)
-        .get(name) as DbTag;
+    return db.prepare(`SELECT * FROM tags WHERE name = ?`).get(name) as DbTag;
 }
 
-export function updateTag(id: number, name: string, categoryId: number | null): DbTag {
+export function updateTag(
+    id: number,
+    name: string,
+    categoryId: number | null,
+): DbTag {
     const db = getDb();
 
-    return db.prepare(`
+    return db
+        .prepare(
+            `
         UPDATE tags
         SET name = ?, category_id = ?
         WHERE id = ?
         RETURNING *
-    `).get(name, categoryId, id) as DbTag;
+    `,
+        )
+        .get(name, categoryId, id) as DbTag;
 }
 
 export function getTagByName(name: string): DbTag | undefined {
@@ -642,17 +685,19 @@ export function deleteTag(tagId: number): void {
 export function upsertTagCategory(
     name: string,
     color: string,
-    icon: string
+    icon: string,
 ): DbTagCategory {
     const db = getDb();
 
-    db.prepare(`
+    db.prepare(
+        `
         INSERT INTO tag_categories (name, color, icon)
         VALUES (?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET
             color = excluded.color,
             icon = excluded.icon
-    `).run(name, color, icon);
+    `,
+    ).run(name, color, icon);
 
     return db
         .prepare(`SELECT * FROM tag_categories WHERE name = ?`)
@@ -661,7 +706,7 @@ export function upsertTagCategory(
 
 export function getAllTagCategories(): DbTagCategory[] {
     return getDb()
-        .prepare(`SELECT * FROM tag_categories ORDER BY name`)
+        .prepare(`SELECT * FROM tag_categories ORDER BY order_index ASC, id ASC`)
         .all() as DbTagCategory[];
 }
 
@@ -670,7 +715,15 @@ export function deleteTagCategory(categoryId: number): void {
     getDb().prepare(`DELETE FROM tag_categories WHERE id = ?`).run(categoryId);
 }
 
-export function updateTagCategory(id: number, updates: { name?: string; color?: string | null; icon?: string | null }): DbTagCategory {
+export function updateTagCategory(
+    id: number,
+    updates: {
+        name?: string;
+        color?: string | null;
+        icon?: string | null;
+        order_index?: number; // Add this
+    },
+): DbTagCategory {
     const db = getDb();
 
     const fields = Object.entries(updates)
@@ -680,27 +733,22 @@ export function updateTagCategory(id: number, updates: { name?: string; color?: 
         .filter(([_, v]) => v !== undefined)
         .map(([_, v]) => v);
 
-    if (fields.length === 0) return db.prepare(`SELECT * FROM tag_categories WHERE id = ?`).get(id) as DbTagCategory;
+    if (fields.length === 0)
+        return db
+            .prepare(`SELECT * FROM tag_categories WHERE id = ?`)
+            .get(id) as DbTagCategory;
 
-    return db.prepare(`
+    return db
+        .prepare(
+            `
         UPDATE tag_categories
         SET ${fields.join(", ")}
         WHERE id = ?
         RETURNING *
-    `).get([...values, id]) as DbTagCategory;
+    `,
+        )
+        .get([...values, id]) as DbTagCategory;
 }
-
-// ipcMain.handle("update-tag-category", (
-//         _event,
-//         id: number,
-//         updates: {
-//             name?: string,
-//             color?: string | null,
-//             icon?: string | null
-//         }
-//     ) => {
-//         updateTagCategory(id, updates);
-//     })
 
 // ── File tag queries ─────────────────────────────────────────────────────────
 
@@ -756,17 +804,17 @@ export function getFileIdsByTags(
 
 export function backfillFolderIds(): void {
     const db = getDb();
-    const folders = db
-        .prepare(`SELECT * FROM folders`)
-        .all() as DbFolder[];
+    const folders = db.prepare(`SELECT * FROM folders`).all() as DbFolder[];
 
     const updateFile = db.prepare(
-        `UPDATE files SET folder_id = ? WHERE path LIKE ? AND folder_id IS NULL`
+        `UPDATE files SET folder_id = ? WHERE path LIKE ? AND folder_id IS NULL`,
     );
 
     db.transaction(() => {
         for (const folder of folders) {
-            const escaped = folder.path.replace(/%/g, "\\%").replace(/_/g, "\\_");
+            const escaped = folder.path
+                .replace(/%/g, "\\%")
+                .replace(/_/g, "\\_");
             updateFile.run(folder.id, `${escaped}/%`);
         }
     })();
@@ -811,7 +859,7 @@ export function upsertFile(
             );
         }
 
-         // Apply folder tags in case file moved to a new folder
+        // Apply folder tags in case file moved to a new folder
         if (file.folder_id != null) {
             applyFolderTagsToFile(existing.id, file.folder_id);
         }
@@ -977,26 +1025,30 @@ export function getActiveFilesByTags(
         : "";
 
     if (mode === "or") {
-        return db.prepare(
-            `SELECT DISTINCT f.* FROM files f
+        return db
+            .prepare(
+                `SELECT DISTINCT f.* FROM files f
              JOIN file_tags ft ON ft.file_id = f.id
              JOIN tags t ON t.id = ft.tag_id
              WHERE f.status = 'active'
              AND t.id IN (${placeholders})
              ${folderClause}
-             ORDER BY f.elo_score DESC`
-        ).all(...tagIds) as DbFile[];
+             ORDER BY f.elo_score DESC`,
+            )
+            .all(...tagIds) as DbFile[];
     } else {
-        return db.prepare(
-            `SELECT f.* FROM files f
+        return db
+            .prepare(
+                `SELECT f.* FROM files f
              JOIN file_tags ft ON ft.file_id = f.id
              JOIN tags t ON t.id = ft.tag_id
              WHERE f.status = 'active'
              AND t.id IN (${placeholders})
              ${folderClause}
              GROUP BY f.id HAVING COUNT(DISTINCT t.id) = ?
-             ORDER BY f.elo_score DESC`
-        ).all(...tagIds, tagIds.length) as DbFile[];
+             ORDER BY f.elo_score DESC`,
+            )
+            .all(...tagIds, tagIds.length) as DbFile[];
     }
 }
 

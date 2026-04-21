@@ -282,7 +282,8 @@ const api = {
         updates: {
             name?: string,
             color?: string | null,
-            icon?: string | null
+            icon?: string | null,
+            order_index?: number
         },
     ): Promise<void> =>
         ipcRenderer.invoke("update-tag-category", id, updates),
