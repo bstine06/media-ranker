@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
@@ -17,6 +17,7 @@ export default function ScrollView({
     onFolderClick,
     onFileClick,
     onClose,
+    progress,
     onFileChange,
 }: {
     initialFile: DbFile | null;
@@ -27,7 +28,8 @@ export default function ScrollView({
     onFolderClick: (folderName: string) => void;
     onFileClick: (file: DbFile) => void;
     onClose?: () => void;
-    onFileChange?: (file: DbFile) => void
+    progress?: { index: number; total: number };
+    onFileChange?: (file: DbFile) => void;
 }): JSX.Element {
     const {
         slotFiles,
@@ -58,15 +60,26 @@ export default function ScrollView({
     return (
         <div className="relative flex min-h-0 flex-1">
             {onClose && (
-                <button
-                    onClick={onClose}
-                    className="absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
-                >
-                    ← Back
-                </button>
+                <div className="absolute top-3 left-0 right-0 z-20">
+                    <button
+                        onClick={onClose}
+                        className="absolute left-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
+                    >
+                        ← Back
+                    </button>
+
+                    {progress && (
+                        <div className="absolute gap-1.5 rounded-full right-72 mr-3 bg-black/50 px-3 py-1.5 text-xs text-neutral-300">
+                            {progress.index} / {progress.total}
+                        </div>
+                    )}
+                </div>
             )}
             <div className="relative flex min-h-0 flex-1 flex-col">
-                <div className="relative min-h-0 flex-1 overflow-hidden" onWheel={handleWheel}>
+                <div
+                    className="relative min-h-0 flex-1 overflow-hidden"
+                    onWheel={handleWheel}
+                >
                     {([0, 1] as const).map((slot) => (
                         <div
                             key={slot}
@@ -89,11 +102,14 @@ export default function ScrollView({
                     ))}
                 </div>
 
-                <div className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group" onKeyDown={(e) => {
-                if (e.key === ' ') {
-                    e.preventDefault(); // Stops the scroll behavior
-                }
-            }}>
+                <div
+                    className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group"
+                    onKeyDown={(e) => {
+                        if (e.key === " ") {
+                            e.preventDefault(); // Stops the scroll behavior
+                        }
+                    }}
+                >
                     <div className="flex flex-col gap-2 pointer-events-auto opacity-20 group-hover:opacity-100 duration-500">
                         <button
                             onClick={() => navigate("up")}
@@ -111,9 +127,7 @@ export default function ScrollView({
                 </div>
             </div>
 
-            <div
-                className="w-72 flex flex-col h-full overflow-hidden"
-            >
+            <div className="w-72 flex flex-col h-full overflow-hidden">
                 <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
                     <div
                         className="cursor-pointer flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
@@ -144,9 +158,11 @@ export default function ScrollView({
                         {currentFile.filename ?? "—"}
                     </span>
                     <span className="text-neutral-500 capitalize text-xs">
-                        {`${currentFile.size != null
-                            ? formatFileSize(currentFile.size)
-                            : "—"}`}
+                        {`${
+                            currentFile.size != null
+                                ? formatFileSize(currentFile.size)
+                                : "—"
+                        }`}
                     </span>
                     <span className="text-neutral-500 text-xs">
                         {`${Math.round(currentFile.elo_score)} pts`}

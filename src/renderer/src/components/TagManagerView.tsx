@@ -384,8 +384,14 @@ export default function TagManagerView(): JSX.Element {
 
     useEffect(() => {
         refreshTags();
-        setCollapsedCategories(new Set(allCategories.map((c) => c.id)));
     }, []);
+
+    useEffect(() => {
+        setCollapsedCategories((prev) => {
+            if (prev.size > 0) return prev; // don’t overwrite user interaction
+            return new Set(allCategories.map((c) => c.id));
+        });
+    }, [allCategories]);
 
     useEffect(() => {
         if (focus === null || focus.kind !== "category") {
@@ -399,7 +405,7 @@ export default function TagManagerView(): JSX.Element {
             next.has(id) ? next.delete(id) : next.add(id);
             return next;
         });
-        console.log(draggedTag);
+        console.log(collapsedCategories);
     };
 
     const handleCategoryReorder = (

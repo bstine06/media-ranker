@@ -163,21 +163,41 @@ useEffect(() => {
         }
         
         if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-            e.preventDefault();
-            if (!videoRef.current) return;
-            
-            const skipAmount = e.key === "ArrowLeft" ? -3 : 3;
-            const newTime = videoRef.current.currentTime + skipAmount;
-            
-            // If out of bounds, restart
-            if (newTime < 0 || newTime > videoRef.current.duration + 2.6) {
-                videoRef.current.currentTime = 0;
-            } else if (newTime > videoRef.current.duration) {
-                videoRef.current.currentTime = videoRef.current.duration - 0.3;
-            } else {
-                videoRef.current.currentTime = newTime;
-            }
+    e.preventDefault();
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    
+    // Frame-by-frame when paused, time-skip when playing
+    if (video.paused) {
+        // Assume 60fps
+        const fps = 30;
+        const frameDuration = 1 / fps;
+        const frameStep = e.key === "ArrowLeft" ? -frameDuration : frameDuration;
+        const newTime = video.currentTime + frameStep;
+        
+        // Clamp to valid range
+        if (newTime < 0) {
+            video.currentTime = 0;
+        } else if (newTime > video.duration) {
+            video.currentTime = video.duration;
+        } else {
+            video.currentTime = newTime;
         }
+    } else {
+        // Original time-skip behavior when playing
+        const skipAmount = e.key === "ArrowLeft" ? -3 : 3;
+        const newTime = video.currentTime + skipAmount;
+        
+        if (newTime < 0 || newTime > video.duration + 2.6) {
+            video.currentTime = 0;
+        } else if (newTime > video.duration) {
+            video.currentTime = video.duration - 0.3;
+        } else {
+            video.currentTime = newTime;
+        }
+    }
+}
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

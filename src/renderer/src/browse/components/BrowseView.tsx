@@ -20,6 +20,11 @@ import { showInFolder } from "@renderer/lib/filesystem";
 
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
+const getDisplayFolder = (path: string): string | null => {
+    const [top] = path.split("/").filter(Boolean);
+    return top ?? null;
+};
+
 export default function BrowseView({
     active,
     setView,
@@ -33,6 +38,9 @@ export default function BrowseView({
     const [folderProfileHash, setFolderProfileHash] = useState<string | null>(
         null,
     );
+    const [folderProfileMap, setFolderProfileMap] = useState<
+        Record<string, string | null>
+    >({});
     const [metadataFields, setMetadataFields] = useState<string[]>([]); // for autocomplete
     const [metadata, setMetadata] = useState<DbFolderMetadata | null>(null);
     const [editingMetadata, setEditingMetadata] = useState(false);
@@ -67,6 +75,31 @@ export default function BrowseView({
         getFilesForFolder(activeFolder, activeTags, tagMode);
         setBrowseScrollIndex(null);
     }, [rootPath, activeFolder, activeTags, tagMode]);
+
+    useEffect(() => {
+        const loadProfiles = async () => {
+            const folders = Array.from(
+                new Set(
+                    files.map((f) => getDisplayFolder(f.path)).filter(Boolean),
+                ),
+            );
+
+            const entries = await Promise.all(
+                folders.map(async (folder) => {
+                    const data = folder
+                        ? await window.api.getFolder(folder)
+                        : null;
+                    return [folder, data?.profile_image_hash ?? null];
+                }),
+            );
+
+            setFolderProfileMap(Object.fromEntries(entries));
+        };
+
+        if (!activeFolder && files.length > 0) {
+            loadProfiles();
+        }
+    }, [files, activeFolder]);
 
     const getFilesForFolder = useCallback(
         async (
@@ -122,7 +155,6 @@ export default function BrowseView({
                 setFolderTags(tags);
                 setMetadataFields(fieldNames);
                 setFolderProfileHash(dbFolder?.profile_image_hash ?? null);
-                console.log(dbFolder?.profile_image_hash);
             } catch {
                 setFields([]);
                 setFolderProfileHash(null);
@@ -214,7 +246,6 @@ export default function BrowseView({
     };
 
     const handleTileClick = (file: DbFile, index: number) => {
-        console.log("handle tile click", index)
         editingMetadata
             ? setDraftProfileImage((prev) =>
                   prev === file.content_hash ? undefined : file.content_hash,
@@ -226,11 +257,17 @@ export default function BrowseView({
         return [...files].sort((a, b) => {
             let d = 0;
             switch (sortMode) {
-                case "rank": d = b.elo_score - a.elo_score; break;
-                case "fileSize": d = b.size - a.size; break;
-                case "alphabetical": default: d = a.filename.localeCompare(b.filename);
+                case "rank":
+                    d = b.elo_score - a.elo_score;
+                    break;
+                case "fileSize":
+                    d = b.size - a.size;
+                    break;
+                case "alphabetical":
+                default:
+                    d = a.filename.localeCompare(b.filename);
             }
-            return sortDirection === "down" ? d : d*(-1);
+            return sortDirection === "down" ? d : d * -1;
         });
     }, [files, sortMode, sortDirection]);
 
@@ -280,7 +317,6 @@ export default function BrowseView({
 
     const resolver: SlotResolver = useCallback(
         async (dir, cursor) => {
-            console.log(browseScrollIndex);
             if (browseScrollIndex === null) return null;
             const newIndexUnbounded =
                 dir === "down" ? browseScrollIndex + 1 : browseScrollIndex - 1;
@@ -299,19 +335,35 @@ export default function BrowseView({
     );
 
     if (rootPath && browseScrollIndex !== null) {
+        const currentFile = sortedFiles[browseScrollIndex];
+
+        const currentFolder = currentFile
+            ? getDisplayFolder(currentFile.path)
+            : null;
+
         return (
             <ScrollView
-                initialFile={sortedFiles[browseScrollIndex]}
+                initialFile={currentFile}
                 resolver={resolver}
                 active={active}
                 rootPath={rootPath!}
-                folderProfileHash={folderProfileHash}
+                folderProfileHash={
+                    activeFolder
+                        ? folderProfileHash
+                        : ((currentFolder
+                              ? folderProfileMap[currentFolder]
+                              : null) ?? null)
+                }
                 onFolderClick={(folderName) => {
                     setActiveFolder(folderName);
                     setView("browse");
                 }}
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}
                 onClose={() => setBrowseScrollIndex(null)}
+                progress={{
+                    index: browseScrollIndex + 1,
+                    total: sortedFiles.length,
+                }}
             />
         );
     }
