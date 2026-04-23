@@ -908,6 +908,12 @@ export function getFileByHash(hash: string): DbFile | undefined {
         .get(hash) as DbFile | undefined;
 }
 
+export function getFileById(fileId: number): DbFile | undefined {
+    return getDb()
+        .prepare(`SELECT * FROM files WHERE id = ?`)
+        .get(fileId) as DbFile | undefined;
+}
+
 export function getFileByPathAny(relativePath: string): DbFile | undefined {
     return getDb()
         .prepare(`SELECT * FROM files WHERE path = ?`)
@@ -1076,6 +1082,16 @@ export function markFileMissing(relativePath: string): void {
              WHERE path = ? AND status = 'active'`,
         )
         .run(relativePath);
+}
+
+export function markFileMissingById(fileId: number): void {
+    getDb()
+        .prepare(
+            `UPDATE files
+             SET status = 'missing', missing_since = datetime('now')
+             WHERE id = ? AND status = 'active'`,
+        )
+        .run(fileId);
 }
 
 export function getMissingFiles(): DbFile[] {

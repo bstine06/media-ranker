@@ -113,6 +113,9 @@ const api = {
     openFile: (extensions: string[]) =>
         ipcRenderer.invoke("dialog:open-file", extensions),
 
+    deleteFile: (fileId: number): Promise<void> =>
+        ipcRenderer.invoke("delete-file-by-id", fileId),
+
     // ── File watching ──────────────────────────────────────────────────────
     onMediaAdded: (
         callback: (file: {

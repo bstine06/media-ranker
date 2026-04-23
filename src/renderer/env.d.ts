@@ -143,6 +143,8 @@ declare global {
                 newAbsPath: string,
             ) => Promise<DbFile>;
             openFile: (extensions: string[]) => Promise<string | null>;
+            deleteFile: (fileId: number) => Promise<void>;
+            
             // Tag CRUD
             createTag: (name: string, categoryId: number | null) => Promise<DbTag>;
             updateTag: (id: number, name: string, categoryId: number | null) => Promise<void>;

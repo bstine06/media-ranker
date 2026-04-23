@@ -172,6 +172,23 @@ export default function DiscoverView({
         return () => unsub();
     }, []);
 
+    useEffect(() => {
+        const unsub = window.api.onMediaRemoved(({ relativePath }) => {
+            // Remove from history
+            setHistory((prev) => {
+                const filtered = prev.filter((f) => f.path !== relativePath);
+                historyRef.current = filtered;
+                return filtered;
+            });
+            
+            // Clear prefetch if it was the deleted file
+            if (prefetchRef.current?.path === relativePath) {
+                prefetchRef.current = null;
+            }
+        });
+        return () => unsub();
+    }, []);
+
     const resolver: SlotResolver = useCallback(async (dir, cursor) => {
         const h = historyRef.current;
 

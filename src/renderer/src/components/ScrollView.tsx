@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
@@ -7,6 +7,7 @@ import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { formatFileSize } from "@renderer/lib/media";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { MediaSlide } from "./MediaSlide";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function ScrollView({
     initialFile,
@@ -46,9 +47,64 @@ export default function ScrollView({
 
     const videoRefs = [videoRef0, videoRef1];
 
+    const [sidebarWidth, setSidebarWidth] = useState(288); // 288px = w-72
+    const [isDragging, setIsDragging] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isDragging) return;
+
+            // Calculate new width from the right edge of the viewport
+            const newWidth = window.innerWidth - e.clientX;
+
+            // Constrain between min and max widths
+            const minWidth = 200;
+            const maxWidth = 600;
+            setSidebarWidth(Math.max(minWidth, Math.min(maxWidth, newWidth)));
+        };
+
+        const handleMouseUp = () => {
+            setIsDragging(false);
+        };
+
+        if (isDragging) {
+            document.addEventListener("mousemove", handleMouseMove);
+            document.addEventListener("mouseup", handleMouseUp);
+            document.body.style.cursor = "ew-resize";
+            document.body.style.userSelect = "none";
+        }
+
+        return () => {
+            document.removeEventListener("mousemove", handleMouseMove);
+            document.removeEventListener("mouseup", handleMouseUp);
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+        };
+    }, [isDragging]);
+
     useEffect(() => {
         if (currentFile) onFileChange?.(currentFile);
     }, [currentFile]);
+
+    const handleDelete = async () => {
+        if (!currentFile) return;
+        try {
+            await window.api.deleteFile(currentFile.id);
+            setShowConfirm(false);
+            (progress && ((progress.index) >= progress.total))
+                ? navigate("up")
+                : navigate("down")
+        } catch (error) {
+            console.error("Failed to delete file:", error);
+            // Optionally: show error toast
+        }
+    };
 
     if (!currentFile)
         return (
@@ -69,7 +125,10 @@ export default function ScrollView({
                     </button>
 
                     {progress && (
-                        <div className="absolute gap-1.5 rounded-full right-72 mr-3 bg-black/50 px-3 py-1.5 text-xs text-neutral-300">
+                        <div
+                            className="absolute gap-1.5 rounded-full mr-3 bg-black/50 px-3 py-1.5 text-xs text-neutral-300"
+                            style={{ right: `${sidebarWidth}px` }}
+                        >
                             {progress.index} / {progress.total}
                         </div>
                     )}
@@ -106,7 +165,7 @@ export default function ScrollView({
                     className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group"
                     onKeyDown={(e) => {
                         if (e.key === " ") {
-                            e.preventDefault(); // Stops the scroll behavior
+                            e.preventDefault();
                         }
                     }}
                 >
@@ -127,7 +186,18 @@ export default function ScrollView({
                 </div>
             </div>
 
-            <div className="w-72 flex flex-col h-full overflow-hidden">
+            {/* Draggable divider */}
+            <div
+                className="relative w-1 bg-neutral-800 hover:bg-neutral-600 cursor-ew-resize group z-30"
+                onMouseDown={handleMouseDown}
+            >
+                <div className="absolute inset-y-0 -left-1 -right-1" />
+            </div>
+
+            <div
+                className="flex flex-col h-full overflow-hidden"
+                style={{ width: `${sidebarWidth}px` }}
+            >
                 <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
                     <div
                         className="cursor-pointer flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
@@ -157,19 +227,39 @@ export default function ScrollView({
                     >
                         {currentFile.filename ?? "—"}
                     </span>
-                    <span className="text-neutral-500 capitalize text-xs">
-                        {`${
-                            currentFile.size != null
-                                ? formatFileSize(currentFile.size)
-                                : "—"
-                        }`}
-                    </span>
-                    <span className="text-neutral-500 text-xs">
-                        {`${Math.round(currentFile.elo_score)} pts`}
-                    </span>
+                    <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                            <span className="text-neutral-500 capitalize text-xs">
+                                {`${
+                                    currentFile.size != null
+                                        ? formatFileSize(currentFile.size)
+                                        : "—"
+                                }`}
+                            </span>
+                            <span className="text-neutral-500 text-xs">
+                                {`${Math.round(currentFile.elo_score)} pts`}
+                            </span>
+                        </div>
+                        <button
+                            onClick={() => setShowConfirm(true)}
+                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                        >
+                            Delete
+                        </button>
+                    </div>
                 </div>
                 <TagPanel file={currentFile} />
             </div>
+
+            {showConfirm && (
+                <ConfirmDialog
+                    title="Delete File"
+                    message={`Are you sure you want to delete "${currentFile.filename}"? It will be moved to trash.`}
+                    confirmText="Delete"
+                    onConfirm={handleDelete}
+                    onCancel={() => setShowConfirm(false)}
+                />
+            )}
         </div>
     );
 }

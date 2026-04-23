@@ -3,6 +3,7 @@ import {
     DbFile,
     DbTag,
     DbTagWithCategory,
+    isDbTagArray,
     TagGroup,
 } from "@renderer/shared/types/types";
 import {
@@ -16,6 +17,7 @@ import {
 import { TagPill } from "./TagPill";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import CategoryGroup from "./CategoryGroup";
+import { useClipboard } from "@renderer/contexts/ClipboardContext";
 
 export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     const [tags, setTags] = useState<DbTag[]>([]);
@@ -37,6 +39,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
 
     const { allTags, refreshTags, getTagsWithCategory } = useTags();
     const { showTagCategoryNames } = useSettings();
+    const { copyTags, clipboard } = useClipboard();
 
     const tagsWithCategory = useMemo(
         () => getTagsWithCategory(tags),
@@ -104,6 +107,15 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     }, [input, allTags, tags]);
 
     useEffect(() => setHighlightedIndex(0), [input]);
+
+    const handlePasteTags = () => {
+        if (!isDbTagArray(clipboard)) return;
+
+        // clipboard is now typed as DbTag[]
+        clipboard.forEach((tag) => {
+            addTag(tag.name);
+        });
+    };
 
     const addTag = useCallback(
         async (name: string) => {
@@ -205,10 +217,25 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             style={{ scrollbarGutter: "stable" }}
         >
             {/* Header */}
-            <div className="px-4 py-3 border-b border-neutral-800">
+            <div className="px-4 py-3 border-b border-neutral-800 flex items-center">
                 <p className="text-[11px] uppercase tracking-wider text-neutral-400 font-medium">
                     Tags
                 </p>
+
+                <div className="ml-auto flex gap-2">
+                    <button
+                        onClick={() => copyTags(tags)}
+                        className="px-2 py-1 text-xs rounded-full bg-neutral-700 text-neutral-300 hover:bg-neutral-600 transition"
+                    >
+                        Copy
+                    </button>
+                    <button
+                        onClick={handlePasteTags}
+                        className="px-2 py-1 text-xs rounded-full bg-neutral-700 text-neutral-300 hover:bg-neutral-600 transition"
+                    >
+                        Paste
+                    </button>
+                </div>
             </div>
 
             {/* Applied tags */}

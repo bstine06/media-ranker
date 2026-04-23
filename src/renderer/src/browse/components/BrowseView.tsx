@@ -17,6 +17,8 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 import { SlotResolver } from "@renderer/hooks/useScrollSlots";
 import ScrollView from "@renderer/components/ScrollView";
 import { showInFolder } from "@renderer/lib/filesystem";
+import { TagIcon } from "@renderer/components/icons/TagIcon";
+import FolderTagPanel from "./FolderTagPanel";
 
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
@@ -59,6 +61,8 @@ export default function BrowseView({
     const [browseScrollIndex, setBrowseScrollIndex] = useState<number | null>(
         null,
     );
+
+    const [showTagPanel, setShowTagPanel] = useState<boolean>(false);
 
     const { setStatus, resetStatus } = useStatus();
     const {
@@ -369,201 +373,215 @@ export default function BrowseView({
     }
 
     return (
-        <div
-            className="flex flex-1 flex-col overflow-hidden"
-            onDragOver={(e) => e.preventDefault()}
-            onDragEnter={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-        >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3">
-                <h2 className="text-sm font-medium text-neutral-300">
-                    {activeFolder ?? "All Files"}
-                </h2>
-                <div className="flex items-center gap-3">
-                    <div className="flex gap-2">
-                        <button
-                            onClick={() => setSortMode("alphabetical")}
-                            title="Sort alphabetically"
-                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
-                                sortMode === "alphabetical"
-                                    ? "bg-neutral-700 text-neutral-200"
-                                    : "text-neutral-600 hover:text-neutral-400"
-                            }`}
+    <div
+        className="flex flex-1 flex-col overflow-hidden"
+        onDragOver={(e) => e.preventDefault()}
+        onDragEnter={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+    >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3">
+            <h2 className="text-sm font-medium text-neutral-300">
+                {activeFolder ?? "All Files"}
+            </h2>
+            <div className="flex items-center gap-3">
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setSortMode("alphabetical")}
+                        title="Sort alphabetically"
+                        className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                            sortMode === "alphabetical"
+                                ? "bg-neutral-700 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
                         >
-                            <svg
-                                className="w-3 h-3"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75M3 18h9.75"
-                                />
-                            </svg>
-                            A-Z
-                        </button>
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75M3 18h9.75"
+                            />
+                        </svg>
+                        A-Z
+                    </button>
 
-                        <button
-                            onClick={() => setSortMode("rank")}
-                            title="Sort by rank"
-                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
-                                sortMode === "rank"
-                                    ? "bg-neutral-700 text-neutral-200"
-                                    : "text-neutral-600 hover:text-neutral-400"
-                            }`}
+                    <button
+                        onClick={() => setSortMode("rank")}
+                        title="Sort by rank"
+                        className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                            sortMode === "rank"
+                                ? "bg-neutral-700 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
                         >
-                            <svg
-                                className="w-3 h-3"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12"
-                                />
-                            </svg>
-                            Rank
-                        </button>
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12"
+                            />
+                        </svg>
+                        Rank
+                    </button>
 
-                        <button
-                            onClick={() => setSortMode("fileSize")}
-                            title="Sort by file size"
-                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
-                                sortMode === "fileSize"
-                                    ? "bg-neutral-700 text-neutral-200"
-                                    : "text-neutral-600 hover:text-neutral-400"
-                            }`}
+                    <button
+                        onClick={() => setSortMode("fileSize")}
+                        title="Sort by file size"
+                        className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                            sortMode === "fileSize"
+                                ? "bg-neutral-700 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
                         >
-                            <svg
-                                className="w-3 h-3"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"
-                                />
-                            </svg>
-                            Size
-                        </button>
-                    </div>
-
-                    <div className="flex gap-2">
-                        <button
-                            onClick={() => setSortDirection("up")}
-                            title="Sort ascending"
-                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
-                                sortDirection === "up"
-                                    ? "bg-neutral-700 text-neutral-200"
-                                    : "text-neutral-600 hover:text-neutral-400"
-                            }`}
-                        >
-                            <svg
-                                className="w-3 h-3"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M4.5 15.75l7.5-7.5 7.5 7.5"
-                                />
-                            </svg>
-                        </button>
-
-                        <button
-                            onClick={() => setSortDirection("down")}
-                            title="Sort descending"
-                            className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
-                                sortDirection === "down"
-                                    ? "bg-neutral-700 text-neutral-200"
-                                    : "text-neutral-600 hover:text-neutral-400"
-                            }`}
-                        >
-                            <svg
-                                className="w-3 h-3"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M19.5 8.25l-7.5 7.5-7.5-7.5"
-                                />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div className="flex items-center rounded bg-neutral-800 p-0.5">
-                        <button
-                            onClick={() => setViewMode("grid")}
-                            title="Grid view"
-                            className={`rounded p-1 transition-colors ${
-                                viewMode === "grid"
-                                    ? "bg-neutral-600 text-neutral-200"
-                                    : "text-neutral-600 hover:text-neutral-400"
-                            }`}
-                        >
-                            <svg
-                                className="w-3.5 h-3.5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"
-                                />
-                            </svg>
-                        </button>
-                        <button
-                            onClick={() => setViewMode("rows")}
-                            title="Row view"
-                            className={`rounded p-1 transition-colors ${
-                                viewMode === "rows"
-                                    ? "bg-neutral-600 text-neutral-200"
-                                    : "text-neutral-600 hover:text-neutral-400"
-                            }`}
-                        >
-                            <svg
-                                className="w-3.5 h-3.5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
-                                />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <span className="text-xs text-neutral-600">
-                        {files.length} files
-                    </span>
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"
+                            />
+                        </svg>
+                        Size
+                    </button>
                 </div>
-            </div>
 
-            {/* Body */}
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setSortDirection("up")}
+                        title="Sort ascending"
+                        className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                            sortDirection === "up"
+                                ? "bg-neutral-700 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M4.5 15.75l7.5-7.5 7.5 7.5"
+                            />
+                        </svg>
+                    </button>
+
+                    <button
+                        onClick={() => setSortDirection("down")}
+                        title="Sort descending"
+                        className={`flex items-center gap-1 text-xs rounded px-2 py-1 transition-colors ${
+                            sortDirection === "down"
+                                ? "bg-neutral-700 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                            />
+                        </svg>
+                    </button>
+                </div>
+
+                <div className="flex items-center rounded bg-neutral-800 p-0.5">
+                    <button
+                        onClick={() => setViewMode("grid")}
+                        title="Grid view"
+                        className={`rounded p-1 transition-colors ${
+                            viewMode === "grid"
+                                ? "bg-neutral-600 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"
+                            />
+                        </svg>
+                    </button>
+                    <button
+                        onClick={() => setViewMode("rows")}
+                        title="Row view"
+                        className={`rounded p-1 transition-colors ${
+                            viewMode === "rows"
+                                ? "bg-neutral-600 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
+                            />
+                        </svg>
+                    </button>
+                </div>
+
+                
+                    <button
+                        onClick={() => setShowTagPanel(!showTagPanel)}
+                        title="Folder tags"
+                        className={`rounded p-1.5 transition-colors ${
+                            showTagPanel
+                                ? "bg-neutral-700 text-neutral-200"
+                                : "text-neutral-600 hover:text-neutral-400"
+                        }`}
+                    >
+                        <TagIcon className="w-4 h-4" />
+                    </button>
+
+                <span className="text-xs text-neutral-600">
+                    {files.length} files
+                </span>
+            </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex flex-1 overflow-hidden">
             <div className="flex flex-1 flex-col overflow-hidden">
                 {activeFolder && (
                     <MetadataView
@@ -571,9 +589,6 @@ export default function BrowseView({
                         fields={fields}
                         profileImage={folderProfileHash}
                         metadataFields={metadataFields}
-                        folderTags={folderTags}
-                        onAddFolderTag={handleAddFolderTag}
-                        onRemoveFolderTag={handleRemoveFolderTag}
                         files={files}
                         editing={editingMetadata}
                         draftProfileImage={draftProfileImage}
@@ -659,6 +674,18 @@ export default function BrowseView({
                     </div>
                 )}
             </div>
+
+            {/* Tag Panel */}
+            {showTagPanel && (
+                <div className="w-72 border-l border-neutral-800 flex-shrink-0">
+                    <FolderTagPanel
+                        folderTags={folderTags}
+                        onAddFolderTag={handleAddFolderTag}
+                        onRemoveFolderTag={handleRemoveFolderTag}
+                    />
+                </div>
+            )}
         </div>
-    );
+    </div>
+);
 }

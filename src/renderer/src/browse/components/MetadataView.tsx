@@ -2,17 +2,15 @@
 
 import { DbFile, DbTag } from "@renderer/shared/types/types";
 import { URL_RE } from "../types/browserTypes";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { useTags } from "@renderer/contexts/TagsContext";
+import { TagPill } from "@renderer/components/TagPill";
 
 type FieldEntry = { key: string; value: string; type: string };
 
 export default function MetadataView({
     folderName,
-    folderTags,
-    onAddFolderTag,
-    onRemoveFolderTag,
     files,
     editing,
     draftProfileImage,
@@ -27,9 +25,6 @@ export default function MetadataView({
     onSave,
 }: {
     folderName: string;
-    folderTags: DbTag[];
-    onAddFolderTag: (tag: string) => Promise<void>;
-    onRemoveFolderTag: (tag: string) => Promise<void>;
     files: DbFile[];
     editing: boolean;
     draftProfileImage: string | undefined;
@@ -47,11 +42,6 @@ export default function MetadataView({
     ) => void;
 }): JSX.Element {
     const [draftFields, setDraftFields] = useState<FieldEntry[]>([]);
-
-    // folder tags
-    const [folderTagInput, setFolderTagInput] = useState("");
-
-    const { allTags } = useTags();
 
     useEffect(() => {
         if (editing) setDraftFields(fields);
@@ -91,22 +81,6 @@ export default function MetadataView({
     const activeFields = editing
         ? draftFields
         : fields.filter((f) => f.key || f.value);
-
-    const handleAddFolderTag = async (tag: string) => {
-        if (!tag.trim()) return;
-        await onAddFolderTag(tag.trim().toLowerCase());
-        setFolderTagInput("");
-    };
-
-    const handleRemoveFolderTag = async (tag: string) => {
-        await onRemoveFolderTag(tag);
-    };
-
-    const filteredTagSuggestions = allTags.filter(
-        (t) =>
-            !folderTags.some((ft) => ft.name === t.name) &&
-            t.name.toLowerCase().includes(folderTagInput.toLowerCase()),
-    );
 
     return (
         <div className="border-b border-neutral-800 px-5 py-4">
@@ -304,61 +278,6 @@ export default function MetadataView({
                                 Edit
                             </button>
                         )}
-                    </div>
-                </div>
-                <div className="mt-2 flex flex-col gap-2">
-                    {/* Current tags as chips */}
-                    {folderTags.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                            {folderTags.map((tag) => (
-                                <span
-                                    key={tag.id}
-                                    className="flex items-center gap-1 text-xs bg-neutral-800 text-neutral-300 rounded px-2 py-0.5"
-                                >
-                                    {tag.name}
-                                    <button
-                                        onClick={() =>
-                                            handleRemoveFolderTag(tag.name)
-                                        }
-                                        className="text-neutral-500 hover:text-neutral-300 transition-colors"
-                                    >
-                                        ×
-                                    </button>
-                                </span>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Input + autocomplete suggestions */}
-                    <div className="relative">
-                        <input
-                            type="text"
-                            value={folderTagInput}
-                            onChange={(e) => setFolderTagInput(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                    handleAddFolderTag(folderTagInput.trim());
-                                }
-                            }}
-                            placeholder="Add tag..."
-                            className="w-full bg-neutral-800 text-neutral-300 text-xs rounded px-2.5 py-1.5 outline-none placeholder:text-neutral-600 focus:ring-1 focus:ring-neutral-600"
-                        />
-                        {folderTagInput &&
-                            filteredTagSuggestions.length > 0 && (
-                                <div className="absolute top-full mt-1 left-0 right-0 bg-neutral-800 border border-neutral-700 rounded shadow-lg z-10 max-h-40 overflow-y-auto">
-                                    {filteredTagSuggestions.map((tag) => (
-                                        <button
-                                            key={tag.id}
-                                            onClick={() =>
-                                                handleAddFolderTag(tag.name)
-                                            }
-                                            className="w-full text-left text-xs text-neutral-300 px-2.5 py-1.5 hover:bg-neutral-700 transition-colors"
-                                        >
-                                            {tag.name}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
                     </div>
                 </div>
             </div>

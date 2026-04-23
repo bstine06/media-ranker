@@ -62,3 +62,17 @@ export type TagGroup = {
     categoryId: number | null;
     orderIndex?: number;
 };
+
+export function isDbTag(value: any): value is DbTag {
+    return (
+        value &&
+        typeof value === 'object' &&
+        typeof value.id === 'number' &&
+        typeof value.name === 'string' &&
+        (typeof value.category_id === 'number' || value.category_id === null)
+    );
+}
+
+export function isDbTagArray(value: any): value is DbTag[] {
+    return Array.isArray(value) && value.every(isDbTag);
+}

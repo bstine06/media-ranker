@@ -7,6 +7,7 @@ import { StatusProvider } from "./contexts/StatusContext";
 import { FolderProvider } from "./contexts/FolderContext";
 import { TagsProvider } from "./contexts/TagsContext";
 import { DragProvider } from "./contexts/DragContext";
+import { ClipboardProvider } from "./contexts/ClipboardContext";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
@@ -15,7 +16,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <SettingsProvider>
                     <StatusProvider>
                         <DragProvider>
-                            <App />
+                            <ClipboardProvider>
+                                <App />
+                            </ClipboardProvider>
                         </DragProvider>
                     </StatusProvider>
                 </SettingsProvider>

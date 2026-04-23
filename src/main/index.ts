@@ -49,6 +49,8 @@ import {
     deleteTag,
     upsertTagCategory,
     updateTagCategory,
+    getFileById,
+    markFileMissingById,
 } from "./db";
 import type { DbFile } from "./db";
 import { scanFolder, getThumbnailPath, getFolderTree } from "./scanner";
@@ -312,6 +314,30 @@ function registerIpcHandlers(): void {
             filters: [{ name: "Media", extensions }],
         });
         return result.canceled ? null : result.filePaths[0];
+    });
+
+    ipcMain.handle("delete-file-by-id", async (_event, fileId: number) => {
+        const win = BrowserWindow.getAllWindows()[0];
+        try {
+            const file = getFileById(fileId);
+            if (!file) {
+                throw new Error(`File with id ${fileId} not found in database`);
+            }
+
+            // Convert relative path to absolute
+            if (!rootPath) throw Error("unable to read rootPath")
+            const absolutePath = path.join(rootPath, file.path); // Use your app's rootPath
+
+            await shell.trashItem(absolutePath);
+
+            markFileMissingById(fileId);
+
+            // Emit the removal event so UI updates
+            win?.webContents.send("media:removed", { relativePath: file.path });
+        } catch (error) {
+            console.error("Failed to delete file:", error);
+            throw error;
+        }
     });
 
     // ── Tags ─────────────────────────────────────────────────────────────────
