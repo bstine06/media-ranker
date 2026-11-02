@@ -114,7 +114,9 @@ export async function generateSizedImage(
     mediaType: MediaType,
 ): Promise<void> {
     if (existsSync(outPath)) return;
-    const bin = ffmpegPath!;
+    // In a packaged app ffmpeg-static points inside app.asar, but the binary
+    // is unpacked (see asarUnpack) and must be executed from there.
+    const bin = ffmpegPath!.replace(/app\.asar(?!\.unpacked)/, "app.asar.unpacked");
 
     if (mediaType === "video") {
         await execFileAsync(bin, [
