@@ -8,6 +8,7 @@ import { formatFileSize } from "@renderer/lib/media";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { MediaSlide } from "./MediaSlide";
 import ConfirmDialog from "./ConfirmDialog";
+import { CrownIcon } from "./icons/CrownIcon";
 
 export default function ScrollView({
     initialFile,
@@ -32,7 +33,7 @@ export default function ScrollView({
     onClose?: () => void;
     progress?: { index: number; total: number };
     onFileChange?: (file: DbFile) => void;
-    /** Send the current file to Compare in King of the Hill mode. */
+    /** Send the current file to Compare and keep it on screen there. */
     onCrown?: (file: DbFile) => void;
 }): JSX.Element {
     const {
@@ -255,11 +256,11 @@ export default function ScrollView({
                         </div>
                         {onCrown && (
                             <button
-                                className="px-3 py-1 rounded text-xs border border-amber-500/50 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors"
-                                title="King of the Hill: keep this file on screen in Compare"
+                                className="px-2 py-1 rounded text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
+                                title="Keep on screen in Compare"
                                 onClick={() => onCrown(currentFile)}
                             >
-                                👑 Crown
+                                <CrownIcon className="h-4 w-4" />
                             </button>
                         )}
                         <button

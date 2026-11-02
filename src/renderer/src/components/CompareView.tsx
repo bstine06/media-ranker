@@ -8,6 +8,7 @@ import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { TagPill } from "./TagPill";
+import { CrownIcon } from "./icons/CrownIcon";
 import {
     useKingOfHill,
     type KingState,
@@ -40,63 +41,6 @@ function xToScore(x: number, width: number, side: "a" | "b"): number {
     if (distFromInner < 1 / 3) return 1;
     if (distFromInner < 2 / 3) return 2;
     return 3;
-}
-
-interface PickFlash {
-    key: number;
-    winnerName: string;
-    winnerRank: { before: number; after: number };
-    loserName: string;
-    loserRank: { before: number; after: number };
-    dethroned?: { name: string; streak: number };
-}
-
-function RankChange({
-    name,
-    rank,
-}: {
-    name: string;
-    rank: { before: number; after: number };
-}): JSX.Element {
-    const delta = rank.before - rank.after; // positive = moved up
-    const color =
-        delta > 0
-            ? "text-emerald-400"
-            : delta < 0
-              ? "text-rose-400"
-              : "text-neutral-400";
-    const arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "•";
-    return (
-        <div className="flex items-center gap-2 min-w-0">
-            <span className={`${color} shrink-0`}>{arrow}</span>
-            <span className="truncate text-neutral-300 max-w-[14rem]">
-                {name}
-            </span>
-            <span className={`${color} shrink-0 tabular-nums`}>
-                {delta === 0
-                    ? `#${rank.after}`
-                    : `#${rank.before} → #${rank.after}`}
-            </span>
-        </div>
-    );
-}
-
-function PickFlashBanner({ flash }: { flash: PickFlash }): JSX.Element {
-    return (
-        <div className="pointer-events-none absolute left-1/2 top-12 z-30 -translate-x-1/2 animate-[fadeInOut_2.2s_ease-in-out_forwards]">
-            <div className="flex flex-col items-center gap-1 rounded-xl border border-neutral-700 bg-neutral-900/95 px-4 py-2.5 text-xs shadow-2xl backdrop-blur">
-                {flash.dethroned && (
-                    <div className="mb-1 text-sm font-semibold text-amber-300">
-                        👑 Dethroned! {flash.dethroned.name} held the hill for{" "}
-                        {flash.dethroned.streak} win
-                        {flash.dethroned.streak === 1 ? "" : "s"}
-                    </div>
-                )}
-                <RankChange name={flash.winnerName} rank={flash.winnerRank} />
-                <RankChange name={flash.loserName} rank={flash.loserRank} />
-            </div>
-        </div>
-    );
 }
 
 function formatTime(seconds: number): string {
@@ -145,13 +89,6 @@ export default function CompareView({
     kingRef.current = king;
     // Challengers the king has faced recently, so it doesn't see repeats.
     const recentChallengersRef = useRef<number[]>([]);
-
-    const [flash, setFlash] = useState<PickFlash | null>(null);
-    useEffect(() => {
-        if (!flash) return;
-        const t = setTimeout(() => setFlash(null), flash.dethroned ? 3500 : 2200);
-        return () => clearTimeout(t);
-    }, [flash]);
 
     const loadPair = useCallback(
         async (k: KingState | null = kingRef.current) => {
@@ -266,7 +203,6 @@ export default function CompareView({
             setStats((s) => ({ comparisons: s.comparisons + 1 }));
 
             let nextKing = kingRef.current;
-            let dethroned: PickFlash["dethroned"];
             if (res && nextKing) {
                 if (winnerId === nextKing.file.id) {
                     nextKing = {
@@ -275,10 +211,6 @@ export default function CompareView({
                         streak: nextKing.streak + 1,
                     };
                 } else if (loserId === nextKing.file.id) {
-                    dethroned = {
-                        name: nextKing.file.filename,
-                        streak: nextKing.streak,
-                    };
                     // The old king shouldn't come straight back as challenger.
                     recentChallengersRef.current = [
                         nextKing.file.id,
@@ -292,17 +224,6 @@ export default function CompareView({
                 }
                 kingRef.current = nextKing;
                 setKing(nextKing);
-            }
-
-            if (res) {
-                setFlash({
-                    key: Date.now(),
-                    winnerName: res.winner.filename,
-                    winnerRank: res.winnerRank,
-                    loserName: res.loser.filename,
-                    loserRank: res.loserRank,
-                    dethroned,
-                });
             }
 
             await loadPair(nextKing);
@@ -405,29 +326,6 @@ export default function CompareView({
 
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden">
-            {flash && <PickFlashBanner key={flash.key} flash={flash} />}
-            {king && (
-                <div className="flex shrink-0 items-center justify-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs">
-                    <span className="font-semibold text-amber-300">
-                        👑 King of the Hill
-                    </span>
-                    <span className="truncate text-amber-100/80 max-w-[40%]">
-                        {king.file.filename}
-                    </span>
-                    <span className="text-amber-200">
-                        {king.streak === 0
-                            ? "defending…"
-                            : `${king.streak} win${king.streak === 1 ? "" : "s"}`}
-                        {king.streak >= 5 && " 🔥"}
-                    </span>
-                    <button
-                        onClick={endKing}
-                        className="rounded-md border border-amber-500/40 px-2 py-0.5 text-amber-200 hover:bg-amber-500/20 transition-colors"
-                    >
-                        Exit
-                    </button>
-                </div>
-            )}
             <div className="flex flex-col p-2 overflow-hidden flex-1 min-h-0">
                 <ScoreBar
                     score={score}
@@ -468,7 +366,9 @@ export default function CompareView({
                             setInspectedFile(a);
                         }}
                         isKing={king?.file.id === a.id}
+                        streak={king?.streak ?? 0}
                         onCrown={() => crown(a, "a")}
+                        onUncrown={endKing}
                         onGoToFolder={() => {
                             const folderName = a.path.split("/")[0];
                             setActiveFolder(folderName);
@@ -495,7 +395,9 @@ export default function CompareView({
                             setInspectedFile(b);
                         }}
                         isKing={king?.file.id === b.id}
+                        streak={king?.streak ?? 0}
                         onCrown={() => crown(b, "b")}
+                        onUncrown={endKing}
                         onGoToFolder={() => {
                             const folderName = b.path.split("/")[0];
                             setActiveFolder(folderName);
@@ -594,7 +496,9 @@ function CompareCard({
     onInspectFile,
     onGoToFolder,
     isKing,
+    streak,
     onCrown,
+    onUncrown,
 }: {
     file: DbFile;
     side: "a" | "b";
@@ -607,7 +511,9 @@ function CompareCard({
     onInspectFile: (file: DbFile) => void;
     onGoToFolder: (folderPath: string) => void;
     isKing: boolean;
+    streak: number;
     onCrown: () => void;
+    onUncrown: () => void;
 }): JSX.Element {
     const focusTagInput = useRef<(() => void) | null>(null);
     const hovered = hoveredSide === side;
@@ -624,17 +530,7 @@ function CompareCard({
     return (
         <div
             className={`relative flex flex-1 flex-col overflow-hidden rounded-xl rounded-t-none border-2 transition-all
-                ${
-                    disabled
-                        ? "border-neutral-800 opacity-60"
-                        : isKing
-                          ? hovered
-                              ? "border-amber-300"
-                              : "border-amber-500/70"
-                          : hovered
-                            ? "border-neutral-500"
-                            : "border-neutral-700"
-                }`}
+                ${disabled ? "border-neutral-800 opacity-60" : hovered ? "border-neutral-500" : "border-neutral-700"}`}
             onMouseEnter={() => focusTagInput.current?.()}
         >
             <MediaPlayer
@@ -662,25 +558,25 @@ function CompareCard({
                     <p className="text-xs text-neutral-500">
                         {Math.round(file.elo_score)} pts ·{" "}
                         {file.comparison_count} comparisons
+                        {isKing && streak > 0 && ` · ${streak} in a row`}
                     </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                    {isKing ? (
-                        <span className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300">
-                            👑 King
-                        </span>
-                    ) : (
-                        <button
-                            className="rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300 hover:border-amber-500/60 hover:text-amber-300 transition-colors"
-                            title="Keep this file on screen in King of the Hill mode"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onCrown();
-                            }}
-                        >
-                            👑 Crown
-                        </button>
-                    )}
+                    <button
+                        className={`rounded-lg border px-2 py-1 transition-colors ${
+                            isKing
+                                ? "border-neutral-400 bg-neutral-700 text-neutral-100 hover:border-neutral-300"
+                                : "border-neutral-700 bg-neutral-800 text-neutral-500 hover:border-neutral-500 hover:text-neutral-200"
+                        }`}
+                        title={isKing ? "Stop keeping on screen" : "Keep on screen"}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (isKing) onUncrown();
+                            else onCrown();
+                        }}
+                    >
+                        <CrownIcon className="h-3.5 w-3.5" />
+                    </button>
                     <button
                         className="rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
                         onClick={() => onGoToFolder(file.path.split("/")[0])}

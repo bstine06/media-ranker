@@ -5,6 +5,7 @@ import HoverPreview from "./HoverPreview";
 import { useHoverPreview } from "../hooks/useHoverPreview";
 import { FolderIcon } from "@renderer/components/icons/FolderIcon";
 import { TrashIcon } from "@renderer/components/icons/TrashIcon";
+import { CrownIcon } from "@renderer/components/icons/CrownIcon";
 
 export default function MediaTile({
     file,
@@ -90,10 +91,10 @@ export default function MediaTile({
                                     e.stopPropagation();
                                     onClickCrown();
                                 }}
-                                title="King of the Hill"
-                                className="mt-1 self-start rounded bg-white/10 px-1.5 py-0.5 text-xs text-white hover:bg-amber-500/40 transition-colors"
+                                title="Keep on screen in Compare"
+                                className="mt-1 self-start rounded bg-white/10 px-1.5 py-0.5 text-xs text-white hover:bg-white/25 transition-colors"
                             >
-                                👑
+                                <CrownIcon className="h-4 w-4" />
                             </button>
                         )}
                         <button

@@ -130,23 +130,55 @@ export function useScrollSlots({
     const wheelLatchRef = useRef(false);
     const wheelCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const wheelHistoryRef = useRef<{ delta: number; time: number }[]>([]);
+    // While latched: the biggest delta seen since the last fire, and whether
+    // deltas have since dropped off (momentum decaying). Only a swipe that
+    // ramps up *after* that drop counts as a new swipe.
+    const wheelPeakRef = useRef(0);
+    const wheelArmedRef = useRef(false);
 
     const handleWheel = useCallback((e: React.WheelEvent) => {
-        if (lockedRef.current) return;
         const absDelta = Math.abs(e.deltaY);
         if (absDelta < 10) return;
-        const now = performance.now();
-        wheelHistoryRef.current.push({ delta: absDelta, time: now });
-        wheelHistoryRef.current = wheelHistoryRef.current.filter((p) => now - p.time < 120);
-        const slope = computeSlope(wheelHistoryRef.current);
+        // Keep the gesture alive even while a slide is animating; otherwise
+        // the cooldown expires mid-animation and leftover momentum after it
+        // can fire a second scroll.
         if (wheelCooldownRef.current) clearTimeout(wheelCooldownRef.current);
         wheelCooldownRef.current = setTimeout(() => {
             wheelLatchRef.current = false;
             wheelHistoryRef.current = [];
         }, 60);
-        if (wheelLatchRef.current) return;
-        if (slope < 0.5) return;
-        wheelLatchRef.current = true;
+
+        const now = performance.now();
+        wheelHistoryRef.current.push({ delta: absDelta, time: now });
+        wheelHistoryRef.current = wheelHistoryRef.current.filter((p) => now - p.time < 120);
+
+        const fire = () => {
+            wheelLatchRef.current = true;
+            wheelPeakRef.current = absDelta;
+            wheelArmedRef.current = false;
+            wheelHistoryRef.current = [];
+        };
+
+        if (wheelLatchRef.current) {
+            // Momentum from the last swipe (or a new swipe on top of it).
+            wheelPeakRef.current = Math.max(wheelPeakRef.current, absDelta);
+            if (absDelta < wheelPeakRef.current * 0.7) wheelArmedRef.current = true;
+            if (lockedRef.current || !wheelArmedRef.current) return;
+            if (wheelHistoryRef.current.length < 3) return;
+            if (computeSlope(wheelHistoryRef.current) < 0.5) return;
+            // Deltas dropped off and are now ramping up again: new swipe.
+            fire();
+            navigate(e.deltaY > 0 ? "down" : "up");
+            return;
+        }
+
+        if (lockedRef.current) {
+            // A swipe that starts mid-animation is consumed, not queued.
+            fire();
+            return;
+        }
+        if (computeSlope(wheelHistoryRef.current) < 0.5) return;
+        fire();
         navigate(e.deltaY > 0 ? "down" : "up");
     }, [navigate]);
 
