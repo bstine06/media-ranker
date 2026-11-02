@@ -154,6 +154,8 @@ declare global {
                 targetFolder: string,
             ) => Promise<{ moved: number; errors: string[] }>;
             getPathForFile: (file: File) => string;
+            getRootFiles: () => Promise<DbFile[]>;
+            countRootFiles: () => Promise<number>;
             fileReplace: (
                 oldRelPath: string,
                 newAbsPath: string,

@@ -11,6 +11,41 @@ import { CompareIcon } from "./icons/CompareIcon";
 import { ScrollIcon } from "./icons/ScrollIcon";
 import { TagIcon } from "./icons/TagIcon";
 
+// Makes an element a drop target for files dragged from Browse / the media
+// player / Finder. dragenter/leave also fire for child elements, so track
+// depth rather than a boolean.
+function useFileDropTarget(onDropFiles: (absPaths: string[]) => void) {
+    const [dragDepth, setDragDepth] = useState(0);
+    const hasFiles = (e: React.DragEvent) =>
+        Array.from(e.dataTransfer.types).includes("Files");
+    return {
+        isDropTarget: dragDepth > 0,
+        dropHandlers: {
+            onDragEnter: (e: React.DragEvent) => {
+                if (!hasFiles(e)) return;
+                e.preventDefault();
+                setDragDepth((d) => d + 1);
+            },
+            onDragOver: (e: React.DragEvent) => {
+                if (!hasFiles(e)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+            },
+            onDragLeave: () => setDragDepth((d) => Math.max(0, d - 1)),
+            onDrop: (e: React.DragEvent) => {
+                if (!hasFiles(e)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                setDragDepth(0);
+                const paths = Array.from(e.dataTransfer.files)
+                    .map((f) => window.api.getPathForFile(f))
+                    .filter(Boolean);
+                if (paths.length > 0) onDropFiles(paths);
+            },
+        },
+    };
+}
+
 function FolderItem({
     node,
     activeFolder,
@@ -33,12 +68,7 @@ function FolderItem({
     const isActive = activeFolder === node.relativePath;
     const isChecked = checkedFolders.has(node.relativePath);
 
-    // Drop target for files dragged from Browse (or Finder). dragenter/leave
-    // fire for child elements too, so count depth instead of a boolean.
-    const [dragDepth, setDragDepth] = useState(0);
-    const isDropTarget = dragDepth > 0;
-    const hasFiles = (e: React.DragEvent) =>
-        Array.from(e.dataTransfer.types).includes("Files");
+    const { isDropTarget, dropHandlers } = useFileDropTarget(onDropFiles);
 
     const [profileImageHash, setProfileImageHash] = useState<string | null>();
 
@@ -61,27 +91,7 @@ function FolderItem({
                     ? "bg-neutral-700 ring-1 ring-inset ring-neutral-400"
                     : "hover:bg-neutral-800"
             }`}
-            onDragEnter={(e) => {
-                if (!hasFiles(e)) return;
-                e.preventDefault();
-                setDragDepth((d) => d + 1);
-            }}
-            onDragOver={(e) => {
-                if (!hasFiles(e)) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-            }}
-            onDragLeave={() => setDragDepth((d) => Math.max(0, d - 1))}
-            onDrop={(e) => {
-                if (!hasFiles(e)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                setDragDepth(0);
-                const paths = Array.from(e.dataTransfer.files)
-                    .map((f) => window.api.getPathForFile(f))
-                    .filter(Boolean);
-                if (paths.length > 0) onDropFiles(paths);
-            }}
+            {...dropHandlers}
         >
             <span className="mr-1 w-4" />
             {isFilterable && (
@@ -124,6 +134,45 @@ function FolderItem({
                     )}
                     {node.name}
                 </div>
+            </button>
+        </div>
+    );
+}
+
+function UnsortedItem({
+    active,
+    count,
+    onSelect,
+    onDropFiles,
+}: {
+    active: boolean;
+    count: number;
+    onSelect: () => void;
+    onDropFiles: (absPaths: string[]) => void;
+}): JSX.Element {
+    const { isDropTarget, dropHandlers } = useFileDropTarget(onDropFiles);
+    return (
+        <div
+            className={`flex items-center pr-4 transition-colors ${
+                isDropTarget
+                    ? "bg-neutral-700 ring-1 ring-inset ring-neutral-400"
+                    : "hover:bg-neutral-800"
+            }`}
+            {...dropHandlers}
+        >
+            <button
+                onClick={onSelect}
+                title="Files sitting directly in the library folder"
+                className={`flex flex-1 items-center justify-between truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
+                    active
+                        ? "text-white font-medium"
+                        : "text-neutral-400 hover:text-white"
+                }`}
+            >
+                <span>Unsorted</span>
+                <span className="text-xs tabular-nums text-neutral-500">
+                    {count}
+                </span>
             </button>
         </div>
     );
@@ -411,11 +460,38 @@ export default function Sidebar({
         if (errors.length > 0) {
             setStatus(errors.join(" · "));
         } else if (moved > 0) {
-            setStatus(`Moved ${moved} file${moved === 1 ? "" : "s"} to ${folder}`);
+            setStatus(
+                `Moved ${moved} file${moved === 1 ? "" : "s"} to ${folder || "Unsorted"}`,
+            );
             setTimeout(resetStatus, 2500);
         }
     };
     const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion, refreshFolders, setAllChecked } = useFolders();
+    const { showUnsorted, setShowUnsorted } = useFolders();
+
+    // Count of files sitting directly in the library folder; refreshed when
+    // files are added, removed, or moved.
+    const [unsortedCount, setUnsortedCount] = useState(0);
+    useEffect(() => {
+        if (!rootPath) return;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const refresh = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                window.api.countRootFiles().then(setUnsortedCount).catch(() => {});
+            }, 150);
+        };
+        refresh();
+        const unsubs = [
+            window.api.onMediaAdded(refresh),
+            window.api.onMediaRemoved(refresh),
+            window.api.onMediaRenamed(refresh),
+        ];
+        return () => {
+            if (timer) clearTimeout(timer);
+            unsubs.forEach((u) => u());
+        };
+    }, [rootPath]);
 
     // New folder
     const [creatingFolder, setCreatingFolder] = useState(false);
@@ -556,10 +632,11 @@ export default function Sidebar({
                                         return;
                                     }
                                     if (view==="tag-manager") setView("browse");
+                                    setShowUnsorted(false);
                                     setActiveFolder(null);
                                 }}
                                 className={`flex-1 truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
-                                    !isFilterable && activeFolder === null
+                                    !isFilterable && activeFolder === null && !showUnsorted
                                         ? "text-white font-medium"
                                         : isFilterable && allChecked
                                           ? "text-white"
@@ -571,6 +648,19 @@ export default function Sidebar({
                                 All Collections
                             </button>
                         </div>
+                    )}
+
+                    {!isSearching && !isFilterable && (
+                        <UnsortedItem
+                            active={showUnsorted}
+                            count={unsortedCount}
+                            onSelect={() => {
+                                if (view === "tag-manager") setView("browse");
+                                setActiveFolder(null);
+                                setShowUnsorted(true);
+                            }}
+                            onDropFiles={(paths) => handleDropOnFolder("", paths)}
+                        />
                     )}
 
                     <div className="overflow-y-auto flex-1 min-h-0">

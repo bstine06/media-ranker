@@ -960,6 +960,26 @@ export function getAllFiles(): DbFile[] {
         .all() as DbFile[];
 }
 
+// Files sitting directly in the library folder (not in any subfolder).
+export function getRootFiles(): DbFile[] {
+    return getDb()
+        .prepare(
+            `SELECT * FROM files WHERE status = 'active' AND instr(path, '/') = 0
+             ORDER BY elo_score DESC`,
+        )
+        .all() as DbFile[];
+}
+
+export function countRootFiles(): number {
+    return (
+        getDb()
+            .prepare(
+                `SELECT COUNT(*) AS n FROM files WHERE status = 'active' AND instr(path, '/') = 0`,
+            )
+            .get() as { n: number }
+    ).n;
+}
+
 export function getAllActiveFiles(): DbFile[] {
     return getDb()
         .prepare(

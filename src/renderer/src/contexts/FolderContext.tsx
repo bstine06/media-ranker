@@ -17,6 +17,10 @@ interface FolderContextValue {
     // Navigation
     activeFolder: string | null;
     setActiveFolder: (path: string | null) => void;
+    /** Browsing files that sit directly in the library folder. activeFolder
+     *  is null while this is on. Choosing a folder turns it off. */
+    showUnsorted: boolean;
+    setShowUnsorted: (show: boolean) => void;
 
     // Filtering
     checkedFolders: Set<string>;
@@ -40,6 +44,8 @@ const FolderContext = createContext<FolderContextValue>({
     refreshFolders: async () => {},
     activeFolder: null,
     setActiveFolder: () => {},
+    showUnsorted: false,
+    setShowUnsorted: () => {},
     checkedFolders: new Set(),
     toggleFolder: () => {},
     checkAll: () => {},
@@ -95,6 +101,12 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
     const [rootPath, setRootPath] = useState<string | null>(null);
     const [folders, setFolders] = useState<FolderNode[]>([]);
     const [activeFolder, setActiveFolder] = useState<string | null>(null);
+    const [showUnsorted, setShowUnsorted] = useState(false);
+    // Picking a real folder always leaves Unsorted.
+    const selectFolder = useCallback((path: string | null) => {
+        if (path !== null) setShowUnsorted(false);
+        setActiveFolder(path);
+    }, []);
     const [checkedFolders, setCheckedFolders] = useState<Set<string>>(
         new Set(),
     );
@@ -221,6 +233,7 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
         setRootPath(null);
         setFolders([]);
         setActiveFolder(null);
+        setShowUnsorted(false);
         setCheckedFolders(new Set());
 
     }, []);
@@ -240,7 +253,9 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
                 folders,
                 refreshFolders,
                 activeFolder,
-                setActiveFolder,
+                setActiveFolder: selectFolder,
+                showUnsorted,
+                setShowUnsorted,
                 checkedFolders,
                 toggleFolder,
                 checkAll,

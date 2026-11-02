@@ -125,6 +125,9 @@ const api = {
     ): Promise<{ moved: number; errors: string[] }> =>
         ipcRenderer.invoke("move-into-folder", absPaths, targetFolder),
 
+    getRootFiles: (): Promise<DbFile[]> => ipcRenderer.invoke("get-root-files"),
+    countRootFiles: (): Promise<number> => ipcRenderer.invoke("count-root-files"),
+
     // Absolute path of a File from a drag/drop (File.path is deprecated).
     getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 

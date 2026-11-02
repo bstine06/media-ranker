@@ -82,15 +82,16 @@ export default function BrowseView({
         activeFolder,
         setActiveFolder,
         handleFolderMetadataChanged,
+        showUnsorted,
     } = useFolders();
     const { refreshTags, activeTags, tagMode } = useTags();
     const { tileSize } = useSettings();
 
     //get files on mount, clear browseScroll
     useEffect(() => {
-        getFilesForFolder(activeFolder, activeTags, tagMode);
+        getFilesForFolder(activeFolder, activeTags, tagMode, showUnsorted);
         setBrowseScrollIndex(null);
-    }, [rootPath, activeFolder, activeTags, tagMode]);
+    }, [rootPath, activeFolder, activeTags, tagMode, showUnsorted]);
 
     const handleDelete = async () => {
         if (!deletingFile) return;
@@ -132,11 +133,14 @@ export default function BrowseView({
             folder: string | null,
             tags: Set<number>,
             tagMode: "and" | "or",
+            unsorted = false,
         ) => {
             setActiveFolder(folder);
-            const result: DbFile[] = folder
-                ? await window.api.getFilesInFolder(folder)
-                : await window.api.getAllActiveFiles();
+            const result: DbFile[] = unsorted
+                ? await window.api.getRootFiles()
+                : folder
+                  ? await window.api.getFilesInFolder(folder)
+                  : await window.api.getAllActiveFiles();
 
             //filter on tags
             if (tags.size > 0) {
@@ -350,8 +354,9 @@ export default function BrowseView({
                     .slice(0, -1)
                     .join("/");
                 if (activeFolder && folderPath !== activeFolder) return;
+                if (showUnsorted && folderPath !== "") return;
                 if (rootPath)
-                    getFilesForFolder(activeFolder, activeTags, tagMode); // still reload for adds — need full DbFile
+                    getFilesForFolder(activeFolder, activeTags, tagMode, showUnsorted); // still reload for adds — need full DbFile
             },
         );
 
@@ -364,7 +369,10 @@ export default function BrowseView({
             ({ oldRelativePath, relativePath }) => {
                 // Moved out of the folder being viewed: drop it from the grid.
                 const newFolder = relativePath.split("/").slice(0, -1).join("/");
-                if (activeFolder && newFolder !== activeFolder) {
+                if (
+                    (activeFolder && newFolder !== activeFolder) ||
+                    (showUnsorted && newFolder !== "")
+                ) {
                     setFiles((prev) =>
                         prev.filter((f) => f.path !== oldRelativePath),
                     );
@@ -391,7 +399,7 @@ export default function BrowseView({
             handleRemoved();
             handleRenamed();
         };
-    }, [rootPath, activeFolder, setActiveFolder]);
+    }, [rootPath, activeFolder, setActiveFolder, showUnsorted]);
 
     const resolver: SlotResolver = useCallback(
         async (dir, cursor) => {
@@ -457,7 +465,7 @@ export default function BrowseView({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3">
             <h2 className="text-sm font-medium text-neutral-300">
-                {activeFolder ?? "All Files"}
+                {showUnsorted ? "Unsorted" : (activeFolder ?? "All Files")}
             </h2>
             <div className="flex items-center gap-3">
                 <div className="flex gap-2">

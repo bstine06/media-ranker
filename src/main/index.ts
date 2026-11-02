@@ -55,6 +55,8 @@ import {
     markFileMissingById,
     moveFileRecord,
     applyFolderTagsToFile,
+    getRootFiles,
+    countRootFiles,
 } from "./db";
 import type { DbFile } from "./db";
 import { scanFolder, getThumbnailPath, getFolderTree } from "./scanner";
@@ -293,7 +295,11 @@ function registerIpcHandlers(): void {
         },
     );
 
-    // Move files into a top-level library folder. Files already in the
+    ipcMain.handle("get-root-files", () => getRootFiles());
+    ipcMain.handle("count-root-files", () => countRootFiles());
+
+    // Move files into a top-level library folder ("" = the library root,
+    // i.e. Unsorted). Files already in the
     // library keep their record (score, tags, history); the folder's tags are
     // applied. Files from outside the library are just moved in and the
     // watcher indexes them. Never overwrites: clashes get " (2)" etc.
@@ -357,9 +363,11 @@ function registerIpcHandlers(): void {
                         }, 1500);
                     }
 
-                    const folder = upsertFolder(targetFolder, path.basename(targetFolder));
-                    moveFileRecord(record.id, newRel, filename, folder.id);
-                    applyFolderTagsToFile(record.id, folder.id);
+                    const folder = targetFolder
+                        ? upsertFolder(targetFolder, path.basename(targetFolder))
+                        : null;
+                    moveFileRecord(record.id, newRel, filename, folder?.id ?? null);
+                    if (folder) applyFolderTagsToFile(record.id, folder.id);
 
                     win?.webContents.send("media:renamed", {
                         oldRelativePath: rel,
