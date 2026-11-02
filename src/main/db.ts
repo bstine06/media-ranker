@@ -953,13 +953,21 @@ export function getAllActiveFiles(): DbFile[] {
         .all() as DbFile[];
 }
 
+// LIKE pattern matching everything inside a folder (not sibling folders that
+// merely share a name prefix, e.g. "cats" must not match "cats2/…").
+// Use with `ESCAPE '\\'`.
+export function folderLikePattern(folderRelPath: string): string {
+    const escaped = folderRelPath.replace(/[\\%_]/g, (c) => `\\${c}`);
+    return `${escaped}/%`;
+}
+
 export function getFilesByFolder(folderRelPath: string): DbFile[] {
     return getDb()
         .prepare(
-            `SELECT * FROM files WHERE path LIKE ? AND status = 'active' ORDER BY elo_score DESC`,
+            `SELECT * FROM files WHERE path LIKE ? ESCAPE '\\' AND status = 'active' ORDER BY elo_score DESC`,
         )
         .all(
-            `${folderRelPath.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`,
+            folderLikePattern(folderRelPath),
         ) as DbFile[];
 }
 
@@ -1027,8 +1035,9 @@ export function getActiveFilesByTags(
 
     const placeholders = tagIds.map(() => "?").join(", ");
     const folderClause = folderPath
-        ? `AND f.path LIKE '${folderPath.replace(/%/g, "\\%").replace(/_/g, "\\_")}%' ESCAPE '\\'`
+        ? `AND f.path LIKE ? ESCAPE '\\'`
         : "";
+    const folderParams = folderPath ? [folderLikePattern(folderPath)] : [];
 
     if (mode === "or") {
         return db
@@ -1041,7 +1050,7 @@ export function getActiveFilesByTags(
              ${folderClause}
              ORDER BY f.elo_score DESC`,
             )
-            .all(...tagIds) as DbFile[];
+            .all(...tagIds, ...folderParams) as DbFile[];
     } else {
         return db
             .prepare(
@@ -1054,7 +1063,7 @@ export function getActiveFilesByTags(
              GROUP BY f.id HAVING COUNT(DISTINCT t.id) = ?
              ORDER BY f.elo_score DESC`,
             )
-            .all(...tagIds, tagIds.length) as DbFile[];
+            .all(...tagIds, ...folderParams, tagIds.length) as DbFile[];
     }
 }
 
@@ -1152,9 +1161,9 @@ export function getRankedFiles(folderRelPath?: string): DbFile[] {
     if (folderRelPath) {
         return getDb()
             .prepare(
-                `SELECT * FROM files WHERE path LIKE ? AND status = 'active' ORDER BY elo_score DESC`,
+                `SELECT * FROM files WHERE path LIKE ? ESCAPE '\\' AND status = 'active' ORDER BY elo_score DESC`,
             )
-            .all(`${folderRelPath}%`) as DbFile[];
+            .all(folderLikePattern(folderRelPath)) as DbFile[];
     }
     return getDb()
         .prepare(

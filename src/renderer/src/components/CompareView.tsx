@@ -69,22 +69,40 @@ export default function CompareView({
         [activeTags],
     );
 
+    // Next pair, fetched + preloaded in the background. Tagged with the filter
+    // state it was fetched under so it's discarded if filters change.
+    const prefetchedRef = useRef<{
+        key: string;
+        pair: [DbFile, DbFile];
+    } | null>(null);
+
     const loadPair = useCallback(async () => {
-        setLoading(true);
         const tagList = activeTags.size > 0 ? [...activeTags] : null;
-        const result = await window.api.getPair(
-            folderPrefixes,
-            tagList,
-            tagMode,
-        );
+        const filterKey = JSON.stringify([folderPrefixes, tagKey, tagMode, rootPath]);
+
+        const prefetched = prefetchedRef.current;
+        prefetchedRef.current = null;
+
+        let result: [DbFile, DbFile] | null;
+        if (prefetched && prefetched.key === filterKey) {
+            result = prefetched.pair;
+        } else {
+            setLoading(true);
+            result = await window.api.getPair(folderPrefixes, tagList, tagMode);
+        }
         setPair(result);
         setLoading(false);
 
         window.api.getPair(folderPrefixes, tagList, tagMode).then((next) => {
-            if (next) {
-                preloadFile(rootPath!, next[0]);
-                preloadFile(rootPath!, next[1]);
+            if (!next) return;
+            // Don't queue up the exact pair we're showing right now.
+            const showing = result ? [result[0].id, result[1].id] : [];
+            if (showing.includes(next[0].id) && showing.includes(next[1].id)) {
+                return;
             }
+            prefetchedRef.current = { key: filterKey, pair: next };
+            preloadFile(rootPath!, next[0]);
+            preloadFile(rootPath!, next[1]);
         });
     }, [folderPrefixes, rootPath, tagKey, tagMode]);
 

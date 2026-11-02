@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, folderLikePattern } from "./db";
 import type { DbFile } from "./db";
 
 export function getRandomFile(
@@ -20,10 +20,10 @@ export function getRandomFile(
 
     if (folderPrefixes && folderPrefixes.length > 0) {
         const folderConds = folderPrefixes
-            .map(() => "f.path LIKE ?")
+            .map(() => "f.path LIKE ? ESCAPE '\\'")
             .join(" OR ");
         conditions.push(`(${folderConds})`);
-        params.push(...folderPrefixes.map((p) => `${p}%`));
+        params.push(...folderPrefixes.map(folderLikePattern));
     }
 
     if (tagList && tagList.length > 0) {

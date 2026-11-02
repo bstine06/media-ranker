@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, folderLikePattern } from "./db";
 import type { DbFile } from "./db";
 
 const K_LOW = 32; // fewer than 10 comparisons
@@ -55,10 +55,10 @@ export function getWeightedPair(
 
     if (folderPrefixes && folderPrefixes.length > 0) {
         const folderConds = folderPrefixes
-            .map(() => "f.path LIKE ?")
+            .map(() => "f.path LIKE ? ESCAPE '\\'")
             .join(" OR ");
         conditions.push(`(${folderConds})`);
-        params.push(...folderPrefixes.map((p) => `${p}%`));
+        params.push(...folderPrefixes.map(folderLikePattern));
     }
 
     if (tagList && tagList.length > 0) {
