@@ -20,6 +20,7 @@ export default function ScrollView({
     onClose,
     progress,
     onFileChange,
+    onCrown,
 }: {
     initialFile: DbFile | null;
     resolver: SlotResolver;
@@ -31,6 +32,8 @@ export default function ScrollView({
     onClose?: () => void;
     progress?: { index: number; total: number };
     onFileChange?: (file: DbFile) => void;
+    /** Send the current file to Compare in King of the Hill mode. */
+    onCrown?: (file: DbFile) => void;
 }): JSX.Element {
     const {
         slotFiles,
@@ -250,6 +253,15 @@ export default function ScrollView({
                                 {`${Math.round(currentFile.elo_score)} pts`}
                             </span>
                         </div>
+                        {onCrown && (
+                            <button
+                                className="px-3 py-1 rounded text-xs border border-amber-500/50 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors"
+                                title="King of the Hill: keep this file on screen in Compare"
+                                onClick={() => onCrown(currentFile)}
+                            >
+                                👑 Crown
+                            </button>
+                        )}
                         <button
                             className="px-3 py-1 bg-neutral-300 text-neutral-800 rounded text-xs"
                             onClick={() => handleCopyFileToClipboard()}

@@ -64,7 +64,7 @@ import {
     rename,
     existsSync,
 } from "fs";
-import { computeEloUpdate, getWeightedPair } from "./elo";
+import { computeEloUpdate, getChallenger, getWeightedPair } from "./elo";
 import { promisify } from "util";
 import { renameFolderPaths } from "./db";
 import { watchFolder, unwatchAll, ignoredPaths } from "./watcher";
@@ -430,6 +430,26 @@ function registerIpcHandlers(): void {
     );
 
     ipcMain.handle(
+        "get-challenger",
+        (
+            _event,
+            kingId: number,
+            folderPrefixes: string[] | null,
+            tagList: number[] | null,
+            tagMode: "and" | "or",
+            recentIds: number[],
+        ) => {
+            return getChallenger(
+                kingId,
+                folderPrefixes,
+                tagList,
+                tagMode,
+                recentIds,
+            );
+        },
+    );
+
+    ipcMain.handle(
         "record-comparison",
         (_event, winnerId: number, loserId: number, margin: number) => {
             const db = getDb();
@@ -440,6 +460,21 @@ function registerIpcHandlers(): void {
                 .prepare("SELECT * FROM files WHERE id = ?")
                 .get(loserId) as DbFile;
             if (!winner || !loser) return null;
+
+            // Library-wide rank (1 = best) among active files.
+            const rankOf = (id: number): number =>
+                (
+                    db
+                        .prepare(
+                            `SELECT COUNT(*) AS n FROM files
+                             WHERE status = 'active' AND id != ?
+                             AND elo_score > (SELECT elo_score FROM files WHERE id = ?)`,
+                        )
+                        .get(id, id) as { n: number }
+                ).n + 1;
+            const winnerRankBefore = rankOf(winnerId);
+            const loserRankBefore = rankOf(loserId);
+
             const { newWinnerScore, newLoserScore } = computeEloUpdate(
                 winner,
                 loser,
@@ -452,7 +487,17 @@ function registerIpcHandlers(): void {
                 newLoserScore,
                 rootPath ?? "all",
             );
-            return { newWinnerScore, newLoserScore };
+
+            const getFile = (id: number) =>
+                db.prepare("SELECT * FROM files WHERE id = ?").get(id) as DbFile;
+            return {
+                newWinnerScore,
+                newLoserScore,
+                winner: getFile(winnerId),
+                loser: getFile(loserId),
+                winnerRank: { before: winnerRankBefore, after: rankOf(winnerId) },
+                loserRank: { before: loserRankBefore, after: rankOf(loserId) },
+            };
         },
     );
 

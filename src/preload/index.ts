@@ -258,8 +258,24 @@ const api = {
         winnerId: number,
         loserId: number,
         margin: number,
-    ): Promise<{ newWinnerScore: number; newLoserScore: number } | null> =>
+    ): Promise<unknown | null> =>
         ipcRenderer.invoke("record-comparison", winnerId, loserId, margin),
+
+    getChallenger: (
+        kingId: number,
+        folderPrefixes: string[] | null,
+        tagList: number[] | null,
+        tagMode: "and" | "or",
+        recentIds: number[] = [],
+    ): Promise<unknown | null> =>
+        ipcRenderer.invoke(
+            "get-challenger",
+            kingId,
+            folderPrefixes,
+            tagList,
+            tagMode,
+            recentIds,
+        ),
 
     // Tag manager
 

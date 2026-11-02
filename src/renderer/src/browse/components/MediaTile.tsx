@@ -10,10 +10,12 @@ export default function MediaTile({
     file,
     rootPath,
     onClickTrash,
+    onClickCrown,
 }: {
     file: DbFile;
     rootPath: string;
     onClickTrash: () => void;
+    onClickCrown?: () => void;
 }): JSX.Element {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
 
@@ -82,6 +84,18 @@ export default function MediaTile({
                         >
                             <FolderIcon className="h-4 w-4" />
                         </button>
+                        {onClickCrown && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClickCrown();
+                                }}
+                                title="King of the Hill"
+                                className="mt-1 self-start rounded bg-white/10 px-1.5 py-0.5 text-xs text-white hover:bg-amber-500/40 transition-colors"
+                            >
+                                👑
+                            </button>
+                        )}
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();

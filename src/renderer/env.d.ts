@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult } from "./src/shared/types/types";
 
 export {};
 
@@ -107,10 +107,14 @@ declare global {
                 winnerId: number,
                 loserId: number,
                 margin: number,
-            ) => Promise<{
-                newWinnerScore: number;
-                newLoserScore: number;
-            } | null>;
+            ) => Promise<ComparisonResult | null>;
+            getChallenger: (
+                kingId: number,
+                folderPrefixes: string[] | null,
+                tagList: number[] | null,
+                tagMode: "and" | "or",
+                recentIds?: number[],
+            ) => Promise<DbFile | null>;
             getFolderMetadata: (
                 folderRelPath: string,
             ) => Promise<{ key: string; value: string; type: string }[]>;

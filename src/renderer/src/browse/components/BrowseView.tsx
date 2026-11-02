@@ -20,6 +20,7 @@ import { showInFolder } from "@renderer/lib/filesystem";
 import { TagIcon } from "@renderer/components/icons/TagIcon";
 import FolderTagPanel from "./FolderTagPanel";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
+import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
 
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
@@ -68,6 +69,12 @@ export default function BrowseView({
 
     const [showTagPanel, setShowTagPanel] = useState<boolean>(false);
     const [deletingFile, setDeletingFile] = useState<DbFile | null>(null);
+
+    const { crown } = useKingOfHill();
+    const crownAndCompare = (file: DbFile) => {
+        crown(file);
+        setView("compare");
+    };
 
     const { setStatus, resetStatus } = useStatus();
     const {
@@ -411,6 +418,7 @@ export default function BrowseView({
                 }}
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}
                 onClose={() => setBrowseScrollIndex(null)}
+                onCrown={crownAndCompare}
                 progress={{
                     index: browseScrollIndex + 1,
                     total: sortedFiles.length,
@@ -682,6 +690,7 @@ export default function BrowseView({
                                         file={file}
                                         rootPath={rootPath!}
                                         onClickTrash={() => setDeletingFile(file)}
+                                        onClickCrown={() => crownAndCompare(file)}
                                     />
                                     {draftProfileImage ===
                                         file.content_hash && (

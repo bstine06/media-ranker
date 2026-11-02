@@ -43,11 +43,11 @@ export function computeEloUpdate(
     return { newWinnerScore, newLoserScore };
 }
 
-export function getWeightedPair(
+function getFilteredFiles(
     folderPrefixes: string[] | null,
     tagList: number[] | null,
-    tagMode: "and" | "or" = "or",
-): [DbFile, DbFile] | null {
+    tagMode: "and" | "or",
+): DbFile[] {
     const db = getDb();
 
     const conditions: string[] = [`f.status = 'active'`];
@@ -86,21 +86,46 @@ export function getWeightedPair(
         }
     }
 
-    const whereClause =
-        conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     // Alias the table so tag subqueries can reference it unambiguously
-    const allFiles = db
+    return db
         .prepare(`SELECT f.* FROM files f ${whereClause}`)
         .all(...params) as DbFile[];
+}
 
+// Picks an opponent for fileA from `others` (which must not contain fileA).
+// Usually someone with a similar score; occasionally anyone at all.
+function pickOpponent(
+    fileA: DbFile,
+    others: DbFile[],
+    nearChance: number,
+): DbFile {
+    if (Math.random() < nearChance) {
+        const sorted = [...others].sort(
+            (a, b) =>
+                Math.abs(a.elo_score - fileA.elo_score) -
+                Math.abs(b.elo_score - fileA.elo_score),
+        );
+        const pool = sorted.slice(
+            0,
+            Math.max(1, Math.floor(sorted.length * 0.2)),
+        );
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+    return others[Math.floor(Math.random() * others.length)];
+}
+
+export function getWeightedPair(
+    folderPrefixes: string[] | null,
+    tagList: number[] | null,
+    tagMode: "and" | "or" = "or",
+): [DbFile, DbFile] | null {
+    const allFiles = getFilteredFiles(folderPrefixes, tagList, tagMode);
     if (allFiles.length < 2) return null;
 
-    // --- rest of your weighted selection logic is unchanged ---
-    const roll = Math.random();
     let fileA: DbFile;
-
-    if (roll < 0.3) {
+    if (Math.random() < 0.3) {
         const sorted = [...allFiles].sort(
             (a, b) => a.comparison_count - b.comparison_count,
         );
@@ -113,24 +138,31 @@ export function getWeightedPair(
         fileA = allFiles[Math.floor(Math.random() * allFiles.length)];
     }
 
-    let fileB: DbFile;
+    const others = allFiles.filter((f) => f.id !== fileA.id);
+    return [fileA, pickOpponent(fileA, others, 0.8)];
+}
 
-    if (roll >= 0.1 && roll < 0.9) {
-        const others = allFiles.filter((f) => f.id !== fileA.id);
-        const sorted = [...others].sort(
-            (a, b) =>
-                Math.abs(a.elo_score - fileA.elo_score) -
-                Math.abs(b.elo_score - fileA.elo_score),
-        );
-        const pool = sorted.slice(
-            0,
-            Math.max(1, Math.floor(sorted.length * 0.2)),
-        );
-        fileB = pool[Math.floor(Math.random() * pool.length)];
-    } else {
-        const others = allFiles.filter((f) => f.id !== fileA.id);
-        fileB = others[Math.floor(Math.random() * others.length)];
-    }
+// King of the Hill: find a challenger for a fixed file. Challengers come from
+// the current filters (the king itself may be outside them). Recently-faced
+// challengers are skipped when possible so the king doesn't see repeats.
+export function getChallenger(
+    kingId: number,
+    folderPrefixes: string[] | null,
+    tagList: number[] | null,
+    tagMode: "and" | "or" = "or",
+    recentIds: number[] = [],
+): DbFile | null {
+    const king = getDb()
+        .prepare(`SELECT * FROM files WHERE id = ? AND status = 'active'`)
+        .get(kingId) as DbFile | undefined;
+    if (!king) return null;
 
-    return [fileA, fileB];
+    const candidates = getFilteredFiles(folderPrefixes, tagList, tagMode).filter(
+        (f) => f.id !== kingId,
+    );
+    if (candidates.length === 0) return null;
+
+    const recent = new Set(recentIds);
+    const fresh = candidates.filter((f) => !recent.has(f.id));
+    return pickOpponent(king, fresh.length > 0 ? fresh : candidates, 0.8);
 }
