@@ -139,6 +139,29 @@ function FolderItem({
     );
 }
 
+// A row that accepts dropped files (highlights while a file is over it).
+function FileDropRow({
+    onDropFiles,
+    children,
+}: {
+    onDropFiles: (absPaths: string[]) => void;
+    children: React.ReactNode;
+}): JSX.Element {
+    const { isDropTarget, dropHandlers } = useFileDropTarget(onDropFiles);
+    return (
+        <div
+            className={`flex items-center transition-colors ${
+                isDropTarget
+                    ? "bg-neutral-700 ring-1 ring-inset ring-neutral-400"
+                    : ""
+            }`}
+            {...dropHandlers}
+        >
+            {children}
+        </div>
+    );
+}
+
 function UnsortedItem({
     active,
     count,
@@ -463,7 +486,7 @@ export default function Sidebar({
             setStatus(errors.join(" · "));
         } else if (moved > 0) {
             setStatus(
-                `Moved ${moved} file${moved === 1 ? "" : "s"} to ${folder || "Unsorted"}`,
+                `Moved ${moved} file${moved === 1 ? "" : "s"} to ${folder || "the library folder"}`,
             );
             setTimeout(resetStatus, 2500);
         }
@@ -618,7 +641,7 @@ export default function Sidebar({
                     )}
 
                     {!isSearching && (
-                        <div className="flex items-center">
+                        <FileDropRow onDropFiles={(paths) => handleDropOnFolder("", paths)}>
                             <span className="mr-1 w-4" />
                             {isFilterable && (
                                 <input
@@ -654,7 +677,7 @@ export default function Sidebar({
                             >
                                 All Collections
                             </button>
-                        </div>
+                        </FileDropRow>
                     )}
 
                     {!isSearching && !isFilterable && unsortedCount > 0 && (
