@@ -117,24 +117,22 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
         });
     };
 
-    window.api.createTagCategory
-
+    // add-tag upserts the tag without touching an existing tag's category.
     const createTag = useCallback(
-    async (name: string) => {
-        const trimmed = name.trim().toLowerCase();
-        if (!trimmed || tags.some((t) => t.name === trimmed)) {
-            setInput("");
-            return;
-        }
+        async (name: string) => {
+            const trimmed = name.trim().toLowerCase();
+            if (!trimmed || tags.some((t) => t.name === trimmed)) {
+                setInput("");
+                return;
+            }
 
-        await window.api.createTag(trimmed, null);
-        const updated = await window.api.addTag(file.id, trimmed); // ← add this
-        await refreshTags();
-        setTags(updated);
-        setInput("");
-    },
-    [file.id, tags, refreshTags],
-);
+            const updated = await window.api.addTag(file.id, trimmed);
+            await refreshTags();
+            setTags(updated);
+            setInput("");
+        },
+        [file.id, tags, refreshTags],
+    );
 
     const addTag = useCallback(
         async (name: string) => {

@@ -271,7 +271,7 @@ export default function BrowseView({
             );
         } else {
             if (batchingFiles) {
-                batchSelectedFiles.includes(file)
+                isBatchSelected(file)
                     ? setBatchSelectedFiles((prev) =>
                           prev.filter((f) => f.id !== file.id),
                       )
@@ -282,14 +282,27 @@ export default function BrowseView({
         }
     };
 
+    const isBatchSelected = (file: DbFile) =>
+        batchSelectedFiles.some((f) => f.id === file.id);
+
     const handleExecuteBatchTag = async (tagNames: string[], files: DbFile[]) => {
-        batchSelectedFiles.forEach(async (f) => {
-            tagNames.forEach(async (tagName) => {
-                await window.api.addTag(f.id, tagName);
-            })
-        })
+        try {
+            for (const f of files) {
+                for (const tagName of tagNames) {
+                    await window.api.addTag(f.id, tagName);
+                }
+            }
+        } catch (error) {
+            console.error("Batch tag failed:", error);
+        }
+        refreshTags();
         setBatchSelectedFiles([]);
-    }
+    };
+
+    const handleBatchTagModeChange = useCallback((active: boolean) => {
+        setBatchingFiles(active);
+        if (!active) setBatchSelectedFiles([]);
+    }, []);
 
     const sortedFiles = useMemo(() => {
         return [...files].sort((a, b) => {
@@ -659,7 +672,7 @@ export default function BrowseView({
                                 <div
                                     key={file.id}
                                     className={`relative cursor-pointer overflow-hidden transition-all ${
-                                        draftProfileImage === file.content_hash || batchSelectedFiles.includes(file)
+                                        draftProfileImage === file.content_hash || isBatchSelected(file)
                                             ? "ring-2 ring-blue-500 bg-blue-500/10"
                                             : "ring-1 ring-transparent"
                                     }`}
@@ -702,7 +715,7 @@ export default function BrowseView({
                                 rootPath={rootPath!}
                                 onClick={() => handleTileClick(file, index)}
                                 isSelected={
-                                    draftProfileImage === file.content_hash || batchSelectedFiles.includes(file)
+                                    draftProfileImage === file.content_hash || isBatchSelected(file)
                                 }
                             />
                         ))}
@@ -718,7 +731,7 @@ export default function BrowseView({
                         onAddFolderTag={handleAddFolderTag}
                         onRemoveFolderTag={handleRemoveFolderTag}
                         selectedFiles={batchSelectedFiles}
-                        onBatchTagModeChange={setBatchingFiles}
+                        onBatchTagModeChange={handleBatchTagModeChange}
                         onExecuteBatchTag={handleExecuteBatchTag}
                     />
                 </div>

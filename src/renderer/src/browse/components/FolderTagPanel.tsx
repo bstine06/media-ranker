@@ -133,7 +133,7 @@ export default function FolderTagPanel({
                 return;
             }
 
-            await window.api.createTag(trimmed, null);
+            // add-tag-to-folder upserts the tag without touching its category.
             await onAddFolderTag(trimmed);
             await refreshTags();
             setFolderTagInput("");
@@ -173,15 +173,18 @@ export default function FolderTagPanel({
                 return;
             }
 
-            const newTag = await window.api.createTag(trimmed, null);
-            await refreshTags();
+            // Reuse an existing tag if there is one — createTag(name, null) would
+            // wipe that tag's category.
+            const existing = allTags.find((t) => t.name === trimmed);
+            const newTag = existing ?? (await window.api.createTag(trimmed, null));
+            if (!existing) await refreshTags();
 
             if (newTag) {
                 setStagedTags((prev) => [...prev, newTag]);
             }
             setBatchTagInput("");
         },
-        [stagedTags, refreshTags],
+        [stagedTags, allTags, refreshTags],
     );
 
     const removeStagedTag = useCallback((tag: DbTag) => {

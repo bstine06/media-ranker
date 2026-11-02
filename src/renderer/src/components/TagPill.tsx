@@ -30,8 +30,16 @@ export function TagPill({ tag, onRemove, applied, onAdd, className }: TagPillPro
   };
 
   const handleCreateCategory = async (name: string) => {
-    const trimmed = name.trim();
+    const trimmed = name.trim().toLowerCase();
     if (!trimmed) return;
+
+    // Reuse an existing category instead of re-randomizing its color/icon.
+    const existing = allCategories.find((c) => c.name === trimmed);
+    if (existing) {
+      await handleCategorySelect(existing.id);
+      setNewCategoryName("");
+      return;
+    }
 
     const color = PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)];
     const icon = PRESET_ICONS[Math.floor(Math.random() * PRESET_ICONS.length)];

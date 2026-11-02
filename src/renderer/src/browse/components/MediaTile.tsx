@@ -3,7 +3,6 @@ import type { DbFile } from "../../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../../lib/media";
 import HoverPreview from "./HoverPreview";
 import { useHoverPreview } from "../hooks/useHoverPreview";
-import ConfirmDialog from "@renderer/components/ConfirmDialog";
 import { FolderIcon } from "@renderer/components/icons/FolderIcon";
 import { TrashIcon } from "@renderer/components/icons/TrashIcon";
 

@@ -9,6 +9,7 @@ import {
     clipboard,
 } from "electron";
 import path, { join } from "path";
+import { pathToFileURL } from "url";
 import { is } from "@electron-toolkit/utils";
 import {
     initDb,
@@ -346,7 +347,7 @@ function registerIpcHandlers(): void {
         async (event, filePath: string) => {
             clipboard.writeBuffer(
                 "public.file-url",
-                Buffer.from(`file://${filePath}`, "utf-8"),
+                Buffer.from(pathToFileURL(filePath).href, "utf-8"),
             );
             return true;
         },
