@@ -106,6 +106,32 @@ export function MediaPlayer({
         onClick?.();
     }, [disabled, onClick]);
 
+    // ── Drag out ────────────────────────────────────────────────────────────
+    // Dragging the media starts a native file drag (into Finder, an editor,
+    // a browser upload, or a sidebar folder). A drag must never count as a
+    // click (e.g. a pick in Compare), so the click that may follow is eaten.
+    const justDraggedRef = useRef(false);
+    const dragOutProps = {
+        draggable: true,
+        onMouseDown: () => {
+            justDraggedRef.current = false;
+        },
+        onDragStart: (e: React.DragEvent) => {
+            e.preventDefault();
+            justDraggedRef.current = true;
+            window.api.dragFileOut(file);
+        },
+    };
+    const guardClick =
+        (handler: (e: React.MouseEvent) => void) => (e: React.MouseEvent) => {
+            if (justDraggedRef.current) {
+                justDraggedRef.current = false;
+                e.stopPropagation();
+                return;
+            }
+            handler(e);
+        };
+
     const handleMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             if (disabled) return;
@@ -228,10 +254,17 @@ useEffect(() => {
                     }}
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
-                    onClick={clickToPauseEnabled ? togglePlay : handleClick}
+                    onClick={guardClick(
+                        clickToPauseEnabled ? togglePlay : () => handleClick(),
+                    )}
+                    {...dragOutProps}
                 />
             ) : (
-                <div className="relative h-full w-full bg-neutral-900" onClick={handleClick}>
+                <div
+                    className="relative h-full w-full bg-neutral-900"
+                    onClick={guardClick(() => handleClick())}
+                    {...dragOutProps}
+                >
                     {/* Blurred thumbnail - render immediately when available */}
                     {thumbUrl && (
                         <div 

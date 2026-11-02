@@ -142,10 +142,18 @@ declare global {
             >;
             openExternal: (url: string) => Promise<void>;
             showInFolder: (absolutePath: string) => Promise<void>;
+            createFolder: (
+                name: string,
+            ) => Promise<{ relativePath: string } | { error: string }>;
             moveFilesTo: (
                 filePaths: string[],
                 targetDir: string,
             ) => Promise<void>;
+            moveIntoFolder: (
+                absPaths: string[],
+                targetFolder: string,
+            ) => Promise<{ moved: number; errors: string[] }>;
+            getPathForFile: (file: File) => string;
             fileReplace: (
                 oldRelPath: string,
                 newAbsPath: string,

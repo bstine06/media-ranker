@@ -166,7 +166,7 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
             window.api.onFolderAdded(({ relativePath }) => {
                 const depth = relativePath.split("/").filter(Boolean).length;
                 if (depth !== 1) return;
-                setFolders((prev) => [
+                setFolders((prev) => prev.some((f) => f.relativePath === relativePath) ? prev : [
                     ...prev,
                     {
                         name: relativePath.split("/").pop() ?? relativePath,

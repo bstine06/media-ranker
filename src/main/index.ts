@@ -53,6 +53,8 @@ import {
     updateTagCategory,
     getFileById,
     markFileMissingById,
+    moveFileRecord,
+    applyFolderTagsToFile,
 } from "./db";
 import type { DbFile } from "./db";
 import { scanFolder, getThumbnailPath, getFolderTree } from "./scanner";
@@ -291,6 +293,90 @@ function registerIpcHandlers(): void {
         },
     );
 
+    // Move files into a top-level library folder. Files already in the
+    // library keep their record (score, tags, history); the folder's tags are
+    // applied. Files from outside the library are just moved in and the
+    // watcher indexes them. Never overwrites: clashes get " (2)" etc.
+    ipcMain.handle(
+        "move-into-folder",
+        async (
+            _event,
+            absPaths: string[],
+            targetFolder: string,
+        ): Promise<{ moved: number; errors: string[] }> => {
+            const errors: string[] = [];
+            let moved = 0;
+            if (!rootPath) return { moved, errors: ["No library open."] };
+            const root = rootPath;
+            const targetDir = path.join(root, targetFolder);
+            if (!existsSync(targetDir)) {
+                return { moved, errors: [`Folder "${targetFolder}" not found.`] };
+            }
+            const win = BrowserWindow.getAllWindows()[0];
+
+            const freeName = (dir: string, filename: string): string => {
+                if (!existsSync(path.join(dir, filename))) return filename;
+                const ext = path.extname(filename);
+                const stem = filename.slice(0, filename.length - ext.length);
+                for (let i = 2; ; i++) {
+                    const candidate = `${stem} (${i})${ext}`;
+                    if (!existsSync(path.join(dir, candidate))) return candidate;
+                }
+            };
+
+            for (const src of absPaths) {
+                try {
+                    if (path.dirname(src) === targetDir) continue; // already there
+
+                    const rel = path.relative(root, src);
+                    const insideLibrary =
+                        !rel.startsWith("..") && !path.isAbsolute(rel);
+                    const record = insideLibrary ? getFileByPath(rel) : undefined;
+
+                    const filename = freeName(targetDir, path.basename(src));
+                    const dest = path.join(targetDir, filename);
+
+                    if (!record) {
+                        // Untracked / external file: plain move, watcher indexes it.
+                        await fs.rename(src, dest);
+                        moved++;
+                        continue;
+                    }
+
+                    const newRel = path.relative(root, dest);
+                    ignoredPaths.add(src);
+                    ignoredPaths.add(dest);
+                    try {
+                        await fs.rename(src, dest);
+                    } finally {
+                        // Hold the ignore briefly: chokidar reports the
+                        // events asynchronously after the rename returns.
+                        setTimeout(() => {
+                            ignoredPaths.delete(src);
+                            ignoredPaths.delete(dest);
+                        }, 1500);
+                    }
+
+                    const folder = upsertFolder(targetFolder, path.basename(targetFolder));
+                    moveFileRecord(record.id, newRel, filename, folder.id);
+                    applyFolderTagsToFile(record.id, folder.id);
+
+                    win?.webContents.send("media:renamed", {
+                        oldRelativePath: rel,
+                        relativePath: newRel,
+                        hash: record.content_hash,
+                        mediaType: record.media_type,
+                    });
+                    moved++;
+                } catch (err) {
+                    console.error("Failed to move", src, err);
+                    errors.push(`Couldn't move ${path.basename(src)}`);
+                }
+            }
+            return { moved, errors };
+        },
+    );
+
     ipcMain.handle(
         "file:replace",
         async (_event, oldRelPath: string, newAbsPath: string) => {
@@ -380,6 +466,38 @@ function registerIpcHandlers(): void {
         (_event, tags: number[], mode: "and" | "or") => {
             const tagIds = tags.filter((id): id is number => id !== undefined);
             return getFileIdsByTags(tagIds, mode);
+        },
+    );
+
+    // Create a new top-level folder in the library. Returns its relative path,
+    // or an error message for the UI.
+    ipcMain.handle(
+        "create-folder",
+        async (
+            _event,
+            name: string,
+        ): Promise<{ relativePath: string } | { error: string }> => {
+            if (!rootPath) return { error: "No library open." };
+            const trimmed = name.trim();
+            if (!trimmed) return { error: "Enter a folder name." };
+            if (/[/\\:]/.test(trimmed) || trimmed === "." || trimmed === "..") {
+                return { error: "Folder names can't contain / \\ or :" };
+            }
+            if (trimmed.startsWith(".") || trimmed === "_thumbnails") {
+                return { error: "That name is reserved." };
+            }
+            const absolutePath = join(rootPath, trimmed);
+            try {
+                await fs.mkdir(absolutePath);
+            } catch (err) {
+                if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+                    return { error: "A folder with that name already exists." };
+                }
+                console.error("Failed to create folder:", err);
+                return { error: "Couldn't create the folder." };
+            }
+            upsertFolder(trimmed, trimmed);
+            return { relativePath: trimmed };
         },
     );
 
@@ -555,19 +673,36 @@ function registerIpcHandlers(): void {
     ipcMain.on("drag-file-out", (event, file: DbFile) => {
         if (!file || !rootPath) return;
         const filePath = join(rootPath, file.path);
-        const iconPath = join(
-            app.getAppPath(),
-            "src",
-            "main",
-            "assets",
-            "file_icon.png",
-        );
+        if (!existsSync(filePath)) return;
 
         event.sender.startDrag({
             file: filePath,
-            icon: nativeImage.createFromPath(iconPath),
+            icon: getDragIcon(getThumbnailPath(rootPath, file.content_hash)),
         });
     });
+}
+
+// Image shown under the cursor while dragging a file out of the app: the
+// file's thumbnail if it has one, else a generic file icon. The fallback is
+// embedded (not loaded from src/) so it survives packaging; macOS refuses to
+// start a drag with an empty icon.
+const FALLBACK_DRAG_ICON_DATA_URL =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAdgAAAHYBTnsmCAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAADhSURBVDiNndO/SgNBEMfxjxqwMTFqk9LX8BF8iYCF+BARrMTSwj5gI1j4HIIgloI2lv4JInqdohZ3S5Zwczn9wTY78/vu7DDDVAd4Dc47jrAg0Ape0A3il7jGGEt5YDEDTPARvYBhZb7A8ixgnr6whTNs4jQFOi0Bh9hR9uAO2+jjLSUMcNsSpsodRBWcYz0wXmGUX9QB9tELAI+zF3WAVeX/6lS0AexiLQDcKAeqEbAXmGvV1MRv5fA8/RWQmviJ5/9UcD/PlCuNcoEN8TLl6la5RV5BgRM8aFjZSj84ToBfH9spjYC2aR8AAAAASUVORK5CYII=";
+const DRAG_ICON_MAX = 96;
+
+function getDragIcon(thumbnailPath: string): Electron.NativeImage {
+    const thumb = existsSync(thumbnailPath)
+        ? nativeImage.createFromPath(thumbnailPath)
+        : null;
+    if (thumb && !thumb.isEmpty()) {
+        const { width, height } = thumb.getSize();
+        const scale = Math.min(1, DRAG_ICON_MAX / Math.max(width, height));
+        return thumb.resize({
+            width: Math.max(1, Math.round(width * scale)),
+            height: Math.max(1, Math.round(height * scale)),
+        });
+    }
+    return nativeImage.createFromDataURL(FALLBACK_DRAG_ICON_DATA_URL);
 }
 
 function createWindow(): void {
@@ -594,6 +729,19 @@ function createWindow(): void {
 
     mainWindow.on("leave-full-screen", () => {
         mainWindow.webContents.send("fullscreen-status", false);
+    });
+
+    // Dropping a file anywhere that doesn't handle drops would otherwise
+    // navigate the whole window to that file. Only allow navigating to the
+    // app's own page.
+    mainWindow.webContents.on("will-navigate", (event, url) => {
+        const strip = (u: string) => u.split("#")[0].split("?")[0];
+        if (
+            url.startsWith("file:") &&
+            strip(url) !== strip(mainWindow.webContents.getURL())
+        ) {
+            event.preventDefault();
+        }
     });
 
     mainWindow.webContents.setWindowOpenHandler((details) => {

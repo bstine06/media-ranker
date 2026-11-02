@@ -19,6 +19,7 @@ function FolderItem({
     onSelectFolder,
     onToggleFolder,
     folderMetaVersion,
+    onDropFiles,
 }: {
     node: FolderNode;
     activeFolder: string | null;
@@ -27,9 +28,17 @@ function FolderItem({
     onSelectFolder: (relativePath: string) => void;
     onToggleFolder: (relativePath: string, allPaths: string[]) => void;
     folderMetaVersion: number;
+    onDropFiles: (absPaths: string[]) => void;
 }): JSX.Element {
     const isActive = activeFolder === node.relativePath;
     const isChecked = checkedFolders.has(node.relativePath);
+
+    // Drop target for files dragged from Browse (or Finder). dragenter/leave
+    // fire for child elements too, so count depth instead of a boolean.
+    const [dragDepth, setDragDepth] = useState(0);
+    const isDropTarget = dragDepth > 0;
+    const hasFiles = (e: React.DragEvent) =>
+        Array.from(e.dataTransfer.types).includes("Files");
 
     const [profileImageHash, setProfileImageHash] = useState<string | null>();
 
@@ -46,7 +55,34 @@ function FolderItem({
 }, [node, folderMetaVersion]);
 
     return (
-        <div className="flex items-center pr-4 hover:bg-neutral-800 transition-colors">
+        <div
+            className={`flex items-center pr-4 transition-colors ${
+                isDropTarget
+                    ? "bg-neutral-700 ring-1 ring-inset ring-neutral-400"
+                    : "hover:bg-neutral-800"
+            }`}
+            onDragEnter={(e) => {
+                if (!hasFiles(e)) return;
+                e.preventDefault();
+                setDragDepth((d) => d + 1);
+            }}
+            onDragOver={(e) => {
+                if (!hasFiles(e)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+            }}
+            onDragLeave={() => setDragDepth((d) => Math.max(0, d - 1))}
+            onDrop={(e) => {
+                if (!hasFiles(e)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                setDragDepth(0);
+                const paths = Array.from(e.dataTransfer.files)
+                    .map((f) => window.api.getPathForFile(f))
+                    .filter(Boolean);
+                if (paths.length > 0) onDropFiles(paths);
+            }}
+        >
             <span className="mr-1 w-4" />
             {isFilterable && (
                 <input
@@ -350,8 +386,49 @@ export default function Sidebar({
     isFullscreen: boolean;
 }): JSX.Element {
     const [search, setSearch] = useState("");
-    const { status } = useStatus();
-    const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion } = useFolders();
+    const { status, setStatus, resetStatus } = useStatus();
+
+    const handleDropOnFolder = async (folder: string, absPaths: string[]) => {
+        const { moved, errors } = await window.api.moveIntoFolder(absPaths, folder);
+        if (errors.length > 0) {
+            setStatus(errors.join(" · "));
+        } else if (moved > 0) {
+            setStatus(`Moved ${moved} file${moved === 1 ? "" : "s"} to ${folder}`);
+            setTimeout(resetStatus, 2500);
+        }
+    };
+    const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion, refreshFolders, setAllChecked } = useFolders();
+
+    // New folder
+    const [creatingFolder, setCreatingFolder] = useState(false);
+    const [newFolderName, setNewFolderName] = useState("");
+    const [createFolderError, setCreateFolderError] = useState<string | null>(null);
+
+    const cancelCreateFolder = () => {
+        setCreatingFolder(false);
+        setNewFolderName("");
+        setCreateFolderError(null);
+    };
+
+    const submitCreateFolder = async () => {
+        if (!newFolderName.trim()) {
+            cancelCreateFolder();
+            return;
+        }
+        // If every folder was checked, keep it that way so the new folder
+        // isn't silently filtered out of Compare etc.
+        const paths = folders.map((n) => n.relativePath);
+        const wasAllChecked = paths.every((p) => checkedFolders.has(p));
+
+        const result = await window.api.createFolder(newFolderName);
+        if ("error" in result) {
+            setCreateFolderError(result.error);
+            return;
+        }
+        await refreshFolders();
+        if (wasAllChecked) setAllChecked([...paths, result.relativePath]);
+        cancelCreateFolder();
+    };
 
     const isFilterable = !view.startsWith("browse") && view!=="tag-manager";
     const isSearching = search.trim().length > 0;
@@ -388,22 +465,56 @@ export default function Sidebar({
                     </h1>
 
                     <div className="px-2 my-2 flex items-center gap-1.5">
-                        <input
-                            type="text"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder={`Search ${sortedFolders.length} folders…`}
-                            className="flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors"
-                        />
-                        {search && (
-                            <button
-                                onClick={() => setSearch("")}
-                                className="flex-shrink-0 flex items-center justify-center w-4 h-4 rounded-full bg-neutral-600 text-neutral-300 hover:bg-neutral-500 transition-colors text-xs leading-none"
-                            >
-                                ✕
-                            </button>
+                        {creatingFolder ? (
+                            <input
+                                type="text"
+                                autoFocus
+                                value={newFolderName}
+                                onChange={(e) => {
+                                    setNewFolderName(e.target.value);
+                                    setCreateFolderError(null);
+                                }}
+                                onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === "Enter") submitCreateFolder();
+                                    if (e.key === "Escape") cancelCreateFolder();
+                                }}
+                                onBlur={cancelCreateFolder}
+                                placeholder="New folder name…"
+                                className="flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none ring-1 ring-neutral-600 transition-colors"
+                            />
+                        ) : (
+                            <>
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    placeholder={`Search ${sortedFolders.length} folders…`}
+                                    className="flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors"
+                                />
+                                {search && (
+                                    <button
+                                        onClick={() => setSearch("")}
+                                        className="flex-shrink-0 flex items-center justify-center w-4 h-4 rounded-full bg-neutral-600 text-neutral-300 hover:bg-neutral-500 transition-colors text-xs leading-none"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setCreatingFolder(true)}
+                                    title="New folder"
+                                    className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 transition-colors text-base leading-none"
+                                >
+                                    +
+                                </button>
+                            </>
                         )}
                     </div>
+                    {createFolderError && (
+                        <p className="px-3 -mt-1 mb-2 text-[11px] text-red-400">
+                            {createFolderError}
+                        </p>
+                    )}
 
                     {!isSearching && (
                         <div className="flex items-center">
@@ -459,6 +570,9 @@ export default function Sidebar({
                                     }}
                                     onToggleFolder={toggleFolder}
                                     folderMetaVersion={folderMetaVersion}
+                                    onDropFiles={(paths) =>
+                                        handleDropOnFolder(node.relativePath, paths)
+                                    }
                                 />
                             ))
                         ) : (

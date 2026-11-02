@@ -196,10 +196,22 @@ export default function BrowseView({
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
         setStatus("Adding files...");
-        const paths = Array.from(e.dataTransfer.files).map(
-            (f) => (f as unknown as { path: string }).path,
+        const paths = Array.from(e.dataTransfer.files).map((f) =>
+            window.api.getPathForFile(f),
         );
-        await window.api.moveFilesTo(paths, [rootPath, activeFolder].join("/"));
+        if (activeFolder) {
+            await window.api.moveIntoFolder(paths, activeFolder);
+        } else {
+            // "All collections" has no target folder. Ignore files that are
+            // already in the library (e.g. a tile dragged and dropped back
+            // onto the grid) instead of moving them to the library root.
+            const external = paths.filter(
+                (p) => !(rootPath && p.startsWith(rootPath + "/")),
+            );
+            if (external.length > 0) {
+                await window.api.moveFilesTo(external, rootPath!);
+            }
+        }
         await new Promise((r) => setTimeout(r, 1000));
         resetStatus();
     };
@@ -350,6 +362,14 @@ export default function BrowseView({
 
         const handleRenamed = window.api.onMediaRenamed(
             ({ oldRelativePath, relativePath }) => {
+                // Moved out of the folder being viewed: drop it from the grid.
+                const newFolder = relativePath.split("/").slice(0, -1).join("/");
+                if (activeFolder && newFolder !== activeFolder) {
+                    setFiles((prev) =>
+                        prev.filter((f) => f.path !== oldRelativePath),
+                    );
+                    return;
+                }
                 setFiles((prev) =>
                     prev.map((f) =>
                         f.path === oldRelativePath

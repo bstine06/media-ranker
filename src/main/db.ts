@@ -494,6 +494,21 @@ export function applyFolderTagsToExistingFiles(folderId: number): void {
 
 // Stamp a single folder's tags onto a single incoming file.
 // Called at move/index time.
+// Move a tracked file to a new path/folder in one go (used for in-app moves;
+// the watcher is told to ignore the filesystem events).
+export function moveFileRecord(
+    fileId: number,
+    newRelativePath: string,
+    newFilename: string,
+    folderId: number | null,
+): void {
+    getDb()
+        .prepare(
+            `UPDATE files SET path = ?, filename = ?, folder_id = ? WHERE id = ?`,
+        )
+        .run(newRelativePath, newFilename, folderId, fileId);
+}
+
 export function applyFolderTagsToFile(fileId: number, folderId: number): void {
     getDb()
         .prepare(

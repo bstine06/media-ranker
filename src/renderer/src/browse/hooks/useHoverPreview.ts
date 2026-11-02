@@ -43,6 +43,20 @@ function computeLayout(state: PreviewState): PreviewLayout {
     };
 }
 
+// ── Drag suppression ────────────────────────────────────────────────────────
+// No hover previews while a file is being dragged (tile → sidebar folder, or
+// from Finder). Drag events keep firing while a drag is over the window, so
+// "dragging" = a drag event within the last DRAG_GRACE_MS.
+const DRAG_GRACE_MS = 300;
+let lastDragActivity = -Infinity;
+const markDragActivity = () => {
+    lastDragActivity = performance.now();
+};
+window.addEventListener("dragstart", markDragActivity, true);
+window.addEventListener("dragenter", markDragActivity, true);
+window.addEventListener("dragover", markDragActivity, true);
+const isDragging = () => performance.now() - lastDragActivity < DRAG_GRACE_MS;
+
 export function useHoverPreview(delayMs = 200) {
     const { hoverPreviewEnabled } = useSettings();
     const [preview, setPreview] = useState<PreviewState | null>(null);
@@ -79,13 +93,27 @@ export function useHoverPreview(delayMs = 200) {
 
     const isHoveringRef = useRef(false);
 
+    // Close an open preview as soon as a drag passes over the window.
+    useEffect(() => {
+        if (!preview) return;
+        const onDrag = () => clearPreview();
+        window.addEventListener("dragstart", onDrag, true);
+        window.addEventListener("dragover", onDrag, true);
+        return () => {
+            window.removeEventListener("dragstart", onDrag, true);
+            window.removeEventListener("dragover", onDrag, true);
+        };
+    }, [preview, clearPreview]);
+
     const handleMouseEnter = useCallback(() => {
       isHoveringRef.current = true;
-        if (!hoverPreviewEnabled) return;
+        if (!hoverPreviewEnabled || isDragging()) return;
         const rect = elementRef.current?.getBoundingClientRect();
         if (!rect) return;
 
+        if (hoverTimer.current) clearTimeout(hoverTimer.current);
         hoverTimer.current = setTimeout(() => {
+            if (isDragging()) return;
             const state: PreviewState = {
                 anchorY: rect.top,
                 tileRight: rect.right,
@@ -100,9 +128,9 @@ export function useHoverPreview(delayMs = 200) {
 
     const handleMouseLeave = useCallback(() => {
         isHoveringRef.current = false;
-        if (!hoverPreviewEnabled) return;
+        // Always cancel a pending timer, even if previews were just disabled.
         clearPreview();
-    }, [hoverPreviewEnabled, clearPreview]);
+    }, [clearPreview]);
 
     const handleNaturalSize = useCallback((w: number, h: number) => {
         if (!previewRef.current) return;

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import { DbFile, DbFolder, DbTag, DbTagCategory, getAllTagCategories } from "@main/db";
 
@@ -111,8 +111,22 @@ const api = {
     showInFolder: (absolutePath: string) =>
         ipcRenderer.invoke("show-in-folder", absolutePath),
 
+    createFolder: (
+        name: string,
+    ): Promise<{ relativePath: string } | { error: string }> =>
+        ipcRenderer.invoke("create-folder", name),
+
     moveFilesTo: (filePaths: string[], targetDir: string) =>
         ipcRenderer.invoke("move-files-to", filePaths, targetDir),
+
+    moveIntoFolder: (
+        absPaths: string[],
+        targetFolder: string,
+    ): Promise<{ moved: number; errors: string[] }> =>
+        ipcRenderer.invoke("move-into-folder", absPaths, targetFolder),
+
+    // Absolute path of a File from a drag/drop (File.path is deprecated).
+    getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 
     fileReplace: (oldRelPath: string, newAbsPath: string): Promise<DbFile> =>
         ipcRenderer.invoke("file:replace", oldRelPath, newAbsPath),
