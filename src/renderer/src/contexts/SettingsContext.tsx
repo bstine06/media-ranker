@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 
 interface Settings {
     hoverPreviewEnabled: boolean;
@@ -11,6 +11,8 @@ interface Settings {
     handleTileSizeChange: (newTileSize: number) => void;
     showTagCategoryNames: boolean;
     toggleShowTagCategoryNames: () => void;
+    pauseWhenUnfocused: boolean;
+    togglePauseWhenUnfocused: () => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -24,6 +26,8 @@ const SettingsContext = createContext<Settings>({
     handleTileSizeChange: (newTileSize: number) => {},
     showTagCategoryNames: true,
     toggleShowTagCategoryNames: () => {},
+    pauseWhenUnfocused: true,
+    togglePauseWhenUnfocused: () => {},
 });
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
@@ -69,6 +73,41 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setShowTagCategoryNames((tgn) => !tgn)
     }, []);
 
+    const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(true);
+    const togglePauseWhenUnfocused = useCallback(() => {
+        setPauseWhenUnfocused((p) => !p);
+    }, []);
+
+    // When the app loses focus (switching apps, dragging a file out into
+    // another app), pause every playing video; when it comes back, resume
+    // only the ones we paused. Videos the user paused stay paused.
+    useEffect(() => {
+        if (!pauseWhenUnfocused) return;
+        const pausedByBlur = new Set<HTMLVideoElement>();
+        const onBlur = () => {
+            document.querySelectorAll("video").forEach((v) => {
+                if (!v.paused) {
+                    pausedByBlur.add(v);
+                    v.pause();
+                }
+            });
+        };
+        const onFocus = () => {
+            pausedByBlur.forEach((v) => {
+                if (v.isConnected) v.play().catch(() => {});
+            });
+            pausedByBlur.clear();
+        };
+        window.addEventListener("blur", onBlur);
+        window.addEventListener("focus", onFocus);
+        return () => {
+            window.removeEventListener("blur", onBlur);
+            window.removeEventListener("focus", onFocus);
+            // Setting turned off while unfocused: don't strand them paused.
+            onFocus();
+        };
+    }, [pauseWhenUnfocused]);
+
     return (
         <SettingsContext.Provider
             value={{
@@ -82,6 +121,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 handleTileSizeChange,
                 showTagCategoryNames,
                 toggleShowTagCategoryNames,
+                pauseWhenUnfocused,
+                togglePauseWhenUnfocused,
             }}
         >
             {children}

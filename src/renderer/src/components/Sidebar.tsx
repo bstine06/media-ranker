@@ -227,7 +227,9 @@ function SettingsSection(): JSX.Element {
         tileSize,
         handleTileSizeChange,
         showTagCategoryNames,
-        toggleShowTagCategoryNames
+        toggleShowTagCategoryNames,
+        pauseWhenUnfocused,
+        togglePauseWhenUnfocused,
     } = useSettings();
     const [open, setOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -285,6 +287,22 @@ function SettingsSection(): JSX.Element {
                             }`}
                         >
                             {showTagCategoryNames ? "on" : "off"}
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
+                        <p className="text-xs text-neutral-500">
+                            Pause Videos When App Not Focused
+                        </p>
+                        <button
+                            onClick={togglePauseWhenUnfocused}
+                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
+                                pauseWhenUnfocused
+                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                            }`}
+                        >
+                            {pauseWhenUnfocused ? "on" : "off"}
                         </button>
                     </div>
 
