@@ -34,15 +34,31 @@ const SettingsContext = createContext<Settings>({
     toggleAlwaysShowUnsorted: () => {},
 });
 
+// Saved settings (config.json), read once at startup. Anything missing or
+// malformed falls back to the default.
+const saved: Record<string, unknown> = (() => {
+    try {
+        return window.api.getSettingsSync() ?? {};
+    } catch {
+        return {};
+    }
+})();
+const savedBool = (key: string, fallback: boolean): boolean =>
+    typeof saved[key] === "boolean" ? (saved[key] as boolean) : fallback;
+const savedNum = (key: string, fallback: number, min: number, max: number): number => {
+    const v = saved[key];
+    return typeof v === "number" && v >= min && v <= max ? v : fallback;
+};
+
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
-    const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(true);
+    const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(() => savedBool("hoverPreviewEnabled", true));
     const toggleHoverPreview = useCallback(
         () => setHoverPreviewEnabled((p) => !p),
         [],
     );
 
-    const [volume, setVolume] = useState(100);
+    const [volume, setVolume] = useState(() => savedNum("volume", 100, 0, 100));
     const handleVolumeChange = useCallback((newVolume: number) => {
         if (newVolume < 0 || newVolume > 100) {
             throw new RangeError(
@@ -52,7 +68,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setVolume(newVolume);
     }, []);
 
-    const [scrollTime, setScrollTime] = useState(260);
+    const [scrollTime, setScrollTime] = useState(() => savedNum("scrollTime", 260, 0, 2000));
     const handleScrollTimeChange = useCallback((newScrollTime: number) => {
         if (newScrollTime < 0 || newScrollTime > 2000) {
             throw new RangeError(
@@ -62,7 +78,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setScrollTime(newScrollTime);
     }, []);
 
-    const [tileSize, setTileSize] = useState(200);
+    const [tileSize, setTileSize] = useState(() => savedNum("tileSize", 200, 100, 300));
     const handleTileSizeChange = useCallback((newTileSize: number) => {
         if (newTileSize < 100 || newTileSize > 300) {
             throw new RangeError(
@@ -72,17 +88,17 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setTileSize(newTileSize);
     }, [])
 
-    const [showTagCategoryNames, setShowTagCategoryNames] = useState<boolean>(true);
+    const [showTagCategoryNames, setShowTagCategoryNames] = useState<boolean>(() => savedBool("showTagCategoryNames", true));
     const toggleShowTagCategoryNames = useCallback(() => {
         setShowTagCategoryNames((tgn) => !tgn)
     }, []);
 
-    const [alwaysShowUnsorted, setAlwaysShowUnsorted] = useState(false);
+    const [alwaysShowUnsorted, setAlwaysShowUnsorted] = useState(() => savedBool("alwaysShowUnsorted", false));
     const toggleAlwaysShowUnsorted = useCallback(() => {
         setAlwaysShowUnsorted((a) => !a);
     }, []);
 
-    const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(true);
+    const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
         setPauseWhenUnfocused((p) => !p);
     }, []);
@@ -116,6 +132,32 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             onFocus();
         };
     }, [pauseWhenUnfocused]);
+
+    // Persist (debounced so dragging a slider doesn't write on every step).
+    useEffect(() => {
+        const t = setTimeout(() => {
+            window.api
+                .saveSettings({
+                    hoverPreviewEnabled,
+                    volume,
+                    scrollTime,
+                    tileSize,
+                    showTagCategoryNames,
+                    pauseWhenUnfocused,
+                    alwaysShowUnsorted,
+                })
+                .catch(() => {});
+        }, 300);
+        return () => clearTimeout(t);
+    }, [
+        hoverPreviewEnabled,
+        volume,
+        scrollTime,
+        tileSize,
+        showTagCategoryNames,
+        pauseWhenUnfocused,
+        alwaysShowUnsorted,
+    ]);
 
     return (
         <SettingsContext.Provider

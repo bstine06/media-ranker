@@ -125,6 +125,11 @@ const api = {
     ): Promise<{ moved: number; errors: string[] }> =>
         ipcRenderer.invoke("move-into-folder", absPaths, targetFolder),
 
+    getSettingsSync: (): Record<string, unknown> =>
+        ipcRenderer.sendSync("settings:get-sync"),
+    saveSettings: (settings: Record<string, unknown>): Promise<void> =>
+        ipcRenderer.invoke("settings:save", settings),
+
     getRootFiles: (): Promise<DbFile[]> => ipcRenderer.invoke("get-root-files"),
     countRootFiles: (): Promise<number> => ipcRenderer.invoke("count-root-files"),
 

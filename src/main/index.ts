@@ -75,7 +75,7 @@ import { watchFolder, unwatchAll, ignoredPaths } from "./watcher";
 import { replaceTrackedFile } from "./replaceFile";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
-import { loadSavedRootPath, saveRootPath } from "./config";
+import { loadSavedRootPath, saveRootPath, loadSettings, saveSettings } from "./config";
 
 let rootPath: string | null = null;
 
@@ -294,6 +294,15 @@ function registerIpcHandlers(): void {
             );
         },
     );
+
+    // App settings (persisted in config.json). Read synchronously at preload
+    // time so the UI starts with saved values instead of flashing defaults.
+    ipcMain.on("settings:get-sync", (event) => {
+        event.returnValue = loadSettings();
+    });
+    ipcMain.handle("settings:save", (_event, settings: Record<string, unknown>) => {
+        saveSettings(settings);
+    });
 
     ipcMain.handle("get-root-files", () => getRootFiles());
     ipcMain.handle("count-root-files", () => countRootFiles());

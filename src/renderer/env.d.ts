@@ -154,6 +154,8 @@ declare global {
                 targetFolder: string,
             ) => Promise<{ moved: number; errors: string[] }>;
             getPathForFile: (file: File) => string;
+            getSettingsSync: () => Record<string, unknown>;
+            saveSettings: (settings: Record<string, unknown>) => Promise<void>;
             getRootFiles: () => Promise<DbFile[]>;
             countRootFiles: () => Promise<number>;
             fileReplace: (
