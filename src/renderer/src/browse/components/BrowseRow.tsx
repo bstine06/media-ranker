@@ -62,6 +62,7 @@ export default function BrowseRow({
     draggable
     onDragStart={(e) => {
         e.preventDefault();
+        window.getSelection()?.removeAllRanges();
         handleMouseLeave();
         if (onDragOut) onDragOut();
         else window.api.dragFileOut(file);

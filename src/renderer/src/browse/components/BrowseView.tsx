@@ -803,7 +803,7 @@ export default function BrowseView({
                     </div>
                 ) : viewMode === "grid" ? (
                     <div
-                        className="flex-1 overflow-y-auto overflow-x-hidden"
+                        className="flex-1 overflow-y-auto overflow-x-hidden select-none"
                         style={{ scrollbarGutter: "stable" }}
                     >
                         <div
@@ -854,7 +854,7 @@ export default function BrowseView({
                         </div>
                     </div>
                 ) : (
-                    <div className="overflow-y-auto flex-1">
+                    <div className="overflow-y-auto flex-1 select-none">
                         {sortedFiles.map((file, index) => (
                             <BrowseRow
                                 key={file.id}

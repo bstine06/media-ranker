@@ -118,6 +118,7 @@ export function MediaPlayer({
         },
         onDragStart: (e: React.DragEvent) => {
             e.preventDefault();
+            window.getSelection()?.removeAllRanges();
             justDraggedRef.current = true;
             window.api.dragFileOut(file);
         },
