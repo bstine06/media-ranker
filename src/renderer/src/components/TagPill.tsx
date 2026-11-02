@@ -2,6 +2,7 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { DbTagCategory, DbTagWithCategory } from "@renderer/shared/types/types";
 import { useState, useRef, useEffect } from "react";
+import { PRESET_COLORS, PRESET_ICONS } from "./TagManagerView";
 
 // TagPill.tsx
 interface TagPillProps {
@@ -17,15 +18,29 @@ export function TagPill({ tag, onRemove, applied, onAdd, className }: TagPillPro
   const icon = tag.category?.icon ?? "●";
 
   const { showTagCategoryNames } = useSettings();
-  const { allCategories, updateTag } = useTags();
+  const { allCategories, updateTag, refreshTags } = useTags();
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [newCategoryName, setNewCategoryName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
+
+  const handleCreateCategory = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const color = PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)];
+    const icon = PRESET_ICONS[Math.floor(Math.random() * PRESET_ICONS.length)];
+
+    const newCategory = await window.api.createTagCategory(trimmed, color, icon);
+    await refreshTags();
+    await handleCategorySelect(newCategory.id);
+    setNewCategoryName("");
+};
 
   const getMenuPosition = () => {
     if (!contextMenu) return {};
@@ -135,6 +150,27 @@ export function TagPill({ tag, onRemove, applied, onAdd, className }: TagPillPro
             <span className="text-neutral-500">No category</span>
           </button>
           <div className="border-t border-neutral-700 my-1" />
+<div className="flex items-center gap-1 px-2 py-1">
+    <input
+        value={newCategoryName}
+        onChange={(e) => setNewCategoryName(e.target.value)}
+        onKeyDown={(e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") handleCreateCategory(newCategoryName);
+}}
+        placeholder="New category…"
+        className="flex-1 px-1.5 py-0.5 text-xs bg-neutral-800 border border-neutral-700 rounded text-neutral-200 placeholder-neutral-600 outline-none"
+    />
+    <button
+        onMouseDown={(e) => {
+    e.preventDefault();
+    handleCreateCategory(newCategoryName);
+}}
+        className="text-neutral-400 hover:text-neutral-100 transition-colors text-sm leading-none px-1"
+    >
+        +
+    </button>
+</div>
           {allCategories.map((category: DbTagCategory) => (
             <button
               key={category.id}

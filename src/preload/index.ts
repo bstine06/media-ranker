@@ -26,6 +26,13 @@ const api = {
         return () => ipcRenderer.removeListener("process:message-sent", handler);
     },
 
+    onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
+        const listener = (_: any, isFullscreen: boolean) => callback(isFullscreen);
+        ipcRenderer.on('fullscreen-status', listener);
+        return () => ipcRenderer.removeListener('fullscreen-status', listener);
+    },
+    
+
     // ── Library setup ──────────────────────────────────────────────────────
     selectRootFolder: (): Promise<string | null> =>
         ipcRenderer.invoke("select-root-folder"),
@@ -115,6 +122,12 @@ const api = {
 
     deleteFile: (fileId: number): Promise<void> =>
         ipcRenderer.invoke("delete-file-by-id", fileId),
+
+    copyFileToClipboard: (filePath: string): Promise<boolean> =>
+        ipcRenderer.invoke("copy-file-to-clipboard", filePath),
+
+    dragFileOut: (file: DbFile) => 
+        ipcRenderer.send("drag-file-out", file),
 
     // ── File watching ──────────────────────────────────────────────────────
     onMediaAdded: (

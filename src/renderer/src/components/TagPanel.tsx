@@ -117,6 +117,25 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
         });
     };
 
+    window.api.createTagCategory
+
+    const createTag = useCallback(
+    async (name: string) => {
+        const trimmed = name.trim().toLowerCase();
+        if (!trimmed || tags.some((t) => t.name === trimmed)) {
+            setInput("");
+            return;
+        }
+
+        await window.api.createTag(trimmed, null);
+        const updated = await window.api.addTag(file.id, trimmed); // ← add this
+        await refreshTags();
+        setTags(updated);
+        setInput("");
+    },
+    [file.id, tags, refreshTags],
+);
+
     const addTag = useCallback(
         async (name: string) => {
             const trimmed = name.trim().toLowerCase();
@@ -261,8 +280,12 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                     onFocus={() => setFocused(true)}
                     onBlur={() => setTimeout(() => setFocused(false), 120)}
                     onKeyDown={(e) => {
-                        if (e.key === "Enter" && filtered[highlightedIndex]) {
-                            addTag(filtered[highlightedIndex].name);
+                        if (e.key === "Enter") {
+                            if (filtered[highlightedIndex]) {
+                                addTag(filtered[highlightedIndex].name);
+                            } else if (input.trim()) {
+                                createTag(input.trim());
+                            }
                         }
                     }}
                     placeholder="Add tag…"

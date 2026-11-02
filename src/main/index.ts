@@ -6,6 +6,7 @@ import {
     dialog,
     protocol,
     nativeImage,
+    clipboard,
 } from "electron";
 import path, { join } from "path";
 import { is } from "@electron-toolkit/utils";
@@ -325,7 +326,7 @@ function registerIpcHandlers(): void {
             }
 
             // Convert relative path to absolute
-            if (!rootPath) throw Error("unable to read rootPath")
+            if (!rootPath) throw Error("unable to read rootPath");
             const absolutePath = path.join(rootPath, file.path); // Use your app's rootPath
 
             await shell.trashItem(absolutePath);
@@ -339,6 +340,17 @@ function registerIpcHandlers(): void {
             throw error;
         }
     });
+
+    ipcMain.handle(
+        "copy-file-to-clipboard",
+        async (event, filePath: string) => {
+            clipboard.writeBuffer(
+                "public.file-url",
+                Buffer.from(`file://${filePath}`, "utf-8"),
+            );
+            return true;
+        },
+    );
 
     // ── Tags ─────────────────────────────────────────────────────────────────
 
@@ -494,7 +506,7 @@ function registerIpcHandlers(): void {
         deleteTagCategory(id);
     });
 
-    ipcMain.handle("drag-file-out", async (event, file: DbFile) => {
+    ipcMain.on("drag-file-out", (event, file: DbFile) => {
         if (!file || !rootPath) return;
         const filePath = join(rootPath, file.path);
         const iconPath = join(
@@ -530,6 +542,14 @@ function createWindow(): void {
         mainWindow.show();
     });
 
+    mainWindow.on("enter-full-screen", () => {
+        mainWindow.webContents.send("fullscreen-status", true);
+    });
+
+    mainWindow.on("leave-full-screen", () => {
+        mainWindow.webContents.send("fullscreen-status", false);
+    });
+
     mainWindow.webContents.setWindowOpenHandler((details) => {
         shell.openExternal(details.url);
         return { action: "deny" };
@@ -547,6 +567,19 @@ app.whenReady().then(() => {
         const url = request.url.replace("media://local", "");
         const filePath = decodeURIComponent(url);
 
+        const ext = path.extname(filePath).toLowerCase();
+        const contentType =
+            {
+                ".mp4": "video/mp4",
+                ".mov": "video/quicktime",
+                ".qt": "video/quicktime",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".gif": "image/gif",
+                ".webp": "image/webp", // ← add this
+            }[ext] ?? "application/octet-stream";
+
         try {
             const stat = statSync(filePath);
             const fileSize = stat.size;
@@ -557,17 +590,6 @@ app.whenReady().then(() => {
                 const start = parseInt(parts[0], 10);
                 const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
                 const chunkSize = end - start + 1;
-
-                const ext = path.extname(filePath).toLowerCase();
-                const contentType =
-                    {
-                        ".mp4": "video/mp4",
-                        ".mov": "video/quicktime",
-                        ".qt": "video/quicktime",
-                        ".jpg": "image/jpeg",
-                        ".png": "image/png",
-                        ".gif": "image/gif",
-                    }[ext] ?? "application/octet-stream";
 
                 const stream = createReadStream(filePath, { start, end });
                 return new Response(stream as any, {
@@ -585,7 +607,7 @@ app.whenReady().then(() => {
                     status: 200,
                     headers: {
                         "Content-Length": String(fileSize),
-                        "Content-Type": "video/mp4",
+                        "Content-Type": contentType, // ← was hardcoded "video/mp4"
                         "Accept-Ranges": "bytes",
                     },
                 });

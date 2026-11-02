@@ -15,6 +15,10 @@ declare global {
             onProcessMessageSent: (
                 callback: (data: { message: string, progress?: [number, number] }) => void,
             ) => () => void;
+            onFullscreenChange: (
+                callback: (isFullscreen: boolean) => void,
+            ) => () => void;
+            
 
             selectRootFolder: () => Promise<string | null>;
             openLibrary: (folderPath: string) => Promise<{
@@ -144,7 +148,9 @@ declare global {
             ) => Promise<DbFile>;
             openFile: (extensions: string[]) => Promise<string | null>;
             deleteFile: (fileId: number) => Promise<void>;
-            
+            copyFileToClipboard: (filePath: string) => Promise<boolean>;
+            dragFileOut: (file: DbFile) => void;
+
             // Tag CRUD
             createTag: (name: string, categoryId: number | null) => Promise<DbTag>;
             updateTag: (id: number, name: string, categoryId: number | null) => Promise<void>;

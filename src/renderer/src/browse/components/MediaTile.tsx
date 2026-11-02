@@ -3,13 +3,18 @@ import type { DbFile } from "../../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../../lib/media";
 import HoverPreview from "./HoverPreview";
 import { useHoverPreview } from "../hooks/useHoverPreview";
+import ConfirmDialog from "@renderer/components/ConfirmDialog";
+import { FolderIcon } from "@renderer/components/icons/FolderIcon";
+import { TrashIcon } from "@renderer/components/icons/TrashIcon";
 
 export default function MediaTile({
     file,
     rootPath,
+    onClickTrash,
 }: {
     file: DbFile;
     rootPath: string;
+    onClickTrash: () => void;
 }): JSX.Element {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
 
@@ -44,6 +49,12 @@ export default function MediaTile({
                 className="group relative overflow-hidden bg-neutral-800 cursor-pointer h-full"
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
+                draggable
+                onDragStart={(e) => {
+                    e.preventDefault();
+                    handleMouseLeave();
+                    window.api.dragFileOut(file);
+                }}
             >
                 {thumbUrl ? (
                     <img
@@ -65,12 +76,23 @@ export default function MediaTile({
                     <p className="text-xs text-neutral-400">
                         {Math.round(file.elo_score)} pts
                     </p>
-                    <button
-                        onClick={handleShowInFolder}
-                        className="mt-1 self-start rounded bg-white/10 px-1.5 py-0.5 text-xs text-white hover:bg-white/25 transition-colors"
-                    >
-                        Show in Finder
-                    </button>
+                    <div className="flex justify-between">
+                        <button
+                            onClick={handleShowInFolder}
+                            className="mt-1 self-start rounded bg-white/10 px-1.5 py-0.5 text-xs text-white hover:bg-white/25 transition-colors"
+                        >
+                            <FolderIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onClickTrash();
+                            }}
+                            className="mt-1 self-start rounded bg-white/10 px-1.5 py-0.5 text-xs text-white hover:bg-white/25 transition-colors"
+                        >
+                            <TrashIcon className="h-4 w-4" />
+                        </button>
+                    </div>
                 </div>
 
                 {isVideo && (

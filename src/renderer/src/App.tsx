@@ -12,6 +12,7 @@ import ScrollView from "./components/ScrollView";
 import CompareView from "./components/CompareView";
 import DiscoverView from "./components/DiscoverView";
 import TagManagerView from "./components/TagManagerView";
+import TripleLaneSlideshow from "./components/TripleLaneSlideshow";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -23,9 +24,17 @@ export default function App(): JSX.Element {
     const { toggleHoverPreview } = useSettings();
 
     const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     const { setStatus, resetStatus } = useStatus();
-    const { rootPath, setRootPath, refreshFolders, activeFolder, setActiveFolder, resetFolders } = useFolders();
+    const {
+        rootPath,
+        setRootPath,
+        refreshFolders,
+        activeFolder,
+        setActiveFolder,
+        resetFolders,
+    } = useFolders();
     const { resetTags } = useTags();
 
     useEffect(() => {
@@ -35,25 +44,31 @@ export default function App(): JSX.Element {
             setScanResult(null);
             resetFolders();
             resetTags();
-            setStatus(
-                "Couldn't find the library folder.",
-            );
+            setStatus("Couldn't find the library folder.");
             setWelcomeMessage(
                 "Library folder was moved or renamed. Please select a new location.",
             );
         });
     }, []);
 
+    useEffect(() => {
+        const cleanup = window.api.onFullscreenChange((isFullscreen) => {
+            console.log("Fullscreen changed:", isFullscreen);
+            setIsFullscreen(isFullscreen);
+        });
+        return cleanup;
+    }, []);
+
     const toggleHoverzoom = useCallback(() => {
         toggleHoverPreview();
-    }, []); 
+    }, []);
 
     useKeyboardShortcut({ key: "z", onKeyPressed: toggleHoverzoom });
 
     const openLibrary = useCallback(
         async (path: string, activeFolder: string | null = null) => {
             setIsScanning(true);
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             setWelcomeMessage("Scanning the selected library...");
             setStatus(activeFolder ? "Rescanning..." : "Opening library...");
             setRootPath(path);
@@ -62,10 +77,12 @@ export default function App(): JSX.Element {
             try {
                 result = await window.api.openLibrary(path);
             } catch (e) {
-                setStatus("Library not found. Change library to select a valid folder.");
+                setStatus(
+                    "Library not found. Change library to select a valid folder.",
+                );
                 setIsScanning(false);
                 return;
-            } 
+            }
 
             setScanResult({ scanned: result.scanned, added: result.added });
             await refreshFolders();
@@ -96,18 +113,31 @@ export default function App(): JSX.Element {
         );
     }
 
+    if (view === "slideshow") {
+        return (
+            <TripleLaneSlideshow
+                onExit={() => setView("browse")}
+            />
+        );
+    }
+
     return (
         <div className="flex h-full flex-col">
-            <div className="titlebar-drag flex h-10 shrink-0 items-center bg-neutral-900 px-4 pl-20">
-                <span className="titlebar-no-drag text-sm font-medium text-neutral-400">
-                    Media Ranker
-                </span>
-                {scanResult && (
-                    <span className="titlebar-no-drag ml-3 text-xs text-neutral-600">
-                        {scanResult.scanned} files · {scanResult.added} new
-                    </span>
-                )}
-            </div>
+            {!isFullscreen && (
+                <div className="titlebar-drag flex h-10 shrink-0 items-center bg-neutral-900 px-4 pl-20">
+                    <div className="titlebar-drag flex flex-1 items-center justify-center">
+                        <span className="text-sm font-medium text-neutral-400">
+                            Media Ranker
+                        </span>
+                        {scanResult && (
+                            <span className="ml-3 text-xs text-neutral-600">
+                                {scanResult.scanned} files · {scanResult.added}{" "}
+                                new
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
 
             <div className="flex flex-1 overflow-hidden">
                 <Sidebar
@@ -115,6 +145,7 @@ export default function App(): JSX.Element {
                     setView={setView}
                     onChangeLibrary={handleSelectFolder}
                     onRescanLibrary={handleRescanLibrary}
+                    isFullscreen={isFullscreen}
                 />
 
                 <main className="flex flex-1 flex-col overflow-hidden bg-neutral-950 min-w-0">
@@ -127,7 +158,7 @@ export default function App(): JSX.Element {
                     >
                         <BrowseView
                             setView={setView}
-                            active={view==="browse"}
+                            active={view === "browse"}
                         />
                     </div>
                     <div
@@ -161,8 +192,7 @@ export default function App(): JSX.Element {
                                 : "hidden"
                         }
                     >
-                        <TagManagerView
-                        />
+                        <TagManagerView />
                     </div>
                 </main>
             </div>

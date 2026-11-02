@@ -14,7 +14,7 @@ type FocusTarget =
     | { kind: "newTag" }
     | null;
 
-const PRESET_COLORS = [
+export const PRESET_COLORS = [
     "#FFFFFF", // pure white (max contrast)
     "#FFFF00", // electric yellow
     "#00FFFF", // cyan
@@ -27,7 +27,7 @@ const PRESET_COLORS = [
     "#FFD700", // gold (high luminance)
 ];
 
-const PRESET_ICONS = ["●", "▲", "■", "◆", "★"];
+export const PRESET_ICONS = ["●", "▲", "■", "◆", "★"];
 
 // ─── CategoryEditor ───────────────────────────────────────────────────────────
 
@@ -60,18 +60,20 @@ function CategoryEditor({
     };
 
     const handleSave = async () => {
+        const trimmedName = name.trim().toLowerCase();
+
         if (category) {
             const updates: Partial<
                 Pick<DbTagCategory, "name" | "color" | "icon">
             > = {};
-            if (name !== category.name) updates.name = name;
+            if (trimmedName !== category.name) updates.name = trimmedName;
             if (color !== category.color) updates.color = color;
             if (icon !== category.icon) updates.icon = icon;
             if (Object.keys(updates).length > 0) {
                 await updateCategory(category.id, updates);
             }
         } else {
-            await createCategory(name, color, icon);
+            await createCategory(trimmedName, color, icon);
         }
         onDone();
     };
@@ -115,7 +117,8 @@ function CategoryEditor({
                 <input
                     className="bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    // Force lowercase as-typed, same as tag names.
+                    onChange={(e) => setName(e.target.value.toLowerCase())}
                 />
             </div>
 
@@ -214,8 +217,12 @@ function NewTagEditor({ onDone }: { onDone: () => void }) {
     const { allCategories, createTag } = useTags();
 
     const handleSave = async () => {
-        if (!name.trim()) return;
-        await createTag(name.trim(), categoryId);
+        // Belt-and-suspenders: lowercase again on save in case name was ever
+        // set some other way. The input's onChange already keeps it lowercase
+        // as the user types, so this should normally be a no-op.
+        const trimmed = name.trim().toLowerCase();
+        if (!trimmed) return;
+        await createTag(trimmed, categoryId);
         onDone();
     };
 
@@ -229,7 +236,9 @@ function NewTagEditor({ onDone }: { onDone: () => void }) {
                     autoFocus
                     className="bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    // Force lowercase as-typed so it matches how TagPanel /
+                    // FolderTagPanel create and compare tag names.
+                    onChange={(e) => setName(e.target.value.toLowerCase())}
                     onKeyDown={(e) => e.key === "Enter" && handleSave()}
                     placeholder="Tag name"
                 />
@@ -297,7 +306,12 @@ function TagEditor({
     const { allCategories, updateTag, deleteTag } = useTags();
 
     const handleSave = async () => {
-        await updateTag(tag.id, name, categoryId);
+        // Same lowercase enforcement here: renaming a tag to mixed case would
+        // silently break the lowercase-based matching in TagPanel /
+        // FolderTagPanel just as badly as creating one with capitals would.
+        const trimmed = name.trim().toLowerCase();
+        if (!trimmed) return;
+        await updateTag(tag.id, trimmed, categoryId);
         onDone();
     };
 
@@ -315,7 +329,7 @@ function TagEditor({
                 <input
                     className="bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => setName(e.target.value.toLowerCase())}
                 />
             </div>
 

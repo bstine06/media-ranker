@@ -19,6 +19,7 @@ import ScrollView from "@renderer/components/ScrollView";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { TagIcon } from "@renderer/components/icons/TagIcon";
 import FolderTagPanel from "./FolderTagPanel";
+import ConfirmDialog from "@renderer/components/ConfirmDialog";
 
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
@@ -62,7 +63,11 @@ export default function BrowseView({
         null,
     );
 
+    const [batchSelectedFiles, setBatchSelectedFiles] = useState<DbFile[]>([]);
+    const [batchingFiles, setBatchingFiles] = useState<boolean>(false);
+
     const [showTagPanel, setShowTagPanel] = useState<boolean>(false);
+    const [deletingFile, setDeletingFile] = useState<DbFile | null>(null);
 
     const { setStatus, resetStatus } = useStatus();
     const {
@@ -79,6 +84,16 @@ export default function BrowseView({
         getFilesForFolder(activeFolder, activeTags, tagMode);
         setBrowseScrollIndex(null);
     }, [rootPath, activeFolder, activeTags, tagMode]);
+
+    const handleDelete = async () => {
+        if (!deletingFile) return;
+        try {
+            await window.api.deleteFile(deletingFile.id);
+            setDeletingFile(null);
+        } catch (error) {
+            console.error("Failed to delete file:", error);
+        }
+    };
 
     useEffect(() => {
         const loadProfiles = async () => {
@@ -250,12 +265,31 @@ export default function BrowseView({
     };
 
     const handleTileClick = (file: DbFile, index: number) => {
-        editingMetadata
-            ? setDraftProfileImage((prev) =>
-                  prev === file.content_hash ? undefined : file.content_hash,
-              )
-            : setBrowseScrollIndex(index);
+        if (editingMetadata) {
+            setDraftProfileImage((prev) =>
+                prev === file.content_hash ? undefined : file.content_hash,
+            );
+        } else {
+            if (batchingFiles) {
+                batchSelectedFiles.includes(file)
+                    ? setBatchSelectedFiles((prev) =>
+                          prev.filter((f) => f.id !== file.id),
+                      )
+                    : setBatchSelectedFiles((prev) => [...prev, file]);
+            } else {
+                setBrowseScrollIndex(index);
+            }
+        }
     };
+
+    const handleExecuteBatchTag = async (tagNames: string[], files: DbFile[]) => {
+        batchSelectedFiles.forEach(async (f) => {
+            tagNames.forEach(async (tagName) => {
+                await window.api.addTag(f.id, tagName);
+            })
+        })
+        setBatchSelectedFiles([]);
+    }
 
     const sortedFiles = useMemo(() => {
         return [...files].sort((a, b) => {
@@ -625,7 +659,7 @@ export default function BrowseView({
                                 <div
                                     key={file.id}
                                     className={`relative cursor-pointer overflow-hidden transition-all ${
-                                        draftProfileImage === file.content_hash
+                                        draftProfileImage === file.content_hash || batchSelectedFiles.includes(file)
                                             ? "ring-2 ring-blue-500 bg-blue-500/10"
                                             : "ring-1 ring-transparent"
                                     }`}
@@ -634,6 +668,7 @@ export default function BrowseView({
                                     <MediaTile
                                         file={file}
                                         rootPath={rootPath!}
+                                        onClickTrash={() => setDeletingFile(file)}
                                     />
                                     {draftProfileImage ===
                                         file.content_hash && (
@@ -667,7 +702,7 @@ export default function BrowseView({
                                 rootPath={rootPath!}
                                 onClick={() => handleTileClick(file, index)}
                                 isSelected={
-                                    draftProfileImage === file.content_hash
+                                    draftProfileImage === file.content_hash || batchSelectedFiles.includes(file)
                                 }
                             />
                         ))}
@@ -682,8 +717,20 @@ export default function BrowseView({
                         folderTags={folderTags}
                         onAddFolderTag={handleAddFolderTag}
                         onRemoveFolderTag={handleRemoveFolderTag}
+                        selectedFiles={batchSelectedFiles}
+                        onBatchTagModeChange={setBatchingFiles}
+                        onExecuteBatchTag={handleExecuteBatchTag}
                     />
                 </div>
+            )}
+            {deletingFile && (
+                <ConfirmDialog
+                    title="Delete File"
+                    message={`Are you sure you want to delete "${deletingFile.filename}"? It will be moved to trash.`}
+                    confirmText="Delete"
+                    onConfirm={handleDelete}
+                    onCancel={() => setDeletingFile(null)}
+                />
             )}
         </div>
     </div>

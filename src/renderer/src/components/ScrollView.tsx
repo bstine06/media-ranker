@@ -106,6 +106,16 @@ export default function ScrollView({
         }
     };
 
+    const handleCopyFileToClipboard = async () =>{
+        if (!currentFile) return;
+        try {
+            await window.api.copyFileToClipboard(`${rootPath}/${currentFile.path}`);
+        } catch (error) {
+            console.error("Failed to copy file:", error);
+            // Optionally: show error toast
+        }
+    };
+
     if (!currentFile)
         return (
             <div className="flex flex-1 items-center justify-center text-neutral-500">
@@ -240,6 +250,12 @@ export default function ScrollView({
                                 {`${Math.round(currentFile.elo_score)} pts`}
                             </span>
                         </div>
+                        <button
+                            className="px-3 py-1 bg-neutral-300 text-neutral-800 rounded text-xs"
+                            onClick={() => handleCopyFileToClipboard()}
+                        >
+                            copy
+                        </button>
                         <button
                             onClick={() => setShowConfirm(true)}
                             className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"

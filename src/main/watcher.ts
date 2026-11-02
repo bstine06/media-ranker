@@ -36,6 +36,14 @@ const watchers = new Map<string, FSWatcher>();
 
 export const ignoredPaths = new Set<string>();
 
+// Always grab the current, live window rather than closing over a reference
+// that may later point to a destroyed BrowserWindow (e.g. after the window
+// is closed and recreated via app.on("activate") on macOS).
+function getActiveWindow(): BrowserWindow | null {
+    const win = BrowserWindow.getAllWindows()[0];
+    return win && !win.isDestroyed() ? win : null;
+}
+
 // Pending unlinks: hash -> { relativePath, timer }
 // Populated when unlink fires first (Windows / Linux ordering)
 const pendingUnlinks = new Map<
@@ -99,7 +107,7 @@ async function waitUntilFileStable(
     throw new Error(`File never stabilized: ${filePath}`);
 }
 
-export function watchFolder(rootPath: string, win: BrowserWindow): void {
+export function watchFolder(rootPath: string, _win: BrowserWindow): void {
     if (watchers.has(rootPath)) return;
 
     const thumbDir = join(rootPath, "_thumbnails");
@@ -119,14 +127,14 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         for (const record of affected) {
             const newRelativePath =
                 newRelativeDir + record.path.slice(oldRelativeDir.length);
-            win.webContents.send("media:renamed", {
+            getActiveWindow()?.webContents.send("media:renamed", {
                 oldRelativePath: record.path,
                 relativePath: newRelativePath,
                 hash: record.content_hash,
                 mediaType: record.media_type,
             });
         }
-        win.webContents.send("folder:renamed", {
+        getActiveWindow()?.webContents.send("folder:renamed", {
             oldRelativePath: oldRelativeDir,
             relativePath: newRelativeDir,
         });
@@ -176,7 +184,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                             basename(filePath),
                             stat.mtimeMs,
                         );
-                        win.webContents.send("media:renamed", {
+                        getActiveWindow()?.webContents.send("media:renamed", {
                             oldRelativePath: pendingUnlink.relativePath,
                             relativePath,
                             hash,
@@ -193,12 +201,12 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                         existingRecord.path === relativePath
                     ) {
                         setFileStatus(hash, "active");
-                        win.webContents.send("media:added", {
+                        getActiveWindow()?.webContents.send("media:added", {
                             relativePath,
                             hash,
                             mediaType,
                         });
-                        
+
                         return;
                     }
 
@@ -217,13 +225,13 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                             );
                             if (existingRecord.status === "missing") {
                                 setFileStatus(hash, "active");
-                                win.webContents.send("media:added", {
+                                getActiveWindow()?.webContents.send("media:added", {
                                     relativePath,
                                     hash,
                                     mediaType,
                                 });
                             } else {
-                                win.webContents.send("media:renamed", {
+                                getActiveWindow()?.webContents.send("media:renamed", {
                                     oldRelativePath: existingRecord.path,
                                     relativePath,
                                     hash,
@@ -251,17 +259,6 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                         mediaType,
                     ).catch(() => {});
 
-                    upsertFile({
-                        content_hash: hash,
-                        path: relativePath,
-                        filename: basename(filePath),
-                        media_type: mediaType,
-                        mtime: stat.mtimeMs,
-                        size: stat.size,
-                        status: "active",
-                        missing_since: null,
-                    });
-
                     const dirRelPath = relative(rootPath, dirname(filePath)) || null;
                     const folder = dirRelPath ? getFolderByPath(dirRelPath) : null;
                     const inserted = upsertFile({
@@ -279,7 +276,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                         applyFolderTagsToFile(inserted.id, inserted.folder_id);
                     }
 
-                    win.webContents.send("media:added", {
+                    getActiveWindow()?.webContents.send("media:added", {
                         relativePath,
                         hash,
                         mediaType,
@@ -310,7 +307,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
                 pendingAdd.filename,
                 pendingAdd.mtime,
             );
-            win.webContents.send("media:renamed", {
+            getActiveWindow()?.webContents.send("media:renamed", {
                 oldRelativePath: relativePath,
                 relativePath: pendingAdd.relativePath,
                 hash: record.content_hash,
@@ -322,12 +319,22 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         // ── Case 2: unlink fires first (Windows/Linux) ──────────────────────
         const { content_hash } = record;
         const timer = setTimeout(() => {
-            pendingUnlinks.delete(content_hash);
-            markFileMissing(relativePath);
-
-            
-
-            win.webContents.send("media:removed", { relativePath });
+            try {
+                pendingUnlinks.delete(content_hash);
+                markFileMissing(relativePath);
+                unlink(join(thumbDir, `${content_hash}.jpg`)).catch((err) => {
+                    if (err.code !== "ENOENT") {
+                        console.error(
+                            "Failed to delete thumbnail:",
+                            content_hash,
+                            err,
+                        );
+                    }
+                });
+                getActiveWindow()?.webContents.send("media:removed", { relativePath });
+            } catch (err) {
+                console.error("Failed to process file removal:", relativePath, err);
+            }
         }, RENAME_WINDOW_MS);
 
         pendingUnlinks.set(content_hash, { relativePath, timer });
@@ -340,7 +347,7 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         // Root folder itself was renamed/moved — signal the frontend to reset
         if (oldRelativeDir === "") {
             saveRootPath(null);
-            win.webContents.send("library:invalid");
+            getActiveWindow()?.webContents.send("library:invalid");
             return;
         }
 
@@ -364,29 +371,33 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         // ── Case 2: unlinkDir fires first (Windows/Linux) ───────────────────
         // Hold the delete and wait to see if a matching addDir arrives.
         const timer = setTimeout(() => {
-            pendingDirUnlinks.delete(oldRelativeDir);
-            deleteFolderByPath(oldRelativeDir);
-            const affected = getFilesByPathPrefix(oldRelativeDir);
-            for (const record of affected) {
-                markFileMissing(record.path);
-                unlink(join(thumbDir, `${record.content_hash}.jpg`)).catch(
-                    (err) => {
-                        if (err.code !== "ENOENT") {
-                            console.error(
-                                "Failed to delete thumbnail:",
-                                record.content_hash,
-                                err,
-                            );
-                        }
-                    },
-                );
-                win.webContents.send("media:removed", {
-                    relativePath: record.path,
+            try {
+                pendingDirUnlinks.delete(oldRelativeDir);
+                deleteFolderByPath(oldRelativeDir);
+                const affected = getFilesByPathPrefix(oldRelativeDir);
+                for (const record of affected) {
+                    markFileMissing(record.path);
+                    unlink(join(thumbDir, `${record.content_hash}.jpg`)).catch(
+                        (err) => {
+                            if (err.code !== "ENOENT") {
+                                console.error(
+                                    "Failed to delete thumbnail:",
+                                    record.content_hash,
+                                    err,
+                                );
+                            }
+                        },
+                    );
+                    getActiveWindow()?.webContents.send("media:removed", {
+                        relativePath: record.path,
+                    });
+                }
+                getActiveWindow()?.webContents.send("folder:removed", {
+                    relativePath: oldRelativeDir,
                 });
+            } catch (err) {
+                console.error("Failed to process folder removal:", oldRelativeDir, err);
             }
-            win.webContents.send("folder:removed", {
-                relativePath: oldRelativeDir,
-            });
         }, RENAME_WINDOW_MS);
 
         pendingDirUnlinks.set(oldRelativeDir, { timer });
@@ -423,11 +434,15 @@ export function watchFolder(rootPath: string, win: BrowserWindow): void {
         // the window it's a genuinely new folder; individual `add` events for
         // its contents will handle any files inside.
         const timer = setTimeout(() => {
-            pendingDirAdds.delete(dirName);
-            upsertFolder(newRelativeDir, dirName);
-            win.webContents.send("folder:added", {
-                relativePath: newRelativeDir,
-            });
+            try {
+                pendingDirAdds.delete(dirName);
+                upsertFolder(newRelativeDir, dirName);
+                getActiveWindow()?.webContents.send("folder:added", {
+                    relativePath: newRelativeDir,
+                });
+            } catch (err) {
+                console.error("Failed to process folder add:", newRelativeDir, err);
+            }
         }, RENAME_WINDOW_MS);
 
         pendingDirAdds.set(dirName, { newRelativeDir, timer });
