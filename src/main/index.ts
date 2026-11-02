@@ -697,6 +697,21 @@ function registerIpcHandlers(): void {
             icon: getDragIcon(getThumbnailPath(rootPath, file.content_hash)),
         });
     });
+
+    // Drag several files at once (a Browse selection).
+    ipcMain.on("drag-files-out", (event, files: DbFile[]) => {
+        if (!rootPath || !Array.isArray(files) || files.length === 0) return;
+        const root = rootPath;
+        const present = files.filter((f) => existsSync(join(root, f.path)));
+        if (present.length === 0) return;
+        const paths = present.map((f) => join(root, f.path));
+
+        event.sender.startDrag({
+            file: paths[0],
+            files: paths,
+            icon: getDragIcon(getThumbnailPath(root, present[0].content_hash)),
+        });
+    });
 }
 
 // Image shown under the cursor while dragging a file out of the app: the

@@ -12,11 +12,14 @@ export default function MediaTile({
     rootPath,
     onClickTrash,
     onClickCrown,
+    onDragOut,
 }: {
     file: DbFile;
     rootPath: string;
     onClickTrash: () => void;
     onClickCrown?: () => void;
+    /** Start the native drag; defaults to dragging just this file. */
+    onDragOut?: () => void;
 }): JSX.Element {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
 
@@ -55,7 +58,8 @@ export default function MediaTile({
                 onDragStart={(e) => {
                     e.preventDefault();
                     handleMouseLeave();
-                    window.api.dragFileOut(file);
+                    if (onDragOut) onDragOut();
+                    else window.api.dragFileOut(file);
                 }}
             >
                 {thumbUrl ? (

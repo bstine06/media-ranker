@@ -22,14 +22,12 @@ export default function FolderTagPanel({
     onAddFolderTag,
     onRemoveFolderTag,
     selectedFiles = [],
-    onBatchTagModeChange,
     onExecuteBatchTag,
 }: {
     folderTags: DbTag[];
     onAddFolderTag: (tag: string) => Promise<void>;
     onRemoveFolderTag: (tag: string) => Promise<void>;
-    selectedFiles?: DbFile[]; // Files selected for batch tagging
-    onBatchTagModeChange?: (isActive: boolean) => void;
+    selectedFiles?: DbFile[]; // Current Browse selection
     onExecuteBatchTag?: (tagNames: string[], files: DbFile[]) => Promise<void>;
 }): JSX.Element {
     const [folderTagInput, setFolderTagInput] = useState("");
@@ -43,7 +41,6 @@ export default function FolderTagPanel({
 
     // Staged tags for batch operation
     const [stagedTags, setStagedTags] = useState<DbTag[]>([]);
-    const [isBatchTagMode, setIsBatchTagMode] = useState(false);
 
     const { allTags, refreshTags, getTagsWithCategory } = useTags();
     const { activeFolder } = useFolders();
@@ -107,10 +104,6 @@ export default function FolderTagPanel({
     useEffect(() => setFolderTagHighlightedIndex(0), [folderTagInput]);
     useEffect(() => setBatchTagHighlightedIndex(0), [batchTagInput]);
 
-    // Notify parent when batch tag mode changes
-    useEffect(() => {
-        onBatchTagModeChange?.(isBatchTagMode);
-    }, [isBatchTagMode, onBatchTagModeChange]);
 
     const addFolderTag = useCallback(
         async (name: string) => {
@@ -191,24 +184,13 @@ export default function FolderTagPanel({
         setStagedTags((prev) => prev.filter((t) => t.id !== tag.id));
     }, []);
 
-    const startBatchTagMode = useCallback(() => {
-        setIsBatchTagMode(true);
-    }, []);
-
-    const cancelBatchTag = useCallback(() => {
-        setIsBatchTagMode(false);
-        setStagedTags([]);
-    }, []);
-
     const executeBatchTag = useCallback(async () => {
         if (stagedTags.length === 0 || selectedFiles.length === 0) return;
 
         const tagNames = stagedTags.map((t) => t.name);
         await onExecuteBatchTag?.(tagNames, selectedFiles);
 
-        // Reset state after execution
         setStagedTags([]);
-        setIsBatchTagMode(false);
     }, [stagedTags, selectedFiles, onExecuteBatchTag]);
 
     const groupByCategory = useCallback((tags: DbTagWithCategory[]) => {
@@ -410,7 +392,7 @@ export default function FolderTagPanel({
                         Batch Tag
                     </p>
                     <p className="text-xs text-neutral-500 italic">
-                        Add tags to multiple files at once.
+                        Add tags to the files selected in Browse.
                     </p>
                 </div>
 
@@ -486,43 +468,22 @@ export default function FolderTagPanel({
                     )}
                 </div>
 
-                {/* Action buttons */}
-                <div className="px-3 pb-3 flex gap-2">
-                    {!isBatchTagMode ? (
-                        <button
-                            onClick={startBatchTagMode}
-                            disabled={stagedTags.length === 0}
-                            className="flex-1 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-colors"
-                        >
-                            Select Files ({stagedTags.length} tag{stagedTags.length !== 1 ? 's' : ''})
-                        </button>
-                    ) : (
-                        <>
-                            <button
-                                onClick={cancelBatchTag}
-                                className="flex-1 px-3 py-1.5 text-xs font-medium bg-neutral-700 hover:bg-neutral-600 text-white rounded-md transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={executeBatchTag}
-                                disabled={selectedFiles.length === 0}
-                                className="flex-1 px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-colors"
-                            >
-                                Apply to {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''}
-                            </button>
-                        </>
+                {/* Action */}
+                <div className="px-3 pb-3">
+                    <button
+                        onClick={executeBatchTag}
+                        disabled={stagedTags.length === 0 || selectedFiles.length === 0}
+                        className="w-full px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-colors"
+                    >
+                        Apply to {selectedFiles.length} selected file
+                        {selectedFiles.length !== 1 ? "s" : ""}
+                    </button>
+                    {selectedFiles.length === 0 && (
+                        <p className="mt-2 text-xs text-neutral-500 italic">
+                            Select files with ⌘-click, the Select button, or ⌘A.
+                        </p>
                     )}
                 </div>
-
-                {/* Info text */}
-                {isBatchTagMode && (
-                    <div className="px-3 pb-3">
-                        <p className="text-xs text-neutral-500 italic">
-                            Select files to tag, then click Apply.
-                        </p>
-                    </div>
-                )}
             </div>
         </div>
     );

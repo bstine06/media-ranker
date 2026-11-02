@@ -151,6 +151,9 @@ const api = {
     dragFileOut: (file: DbFile) => 
         ipcRenderer.send("drag-file-out", file),
 
+    dragFilesOut: (files: DbFile[]) =>
+        ipcRenderer.send("drag-files-out", files),
+
     // ── File watching ──────────────────────────────────────────────────────
     onMediaAdded: (
         callback: (file: {

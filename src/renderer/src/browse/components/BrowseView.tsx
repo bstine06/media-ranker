@@ -64,8 +64,11 @@ export default function BrowseView({
         null,
     );
 
-    const [batchSelectedFiles, setBatchSelectedFiles] = useState<DbFile[]>([]);
-    const [batchingFiles, setBatchingFiles] = useState<boolean>(false);
+    // ── Selection ───────────────────────────────────────────────────────────
+    // ⌘-click toggles a file; "Select" mode makes plain clicks toggle too.
+    // The selection can be batch tagged, or dragged (to a folder / out).
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    const [selectMode, setSelectMode] = useState(false);
 
     const [showTagPanel, setShowTagPanel] = useState<boolean>(false);
     const [deletingFile, setDeletingFile] = useState<DbFile | null>(null);
@@ -287,26 +290,36 @@ export default function BrowseView({
         setDraftProfileImage(undefined);
     };
 
-    const handleTileClick = (file: DbFile, index: number) => {
+    const isSelected = (file: DbFile) => selectedIds.has(file.id);
+
+    const toggleSelected = (file: DbFile) =>
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(file.id)) next.delete(file.id);
+            else next.add(file.id);
+            return next;
+        });
+
+    const clearSelection = useCallback(() => {
+        setSelectedIds(new Set());
+        setSelectMode(false);
+    }, []);
+
+    const handleTileClick = (
+        file: DbFile,
+        index: number,
+        e?: React.MouseEvent,
+    ) => {
         if (editingMetadata) {
             setDraftProfileImage((prev) =>
                 prev === file.content_hash ? undefined : file.content_hash,
             );
+        } else if (selectMode || e?.metaKey || e?.ctrlKey) {
+            toggleSelected(file);
         } else {
-            if (batchingFiles) {
-                isBatchSelected(file)
-                    ? setBatchSelectedFiles((prev) =>
-                          prev.filter((f) => f.id !== file.id),
-                      )
-                    : setBatchSelectedFiles((prev) => [...prev, file]);
-            } else {
-                setBrowseScrollIndex(index);
-            }
+            setBrowseScrollIndex(index);
         }
     };
-
-    const isBatchSelected = (file: DbFile) =>
-        batchSelectedFiles.some((f) => f.id === file.id);
 
     const handleExecuteBatchTag = async (tagNames: string[], files: DbFile[]) => {
         try {
@@ -319,13 +332,8 @@ export default function BrowseView({
             console.error("Batch tag failed:", error);
         }
         refreshTags();
-        setBatchSelectedFiles([]);
+        // Keep the selection so the same files can be dragged/moved next.
     };
-
-    const handleBatchTagModeChange = useCallback((active: boolean) => {
-        setBatchingFiles(active);
-        if (!active) setBatchSelectedFiles([]);
-    }, []);
 
     const sortedFiles = useMemo(() => {
         return [...files].sort((a, b) => {
@@ -344,6 +352,64 @@ export default function BrowseView({
             return sortDirection === "down" ? d : d * -1;
         });
     }, [files, sortMode, sortDirection]);
+
+    const selectedFiles = useMemo(
+        () => sortedFiles.filter((f) => selectedIds.has(f.id)),
+        [sortedFiles, selectedIds],
+    );
+
+    // New folder / filters: start with nothing selected.
+    useEffect(() => {
+        clearSelection();
+    }, [rootPath, activeFolder, activeTags, tagMode, showUnsorted, clearSelection]);
+
+    // Files that leave the view (moved, deleted) drop out of the selection.
+    useEffect(() => {
+        setSelectedIds((prev) => {
+            if (prev.size === 0) return prev;
+            const present = new Set(files.map((f) => f.id));
+            const next = new Set([...prev].filter((id) => present.has(id)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [files]);
+
+    // ⌘A selects everything visible; Esc clears. Only on the grid/list (not
+    // the scroll view), and never while typing in a field.
+    useEffect(() => {
+        if (!active || browseScrollIndex !== null) return;
+        const onKey = (e: KeyboardEvent) => {
+            const t = e.target as HTMLElement | null;
+            if (
+                t &&
+                (t.tagName === "INPUT" ||
+                    t.tagName === "TEXTAREA" ||
+                    t.isContentEditable)
+            ) {
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+                e.preventDefault();
+                setSelectedIds(new Set(sortedFiles.map((f) => f.id)));
+            } else if (
+                e.key === "Escape" &&
+                (selectedIds.size > 0 || selectMode)
+            ) {
+                clearSelection();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [active, browseScrollIndex, sortedFiles, selectedIds, selectMode, clearSelection]);
+
+    // Dragging a selected file drags the whole selection; dragging any other
+    // file drags just that one (like Finder).
+    const handleDragOut = (file: DbFile) => {
+        if (selectedIds.has(file.id) && selectedFiles.length > 1) {
+            window.api.dragFilesOut(selectedFiles);
+        } else {
+            window.api.dragFileOut(file);
+        }
+    };
 
     useEffect(() => {
         const handleAdded = window.api.onMediaAdded(
@@ -464,9 +530,53 @@ export default function BrowseView({
     >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3">
-            <h2 className="text-sm font-medium text-neutral-300">
-                {showUnsorted ? "Unsorted" : (activeFolder ?? "All Files")}
-            </h2>
+            <div className="flex items-center gap-3 min-w-0">
+                <h2 className="truncate text-sm font-medium text-neutral-300">
+                    {showUnsorted ? "Unsorted" : (activeFolder ?? "All Files")}
+                </h2>
+                <button
+                    onClick={() =>
+                        selectMode ? clearSelection() : setSelectMode(true)
+                    }
+                    title="Select files (or ⌘-click any file · ⌘A selects all · Esc clears)"
+                    className={`shrink-0 text-xs rounded px-2 py-1 transition-colors ${
+                        selectMode
+                            ? "bg-neutral-700 text-neutral-200"
+                            : "text-neutral-600 hover:text-neutral-400"
+                    }`}
+                >
+                    Select
+                </button>
+                {(selectMode || selectedIds.size > 0) && (
+                    <div className="flex shrink-0 items-center gap-1 text-xs">
+                        <span className="tabular-nums text-neutral-400 mr-1">
+                            {selectedFiles.length} selected
+                        </span>
+                        <button
+                            onClick={() =>
+                                setSelectedIds(new Set(sortedFiles.map((f) => f.id)))
+                            }
+                            className="rounded px-2 py-1 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
+                        >
+                            All
+                        </button>
+                        <button
+                            onClick={() => setShowTagPanel(true)}
+                            disabled={selectedFiles.length === 0}
+                            title="Batch tag the selection"
+                            className="rounded px-2 py-1 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-500 transition-colors"
+                        >
+                            Tag
+                        </button>
+                        <button
+                            onClick={clearSelection}
+                            className="rounded px-2 py-1 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                )}
+            </div>
             <div className="flex items-center gap-3">
                 <div className="flex gap-2">
                     <button
@@ -708,17 +818,18 @@ export default function BrowseView({
                                 <div
                                     key={file.id}
                                     className={`relative cursor-pointer overflow-hidden transition-all ${
-                                        draftProfileImage === file.content_hash || isBatchSelected(file)
+                                        draftProfileImage === file.content_hash || isSelected(file)
                                             ? "ring-2 ring-blue-500 bg-blue-500/10"
                                             : "ring-1 ring-transparent"
                                     }`}
-                                    onClick={() => handleTileClick(file, i)}
+                                    onClick={(e) => handleTileClick(file, i, e)}
                                 >
                                     <MediaTile
                                         file={file}
                                         rootPath={rootPath!}
                                         onClickTrash={() => setDeletingFile(file)}
                                         onClickCrown={() => crownAndCompare(file)}
+                                        onDragOut={() => handleDragOut(file)}
                                     />
                                     {draftProfileImage ===
                                         file.content_hash && (
@@ -750,9 +861,10 @@ export default function BrowseView({
                                 file={file}
                                 rank={sortMode === "rank" ? index + 1 : null}
                                 rootPath={rootPath!}
-                                onClick={() => handleTileClick(file, index)}
+                                onClick={(e) => handleTileClick(file, index, e)}
+                                onDragOut={() => handleDragOut(file)}
                                 isSelected={
-                                    draftProfileImage === file.content_hash || isBatchSelected(file)
+                                    draftProfileImage === file.content_hash || isSelected(file)
                                 }
                             />
                         ))}
@@ -767,8 +879,7 @@ export default function BrowseView({
                         folderTags={folderTags}
                         onAddFolderTag={handleAddFolderTag}
                         onRemoveFolderTag={handleRemoveFolderTag}
-                        selectedFiles={batchSelectedFiles}
-                        onBatchTagModeChange={handleBatchTagModeChange}
+                        selectedFiles={selectedFiles}
                         onExecuteBatchTag={handleExecuteBatchTag}
                     />
                 </div>

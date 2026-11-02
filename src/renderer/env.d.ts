@@ -166,6 +166,7 @@ declare global {
             deleteFile: (fileId: number) => Promise<void>;
             copyFileToClipboard: (filePath: string) => Promise<boolean>;
             dragFileOut: (file: DbFile) => void;
+            dragFilesOut: (files: DbFile[]) => void;
 
             // Tag CRUD
             createTag: (name: string, categoryId: number | null) => Promise<DbTag>;

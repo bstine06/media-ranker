@@ -12,12 +12,14 @@ export default function BrowseRow({
     rootPath,
     rank,
     onClick,
+    onDragOut,
     isSelected = false,
 }: {
     file: DbFile;
     rootPath: string;
     rank: number | null;
-    onClick: () => void;
+    onClick: (e: React.MouseEvent) => void;
+    onDragOut?: () => void;
     isSelected?: boolean;
 }): JSX.Element {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
@@ -57,6 +59,13 @@ export default function BrowseRow({
             : "border-l-transparent hover:border-l-neutral-600"
     }`}
     onClick={onClick}
+    draggable
+    onDragStart={(e) => {
+        e.preventDefault();
+        handleMouseLeave();
+        if (onDragOut) onDragOut();
+        else window.api.dragFileOut(file);
+    }}
 >
                 {rank !== null && (
                     <span
