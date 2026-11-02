@@ -13,6 +13,8 @@ interface Settings {
     toggleShowTagCategoryNames: () => void;
     pauseWhenUnfocused: boolean;
     togglePauseWhenUnfocused: () => void;
+    alwaysShowUnsorted: boolean;
+    toggleAlwaysShowUnsorted: () => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -28,6 +30,8 @@ const SettingsContext = createContext<Settings>({
     toggleShowTagCategoryNames: () => {},
     pauseWhenUnfocused: true,
     togglePauseWhenUnfocused: () => {},
+    alwaysShowUnsorted: false,
+    toggleAlwaysShowUnsorted: () => {},
 });
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
@@ -71,6 +75,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const [showTagCategoryNames, setShowTagCategoryNames] = useState<boolean>(true);
     const toggleShowTagCategoryNames = useCallback(() => {
         setShowTagCategoryNames((tgn) => !tgn)
+    }, []);
+
+    const [alwaysShowUnsorted, setAlwaysShowUnsorted] = useState(false);
+    const toggleAlwaysShowUnsorted = useCallback(() => {
+        setAlwaysShowUnsorted((a) => !a);
     }, []);
 
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(true);
@@ -123,6 +132,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 toggleShowTagCategoryNames,
                 pauseWhenUnfocused,
                 togglePauseWhenUnfocused,
+                alwaysShowUnsorted,
+                toggleAlwaysShowUnsorted,
             }}
         >
             {children}

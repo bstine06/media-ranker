@@ -304,6 +304,8 @@ function SettingsSection(): JSX.Element {
         toggleShowTagCategoryNames,
         pauseWhenUnfocused,
         togglePauseWhenUnfocused,
+        alwaysShowUnsorted,
+        toggleAlwaysShowUnsorted,
     } = useSettings();
     const [open, setOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -377,6 +379,22 @@ function SettingsSection(): JSX.Element {
                             }`}
                         >
                             {pauseWhenUnfocused ? "on" : "off"}
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
+                        <p className="text-xs text-neutral-500">
+                            Show Unsorted When Empty
+                        </p>
+                        <button
+                            onClick={toggleAlwaysShowUnsorted}
+                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
+                                alwaysShowUnsorted
+                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                            }`}
+                        >
+                            {alwaysShowUnsorted ? "on" : "off"}
                         </button>
                     </div>
 
@@ -493,6 +511,7 @@ export default function Sidebar({
     };
     const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion, refreshFolders, setAllChecked } = useFolders();
     const { showUnsorted, setShowUnsorted } = useFolders();
+    const { alwaysShowUnsorted } = useSettings();
 
     // Count of files sitting directly in the library folder; refreshed when
     // files are added, removed, or moved.
@@ -520,8 +539,10 @@ export default function Sidebar({
 
     // Last unsorted file got filed away while viewing Unsorted: go back to All.
     useEffect(() => {
-        if (showUnsorted && unsortedCount === 0) setShowUnsorted(false);
-    }, [showUnsorted, unsortedCount, setShowUnsorted]);
+        if (showUnsorted && unsortedCount === 0 && !alwaysShowUnsorted) {
+            setShowUnsorted(false);
+        }
+    }, [showUnsorted, unsortedCount, alwaysShowUnsorted, setShowUnsorted]);
 
     // New folder
     const [creatingFolder, setCreatingFolder] = useState(false);
@@ -680,7 +701,9 @@ export default function Sidebar({
                         </FileDropRow>
                     )}
 
-                    {!isSearching && !isFilterable && unsortedCount > 0 && (
+                    {!isSearching &&
+                        !isFilterable &&
+                        (unsortedCount > 0 || alwaysShowUnsorted) && (
                         <UnsortedItem
                             active={showUnsorted}
                             count={unsortedCount}
