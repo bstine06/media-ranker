@@ -156,10 +156,12 @@ function UnsortedItem({
             className={`flex items-center pr-4 transition-colors ${
                 isDropTarget
                     ? "bg-neutral-700 ring-1 ring-inset ring-neutral-400"
-                    : "hover:bg-neutral-800"
+                    : ""
             }`}
             {...dropHandlers}
         >
+            {/* Same leading spacer as the All Collections row */}
+            <span className="mr-1 w-4" />
             <button
                 onClick={onSelect}
                 title="Files sitting directly in the library folder"
@@ -493,6 +495,11 @@ export default function Sidebar({
         };
     }, [rootPath]);
 
+    // Last unsorted file got filed away while viewing Unsorted: go back to All.
+    useEffect(() => {
+        if (showUnsorted && unsortedCount === 0) setShowUnsorted(false);
+    }, [showUnsorted, unsortedCount, setShowUnsorted]);
+
     // New folder
     const [creatingFolder, setCreatingFolder] = useState(false);
     const [newFolderName, setNewFolderName] = useState("");
@@ -650,7 +657,7 @@ export default function Sidebar({
                         </div>
                     )}
 
-                    {!isSearching && !isFilterable && (
+                    {!isSearching && !isFilterable && unsortedCount > 0 && (
                         <UnsortedItem
                             active={showUnsorted}
                             count={unsortedCount}
