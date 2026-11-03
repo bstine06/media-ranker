@@ -1,52 +1,49 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import {
+    useEffect,
+    useState,
+    useCallback,
+    useRef,
+    useMemo,
+} from "react";
 import type { DbFile, DbTag, View } from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
-import { useKeyboardShortcut } from "../hooks/useKeyboard";
-import { useSettings } from "../contexts/SettingsContext";
-import { MediaPlayer } from "./MediaPlayer";
+import { preloadImage } from "../lib/imageCache";
+import { MediaPlayer, type MediaControls } from "./MediaPlayer";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { TagPill } from "./TagPill";
 import { CrownIcon } from "./icons/CrownIcon";
+import { FolderIcon } from "./icons/FolderIcon";
 import {
     useKingOfHill,
     type KingState,
 } from "@renderer/contexts/KingOfHillContext";
 import SingleFileView from "./SingleFileView";
 
-// Held at module level so GC doesn't collect them before decode finishes
-const preloadCache = new Map<string, HTMLImageElement>();
-
-function preloadImage(url: string): void {
-    if (preloadCache.has(url)) return;
-    const img = new Image();
-    img.src = url;
-    preloadCache.set(url, img);
-    img.decode().finally(() => preloadCache.delete(url));
-}
-
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
     if (file.media_type === "video") return;
     preloadImage(toMediaUrl(rootPath, file.path));
 }
 
-function xToScore(x: number, width: number, side: "a" | "b"): number {
-    // For card A: left edge = far (score 3), right edge = near center (score 1)
-    // For card B: right edge = far (score 3), left edge = near center (score 1)
-    const fraction = x / width; // 0 = left edge, 1 = right edge
-    const distFromInner = side === "a" ? 1 - fraction : fraction;
-    // distFromInner: 0 = inner edge (near center of view) = score 1
-    //                1 = outer edge (far from center)      = score 3
-    if (distFromInner < 1 / 3) return 1;
-    if (distFromInner < 2 / 3) return 2;
-    return 3;
-}
+type Side = "a" | "b";
 
-function formatTime(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
+// After a new pair appears, ignore S this long so an extra keypress meant
+// for the last round doesn't pick on the new one.
+const PICK_LOCKOUT_MS = 175;
+
+// The info bar slides in when the cursor is within this many px of a card's top.
+const INFO_BAR_ZONE_PX = 88;
+
+// How many picks W can step back through.
+const UNDO_LIMIT = 5;
+
+interface UndoEntry {
+    comparisonId: number;
+    pair: [DbFile, DbFile];
+    focus: Side;
+    king: KingState | null;
+    recentChallengers: number[];
 }
 
 export default function CompareView({
@@ -59,15 +56,18 @@ export default function CompareView({
     const [pair, setPair] = useState<[DbFile, DbFile] | null>(null);
     const [loading, setLoading] = useState(true);
     const [comparing, setComparing] = useState(false);
-    const [stats, setStats] = useState({ comparisons: 0 });
-    const [hoveredSide, setHoveredSide] = useState<"a" | "b" | null>(null);
-    const [score, setScore] = useState(0);
+    // Always one side focused: it has sound and gets Space / Q / E.
+    // Starts on the left, then follows whichever side won the last round.
+    const [focus, setFocus] = useState<Side>("a");
     const [inspectedFile, setInspectedFile] = useState<DbFile | null>(null);
+
+    const undoStackRef = useRef<UndoEntry[]>([]);
+    const pairShownAtRef = useRef(0);
+    const controlsA = useRef<MediaControls | null>(null);
+    const controlsB = useRef<MediaControls | null>(null);
 
     const { activeTags, tagMode } = useTags();
     const { rootPath, folderPrefixes, setActiveFolder } = useFolders();
-
-    const MAX_SCORE = 3;
 
     const tagKey = useMemo(
         () => [...activeTags].sort().join(","),
@@ -189,28 +189,42 @@ export default function CompareView({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [king?.file.id]);
 
+    useEffect(() => {
+        pairShownAtRef.current = performance.now();
+    }, [pair]);
+
     const handlePick = useCallback(
-        async (winnerId: number, loserId: number, margin: number) => {
+        async (winnerSide: Side) => {
             if (comparing || !pair) return;
+            const winner = winnerSide === "a" ? pair[0] : pair[1];
+            const loser = winnerSide === "a" ? pair[1] : pair[0];
             setComparing(true);
-            setHoveredSide(null);
-            setScore(0);
-            const res = await window.api.recordComparison(
-                winnerId,
-                loserId,
-                margin,
-            );
-            setStats((s) => ({ comparisons: s.comparisons + 1 }));
+            const kingBefore = kingRef.current;
+            const recentBefore = recentChallengersRef.current;
+            const res = await window.api.recordComparison(winner.id, loser.id);
+
+            if (res) {
+                undoStackRef.current = [
+                    ...undoStackRef.current,
+                    {
+                        comparisonId: res.comparisonId,
+                        pair,
+                        focus,
+                        king: kingBefore,
+                        recentChallengers: recentBefore,
+                    },
+                ].slice(-UNDO_LIMIT);
+            }
 
             let nextKing = kingRef.current;
             if (res && nextKing) {
-                if (winnerId === nextKing.file.id) {
+                if (winner.id === nextKing.file.id) {
                     nextKing = {
                         ...nextKing,
                         file: res.winner,
                         streak: nextKing.streak + 1,
                     };
-                } else if (loserId === nextKing.file.id) {
+                } else if (loser.id === nextKing.file.id) {
                     // The old king shouldn't come straight back as challenger.
                     recentChallengersRef.current = [
                         nextKing.file.id,
@@ -219,7 +233,7 @@ export default function CompareView({
                     nextKing = {
                         file: res.winner,
                         streak: 1,
-                        side: pair[0].id === winnerId ? "a" : "b",
+                        side: winnerSide,
                     };
                 }
                 kingRef.current = nextKing;
@@ -227,77 +241,102 @@ export default function CompareView({
             }
 
             await loadPair(nextKing);
+            setFocus(winnerSide);
             setComparing(false);
         },
-        [comparing, pair, loadPair, setKing],
+        [comparing, pair, focus, loadPair, setKing],
     );
 
-    const handleSkip = useCallback(() => {
-        setHoveredSide(null);
-        setScore(0);
-        loadPair();
-    }, [loadPair]);
-
-    const handleLeft = useCallback(() => {
-        if (hoveredSide === "a" && score < MAX_SCORE) {
-            setScore((s) => s + 1);
-        } else if (hoveredSide === null) {
-            setScore((s) => s + 1);
-            setHoveredSide("a");
-        } else if (hoveredSide === "b") {
-            if (score === 1) {
-                setScore(0);
-                setHoveredSide(null);
-            } else {
-                setScore((s) => s - 1);
+    // Rolls back the last pick and puts that matchup back on screen.
+    const handleUndo = useCallback(async () => {
+        if (comparing) return;
+        const entry = undoStackRef.current.at(-1);
+        if (!entry) return;
+        setComparing(true);
+        const [a, b] = entry.pair;
+        const fresh = await window.api.undoComparison(entry.comparisonId, [
+            a.id,
+            b.id,
+        ]);
+        undoStackRef.current = undoStackRef.current.slice(0, -1);
+        if (fresh && fresh[0] && fresh[1]) {
+            const restored: [DbFile, DbFile] = [fresh[0], fresh[1]];
+            let k = entry.king;
+            if (k) {
+                const kingFile = restored.find((f) => f.id === k!.file.id);
+                if (kingFile) k = { ...k, file: kingFile };
             }
+            recentChallengersRef.current = entry.recentChallengers;
+            kingRef.current = k;
+            setKing(k);
+            setPair(restored);
+            setFocus(entry.focus);
         }
-    }, [hoveredSide, score]);
+        setComparing(false);
+    }, [comparing, setKing]);
 
-    const handleRight = useCallback(() => {
-        if (hoveredSide === "b" && score < MAX_SCORE) {
-            setScore((s) => s + 1);
-        } else if (hoveredSide === null) {
-            setScore((s) => s + 1);
-            setHoveredSide("b");
-        } else if (hoveredSide === "a") {
-            if (score === 1) {
-                setScore(0);
-                setHoveredSide(null);
-            } else {
-                setScore((s) => s - 1);
+    // S: the focused side wins.
+    const submit = useCallback(() => {
+        if (comparing || !pair) return;
+        if (performance.now() - pairShownAtRef.current < PICK_LOCKOUT_MS)
+            return;
+        handlePick(focus);
+    }, [comparing, pair, focus, handlePick]);
+
+    const keysEnabled = active && !inspectedFile;
+
+    useEffect(() => {
+        if (!keysEnabled) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            const el = document.activeElement as HTMLElement | null;
+            if (
+                el?.tagName === "INPUT" ||
+                el?.tagName === "TEXTAREA" ||
+                el?.isContentEditable
+            )
+                return;
+
+            const controls =
+                focus === "a" ? controlsA.current : controlsB.current;
+
+            // Physical keys, so it's WASD-shaped on any keyboard layout.
+            switch (e.code) {
+                case "KeyA":
+                case "KeyD":
+                    e.preventDefault();
+                    setFocus(e.code === "KeyA" ? "a" : "b");
+                    break;
+                case "KeyS":
+                    e.preventDefault();
+                    if (e.repeat) return;
+                    submit();
+                    break;
+                case "KeyW":
+                    e.preventDefault();
+                    if (e.repeat) return;
+                    handleUndo();
+                    break;
+                case "KeyQ":
+                case "KeyE":
+                    e.preventDefault();
+                    controls?.step(e.code === "KeyQ" ? -1 : 1);
+                    break;
+                case "Space":
+                    e.preventDefault();
+                    if (e.repeat) return;
+                    controls?.togglePlay();
+                    break;
             }
-        }
-    }, [hoveredSide, score]);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [keysEnabled, focus, submit, handleUndo]);
 
-    const handleDown = useCallback(() => {
-        if (!pair || comparing || hoveredSide === null) return;
-        const [a, b] = pair;
-        if (hoveredSide === "a") {
-            handlePick(a.id, b.id, score);
-        } else {
-            handlePick(b.id, a.id, score);
-        }
-        setScore(0);
-    }, [pair, comparing, hoveredSide, score, handlePick]);
-
-    useKeyboardShortcut({
-        key: "a",
-        onKeyPressed: handleLeft,
-        enabled: active,
-    });
-    useKeyboardShortcut({
-        key: "d",
-        onKeyPressed: handleRight,
-        enabled: active,
-    });
-    useKeyboardShortcut({
-        key: "s",
-        onKeyPressed: handleDown,
-        enabled: active,
-    });
-
-    if (loading) {
+    // Only blank the screen on the very first load. Swapping in a new pair
+    // keeps the cards mounted, so a video that stays on screen (the king)
+    // isn't torn down and reloaded.
+    if (loading && !pair) {
         return (
             <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
                 Loading…
@@ -315,6 +354,7 @@ export default function CompareView({
 
     const [a, b] = pair;
 
+
     if (inspectedFile) {
         return (<SingleFileView
             onClose={() => setInspectedFile(null)}
@@ -326,42 +366,16 @@ export default function CompareView({
 
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden">
-            <div className="flex flex-col p-2 overflow-hidden flex-1 min-h-0">
-                <ScoreBar
-                    score={score}
-                    leader={hoveredSide}
-                    onSegmentHover={(newLeader, newScore) => {
-                        setHoveredSide(newLeader);
-                        setScore(newScore);
-                    }}
-                    onSegmentLeave={() => {
-                        setHoveredSide(null);
-                        setScore(0);
-                    }}
-                    onSegmentClick={handleDown}
-                />
-                <div
-                    className="flex flex-1 overflow-hidden min-h-0"
-                    onMouseLeave={() => {
-                        setScore(0);
-                        setHoveredSide(null);
-                    }}
-                >
+            <div className="flex flex-1 min-h-0 overflow-hidden bg-black">
                     <CompareCard
                         file={a}
                         side="a"
                         rootPath={rootPath!}
-                        disabled={comparing || !active}
-                        hoveredSide={hoveredSide}
-                        onScoreHover={(leader, s) => {
-                            setHoveredSide(leader);
-                            setScore(s);
-                        }}
-                        onScoreLeave={() => {
-                            setScore(0);
-                            setHoveredSide(null);
-                        }}
-                        onCommit={handleDown}
+                        disabled={!active}
+                        focused={focus === "a"}
+                        controlsRef={controlsA}
+                        onFocus={() => setFocus("a")}
+                        onPick={() => handlePick("a")}
                         onInspectFile={() => {
                             setInspectedFile(a);
                         }}
@@ -375,22 +389,16 @@ export default function CompareView({
                             setView("browse");
                         }}
                     />
-                    <div className="w-8" />
+                    <div className="w-px shrink-0 bg-neutral-800" />
                     <CompareCard
                         file={b}
                         side="b"
                         rootPath={rootPath!}
-                        disabled={comparing || !active}
-                        hoveredSide={hoveredSide}
-                        onScoreHover={(leader, s) => {
-                            setHoveredSide(leader);
-                            setScore(s);
-                        }}
-                        onScoreLeave={() => {
-                            setScore(0);
-                            setHoveredSide(null);
-                        }}
-                        onCommit={handleDown}
+                        disabled={!active}
+                        focused={focus === "b"}
+                        controlsRef={controlsB}
+                        onFocus={() => setFocus("b")}
+                        onPick={() => handlePick("b")}
                         onInspectFile={() => {
                             setInspectedFile(b);
                         }}
@@ -404,82 +412,7 @@ export default function CompareView({
                             setView("browse");
                         }}
                     />
-                </div>
             </div>
-        </div>
-    );
-}
-
-function ScoreBar({
-    score,
-    leader,
-    onSegmentHover,
-    onSegmentLeave,
-    onSegmentClick,
-}: {
-    score: number;
-    leader: "a" | "b" | null;
-    onSegmentHover: (leader: "a" | "b" | null, score: number) => void;
-    onSegmentLeave: () => void;
-    onSegmentClick: () => void;
-}): JSX.Element {
-    const totalSegments = 6;
-
-    const isLit = (index: number): boolean => {
-        if (leader === "a") return index < 3 && index >= 3 - score;
-        if (leader === "b") return index >= 3 && index < 3 + score;
-        return false;
-    };
-
-    const segmentToState = (i: number) => {
-        if (i < 3) return { leader: "a" as const, score: 3 - i };
-        return { leader: "b" as const, score: i - 2 };
-    };
-
-    const scoreToColor = [
-        "",
-        "bg-neutral-300",
-        "bg-neutral-200",
-        "bg-neutral-100",
-    ];
-
-    return (
-        <div
-            className="flex justify-center w-full"
-            onMouseLeave={onSegmentLeave}
-        >
-            {/* Left group: only the leftmost segment gets a left-rounded cap */}
-            {Array.from({ length: totalSegments / 2 }, (_, i) => {
-                const isLast = i === totalSegments / 2 - 1;
-                return (
-                    <div
-                        key={i}
-                        className={`h-3 w-1/6 cursor-pointer ${isLit(i) ? scoreToColor[score] : "bg-neutral-700"} transition-color duration-100 ${i === 0 ? "rounded-tl-full" : ""} ${isLast ? "rounded-tr-full" : ""}`}
-                        onMouseEnter={() => {
-                            const { leader, score } = segmentToState(i);
-                            onSegmentHover(leader, score);
-                        }}
-                        onClick={onSegmentClick}
-                    />
-                );
-            })}
-            <div className="w-8 shrink-0" />
-            {/* Right group: only the rightmost segment gets a right-rounded cap */}
-            {Array.from({ length: totalSegments / 2 }, (_, i) => {
-                const index = i + totalSegments / 2;
-                const isLast = i === totalSegments / 2 - 1;
-                return (
-                    <div
-                        key={index}
-                        className={`h-3 w-1/6 cursor-pointer ${isLit(index) ? scoreToColor[score] : "bg-neutral-700"} transition-color duration-100 ${i === 0 ? "rounded-tl-full" : ""} ${isLast ? "rounded-tr-full" : ""}`}
-                        onMouseEnter={() => {
-                            const { leader, score } = segmentToState(index);
-                            onSegmentHover(leader, score);
-                        }}
-                        onClick={onSegmentClick}
-                    />
-                );
-            })}
         </div>
     );
 }
@@ -489,10 +422,10 @@ function CompareCard({
     side,
     rootPath,
     disabled,
-    hoveredSide,
-    onScoreHover,
-    onScoreLeave,
-    onCommit,
+    focused,
+    controlsRef,
+    onFocus,
+    onPick,
     onInspectFile,
     onGoToFolder,
     isKing,
@@ -501,13 +434,13 @@ function CompareCard({
     onUncrown,
 }: {
     file: DbFile;
-    side: "a" | "b";
+    side: Side;
     rootPath: string;
     disabled: boolean;
-    hoveredSide: "a" | "b" | null;
-    onScoreHover: (leader: "a" | "b" | null, score: number) => void;
-    onScoreLeave: () => void;
-    onCommit: () => void;
+    focused: boolean;
+    controlsRef: React.MutableRefObject<MediaControls | null>;
+    onFocus: () => void;
+    onPick: () => void;
     onInspectFile: (file: DbFile) => void;
     onGoToFolder: (folderPath: string) => void;
     isKing: boolean;
@@ -515,39 +448,113 @@ function CompareCard({
     onCrown: () => void;
     onUncrown: () => void;
 }): JSX.Element {
-    const focusTagInput = useRef<(() => void) | null>(null);
-    const hovered = hoveredSide === side;
-
+    // Only real mouse movement takes focus. The browser can fire mousemove
+    // when the content under a resting cursor changes (a new pair loading),
+    // which must not override the keyboard's focus.
+    const lastPointRef = useRef<{ x: number; y: number } | null>(null);
     const handleMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const relX = e.clientX - rect.left;
-            onScoreHover(side, xToScore(relX, rect.width, side));
+            const last = lastPointRef.current;
+            lastPointRef.current = { x: e.screenX, y: e.screenY };
+            if (!last || (last.x === e.screenX && last.y === e.screenY)) return;
+            if (!focused) onFocus();
         },
-        [side, onScoreHover],
+        [focused, onFocus],
     );
+
+    // When this side gets a new file, the old player stays on top until the
+    // new one has a frame to show, so the cut never passes through black.
+    const [outgoing, setOutgoing] = useState<DbFile | null>(null);
+    const [prevFile, setPrevFile] = useState(file);
+    if (file.id !== prevFile.id) {
+        // Mid-swap already? The outgoing one is still what's visible.
+        setOutgoing(outgoing ?? prevFile);
+        setPrevFile(file);
+    } else if (file !== prevFile) {
+        setPrevFile(file); // same file, fresh scores
+    }
+    const incomingReady = useCallback(() => setOutgoing(null), []);
+    // Don't hold the old one forever if the new one never loads.
+    useEffect(() => {
+        if (!outgoing) return;
+        const t = setTimeout(incomingReady, 1500);
+        return () => clearTimeout(t);
+    }, [outgoing, incomingReady]);
+
+    const [showBar, setShowBar] = useState(false);
+    // Bar pieces fade together; only shown pieces catch the mouse, and the
+    // bar itself lets clicks through so they still pick.
+    const fade = showBar
+        ? "opacity-100 pointer-events-auto"
+        : "opacity-0 pointer-events-none";
 
     return (
         <div
-            className={`relative flex flex-1 flex-col overflow-hidden rounded-xl rounded-t-none border-2 transition-all
-                ${disabled ? "border-neutral-800 opacity-60" : hovered ? "border-neutral-500" : "border-neutral-700"}`}
-            onMouseEnter={() => focusTagInput.current?.()}
+            data-side={side}
+            className={`relative flex min-w-0 flex-1 flex-col overflow-hidden transition-opacity ${disabled ? "opacity-60" : ""}`}
+            onMouseMove={(e) => {
+                const top = e.currentTarget.getBoundingClientRect().top;
+                setShowBar(e.clientY - top < INFO_BAR_ZONE_PX);
+            }}
+            onMouseLeave={() => setShowBar(false)}
         >
-            <MediaPlayer
-                file={file}
-                rootPath={rootPath}
-                disabled={disabled}
-                muted={!hovered || disabled}
-                onClick={disabled ? undefined : onCommit}
-                onMouseMove={handleMouseMove}
-                className="flex-1"
-                clickToPauseEnabled={false}
+            {/* Keyed siblings in one list, so the old player is the same
+                instance it was a moment ago (not remounted) while it covers
+                the swap. */}
+            <div className="relative min-h-0 flex-1">
+                {[outgoing, file].map((f) => {
+                    if (!f) return null;
+                    const isOutgoing = f === outgoing;
+                    return (
+                        <div
+                            key={f.id}
+                            className={`absolute inset-0 ${isOutgoing ? "pointer-events-none z-10" : ""}`}
+                        >
+                            {isOutgoing ? (
+                                <MediaPlayer
+                                    file={f}
+                                    rootPath={rootPath}
+                                    disabled
+                                    muted
+                                    className="h-full w-full"
+                                    clickToPauseEnabled={false}
+                                    keyboardEnabled={false}
+                                />
+                            ) : (
+                                <MediaPlayer
+                                    file={f}
+                                    rootPath={rootPath}
+                                    disabled={disabled}
+                                    muted={!focused || disabled}
+                                    onClick={disabled ? undefined : onPick}
+                                    onMouseMove={handleMouseMove}
+                                    onReady={incomingReady}
+                                    className="h-full w-full"
+                                    clickToPauseEnabled={false}
+                                    keyboardEnabled={false}
+                                    controlsRef={controlsRef}
+                                />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Focus marker: a thin line across the top of the focused side. */}
+            <div
+                className={`pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-white/80 transition-opacity duration-100 ${focused && !disabled ? "opacity-100" : "opacity-0"}`}
             />
 
-            <div className="shrink-0 border-t border-neutral-800 bg-neutral-900 px-4 py-3 flex items-center justify-between gap-2">
-                <div className="min-w-0">
+            {/* Info bar: overlays the top of the media while hovered. */}
+            <div
+                className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-150 ${showBar ? "opacity-100" : "opacity-0"}`}
+            />
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 px-3 pt-2.5">
+                <div
+                    className={`min-w-0 transition-opacity duration-150 ${fade}`}
+                >
                     <p
-                        className="cursor-pointer truncate text-sm font-medium text-neutral-300 hover:text-white transition-colors"
+                        className="cursor-pointer truncate text-sm font-medium text-white/90 drop-shadow hover:text-white transition-colors"
                         onClick={(e) => {
                             e.stopPropagation();
                             onInspectFile(file);
@@ -555,18 +562,19 @@ function CompareCard({
                     >
                         {file.filename}
                     </p>
-                    <p className="text-xs text-neutral-500">
+                    <p className="text-xs text-white/60 drop-shadow">
                         {Math.round(file.elo_score)} pts ·{" "}
                         {file.comparison_count} comparisons
                         {isKing && streak > 0 && ` · ${streak} in a row`}
                     </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 items-center gap-0.5">
+                    {/* The king's crown stays visible even with the bar hidden. */}
                     <button
-                        className={`rounded-lg border px-2 py-1 transition-colors ${
+                        className={`rounded-md p-1.5 drop-shadow transition-all duration-150 ${
                             isKing
-                                ? "border-neutral-400 bg-neutral-700 text-neutral-100 hover:border-neutral-300"
-                                : "border-neutral-700 bg-neutral-800 text-neutral-500 hover:border-neutral-500 hover:text-neutral-200"
+                                ? "pointer-events-auto opacity-100 text-amber-300 hover:text-amber-200"
+                                : `${fade} text-white/60 hover:text-white`
                         }`}
                         title={isKing ? "Stop keeping on screen" : "Keep on screen"}
                         onClick={(e) => {
@@ -575,13 +583,17 @@ function CompareCard({
                             else onCrown();
                         }}
                     >
-                        <CrownIcon className="h-3.5 w-3.5" />
+                        <CrownIcon className="h-4 w-4" />
                     </button>
                     <button
-                        className="rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
-                        onClick={() => onGoToFolder(file.path.split("/")[0])}
+                        className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${fade}`}
+                        title="Go to folder"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onGoToFolder(file.path.split("/")[0]);
+                        }}
                     >
-                        Go to folder
+                        <FolderIcon className="h-4 w-4" />
                     </button>
                 </div>
             </div>

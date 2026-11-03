@@ -22,6 +22,7 @@ import {
     addTagToFolder,
     getDb,
     updateEloScores,
+    undoComparison,
     getFileByPath,
     getMissingFiles,
     reconcileMissingFiles,
@@ -586,7 +587,7 @@ function registerIpcHandlers(): void {
 
     ipcMain.handle(
         "record-comparison",
-        (_event, winnerId: number, loserId: number, margin: number) => {
+        (_event, winnerId: number, loserId: number) => {
             const db = getDb();
             const winner = db
                 .prepare("SELECT * FROM files WHERE id = ?")
@@ -613,9 +614,8 @@ function registerIpcHandlers(): void {
             const { newWinnerScore, newLoserScore } = computeEloUpdate(
                 winner,
                 loser,
-                margin,
             );
-            updateEloScores(
+            const comparisonId = updateEloScores(
                 winnerId,
                 loserId,
                 newWinnerScore,
@@ -626,6 +626,7 @@ function registerIpcHandlers(): void {
             const getFile = (id: number) =>
                 db.prepare("SELECT * FROM files WHERE id = ?").get(id) as DbFile;
             return {
+                comparisonId,
                 newWinnerScore,
                 newLoserScore,
                 winner: getFile(winnerId),
@@ -633,6 +634,20 @@ function registerIpcHandlers(): void {
                 winnerRank: { before: winnerRankBefore, after: rankOf(winnerId) },
                 loserRank: { before: loserRankBefore, after: rankOf(loserId) },
             };
+        },
+    );
+
+    ipcMain.handle(
+        "undo-comparison",
+        (_event, comparisonId: number, fileIds: number[]) => {
+            if (!undoComparison(comparisonId)) return null;
+            const db = getDb();
+            return fileIds.map(
+                (id) =>
+                    db.prepare("SELECT * FROM files WHERE id = ?").get(id) as
+                        | DbFile
+                        | undefined,
+            );
         },
     );
 

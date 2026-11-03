@@ -1,6 +1,7 @@
 import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
 import { DbFile } from "@renderer/shared/types/types";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
 
 function LoadingCover(): JSX.Element {
     return (
@@ -13,6 +14,13 @@ function LoadingCover(): JSX.Element {
     );
 }
 
+/** Lets a parent drive playback (e.g. Compare's keyboard controls). */
+export interface MediaControls {
+    togglePlay: () => void;
+    /** -1 = back, 1 = forward. Skips a few seconds while playing, one frame while paused. */
+    step: (direction: -1 | 1) => void;
+}
+
 interface MediaPlayerProps {
     file: DbFile;
     rootPath: string;
@@ -22,6 +30,11 @@ interface MediaPlayerProps {
     muted?: boolean;
     className?: string;
     clickToPauseEnabled?: boolean;
+    /** Off when the parent handles keys itself and drives `controlsRef`. */
+    keyboardEnabled?: boolean;
+    controlsRef?: React.MutableRefObject<MediaControls | null>;
+    /** Called once there's something to show: a video's first frame, or an image (or its blurred thumbnail). */
+    onReady?: () => void;
 }
 
 export function MediaPlayer({
@@ -33,17 +46,38 @@ export function MediaPlayer({
     muted = true,
     className = "",
     clickToPauseEnabled = true,
+    keyboardEnabled = true,
+    controlsRef,
+    onReady,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
 
-    const [thumbUrl, setThumbUrl] = useState<string | null>(null);
-    const [startLoadingFull, setStartLoadingFull] = useState(false);
-    const [fullLoaded, setFullLoaded] = useState(false);
-
     const isVideo = file.media_type === "video";
     const isGif = file.media_type === "gif";
     const fullUrl = toMediaUrl(rootPath, file.path);
+
+    // Preloaded images show straight away: no blurred thumbnail, no fade.
+    const preloaded = useMemo(() => isImageReady(fullUrl), [fullUrl]);
+    const [thumb, setThumb] = useState<{ for: string; url: string } | null>(
+        null,
+    );
+    const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+    const fullLoaded = preloaded || loadedUrl === fullUrl;
+
+    const readySentRef = useRef(false);
+    const reportReady = (): void => {
+        if (readySentRef.current) return;
+        readySentRef.current = true;
+        onReady?.();
+    };
+    // A preloaded image is showable from the first paint.
+    useEffect(() => {
+        if (preloaded) reportReady();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [preloaded]);
+
+    const thumbUrl = thumb?.for === fullUrl ? thumb.url : null;
 
     const [playing, setPlaying] = useState(true);
     const [currentTime, setCurrentTime] = useState(0);
@@ -53,29 +87,23 @@ export function MediaPlayer({
     const containerRef = useRef<HTMLDivElement>(null);
     const [isHovered, setIsHovered] = useState(false);
 
-    // Load thumbnail first, THEN start loading full image
     useEffect(() => {
-        setThumbUrl(null);
-        setStartLoadingFull(false);
-        setFullLoaded(false);
         setCurrentTime(0);
-        
-        (async () => {
-            const absPath = await window.api.getThumbnailPath(file.content_hash);
-            if (absPath) {
-                const thumbPath = toThumbnailUrl(absPath);
-                setThumbUrl(thumbPath);
-                
-                // Wait a tiny bit for thumbnail to render, then start full image
-                setTimeout(() => {
-                    setStartLoadingFull(true);
-                }, 50);
-            } else {
-                // No thumbnail, just start loading full image
-                setStartLoadingFull(true);
-            }
-        })();
     }, [file.content_hash]);
+
+    // The full image starts loading right away (see the <img> below); the
+    // blurred thumbnail only covers the wait if it isn't already in hand.
+    useEffect(() => {
+        if (isVideo || preloaded) return;
+        let cancelled = false;
+        window.api.getThumbnailPath(file.content_hash).then((absPath) => {
+            if (!cancelled && absPath)
+                setThumb({ for: fullUrl, url: toThumbnailUrl(absPath) });
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [file.content_hash, fullUrl, isVideo, preloaded]);
 
     useEffect(() => {
         containerRef.current?.focus();
@@ -169,66 +197,65 @@ export function MediaPlayer({
         videoRef.current?.focus();
     }, []);
 
-    // keyboard
-useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-        // For TikTok view: work when not disabled and not muted
-        // For CompareView: work when hovered (which makes muted=false)
-        // So: work when not disabled AND (not muted OR hovered)
-        if (disabled || (muted && !isHovered) || !isVideo) return;
-        
-        // Ignore if typing in an input
-        if (e.target instanceof HTMLInputElement || 
-            e.target instanceof HTMLTextAreaElement) {
-            return;
-        }
-        
-        if (e.key === " ") {
-            console.log("SPACE!");
-            e.preventDefault();
-            togglePlay();
-        }
-        
-        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-    e.preventDefault();
-    if (!videoRef.current) return;
-    
-    const video = videoRef.current;
-    
     // Frame-by-frame when paused, time-skip when playing
-    if (video.paused) {
-        // Assume 60fps
-        const fps = 30;
-        const frameDuration = 1 / fps;
-        const frameStep = e.key === "ArrowLeft" ? -frameDuration : frameDuration;
-        const newTime = video.currentTime + frameStep;
-        
-        // Clamp to valid range
-        if (newTime < 0) {
-            video.currentTime = 0;
-        } else if (newTime > video.duration) {
-            video.currentTime = video.duration;
+    const step = useCallback((direction: -1 | 1) => {
+        const video = videoRef.current;
+        if (!video) return;
+        if (video.paused) {
+            const frameDuration = 1 / 30;
+            const newTime = video.currentTime + direction * frameDuration;
+            video.currentTime = Math.min(Math.max(newTime, 0), video.duration);
         } else {
-            video.currentTime = newTime;
+            const newTime = video.currentTime + direction * 3;
+            if (newTime < 0 || newTime > video.duration + 2.6) {
+                video.currentTime = 0;
+            } else if (newTime > video.duration) {
+                video.currentTime = video.duration - 0.3;
+            } else {
+                video.currentTime = newTime;
+            }
         }
-    } else {
-        // Original time-skip behavior when playing
-        const skipAmount = e.key === "ArrowLeft" ? -3 : 3;
-        const newTime = video.currentTime + skipAmount;
-        
-        if (newTime < 0 || newTime > video.duration + 2.6) {
-            video.currentTime = 0;
-        } else if (newTime > video.duration) {
-            video.currentTime = video.duration - 0.3;
-        } else {
-            video.currentTime = newTime;
-        }
-    }
-}
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-}, [togglePlay, disabled, muted, isHovered, isVideo]);
+    }, []);
+
+    useEffect(() => {
+        if (!controlsRef) return;
+        controlsRef.current = isVideo
+            ? { togglePlay: () => togglePlay(), step }
+            : null;
+        return () => {
+            controlsRef.current = null;
+        };
+    }, [controlsRef, isVideo, togglePlay, step]);
+
+    // keyboard
+    useEffect(() => {
+        if (!keyboardEnabled) return;
+        const onKey = (e: KeyboardEvent) => {
+            // For TikTok view: work when not disabled and not muted
+            // For other views: work when hovered (which makes muted=false)
+            if (disabled || (muted && !isHovered) || !isVideo) return;
+
+            // Ignore if typing in an input
+            if (
+                e.target instanceof HTMLInputElement ||
+                e.target instanceof HTMLTextAreaElement
+            ) {
+                return;
+            }
+
+            if (e.key === " ") {
+                e.preventDefault();
+                togglePlay();
+            }
+
+            if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                e.preventDefault();
+                step(e.key === "ArrowLeft" ? -1 : 1);
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [keyboardEnabled, togglePlay, step, disabled, muted, isHovered, isVideo]);
 
     return (
         <div
@@ -250,9 +277,11 @@ useEffect(() => {
                     playsInline
                     autoPlay={!disabled}
                     onLoadedMetadata={() => {
-                        const d = videoRef.current?.duration;
+                        const v = videoRef.current;
+                        const d = v?.duration;
                         if (d && isFinite(d)) setDuration(d);
                     }}
+                    onLoadedData={reportReady}
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
                     onClick={guardClick(
@@ -262,14 +291,14 @@ useEffect(() => {
                 />
             ) : (
                 <div
-                    className="relative h-full w-full bg-neutral-900"
+                    className="relative h-full w-full bg-black"
                     onClick={guardClick(() => handleClick())}
                     {...dragOutProps}
                 >
-                    {/* Blurred thumbnail - render immediately when available */}
-                    {thumbUrl && (
-                        <div 
-                            className="absolute inset-0 z-10 transition-opacity duration-500"
+                    {/* Blurred thumbnail, while the full image loads */}
+                    {thumbUrl && !preloaded && (
+                        <div
+                            className="absolute inset-0 z-10 transition-opacity duration-200"
                             style={{
                                 opacity: fullLoaded ? 0 : 1,
                             }}
@@ -277,6 +306,7 @@ useEffect(() => {
                             <img
                                 src={thumbUrl}
                                 alt=""
+                                onLoad={reportReady}
                                 className="h-full w-full object-contain"
                                 style={{
                                     filter: "blur(12px)",
@@ -285,24 +315,29 @@ useEffect(() => {
                             />
                         </div>
                     )}
-                    
-                    {/* Full resolution image - only start loading after thumbnail is ready */}
-                    {startLoadingFull && (
-                        <img
-                            ref={imgRef}
-                            src={fullUrl}
-                            alt={file.filename}
-                            className="relative h-full w-full object-contain transition-opacity duration-500"
-                            style={{ 
-                                opacity: fullLoaded ? 1 : 0,
-                            }}
-                            onLoad={() => setFullLoaded(true)}
-                            onError={() => setFullLoaded(true)}
-                            draggable={false}
-                            
-                        />
-                    )}
-                    
+
+                    <img
+                        key={fullUrl}
+                        ref={imgRef}
+                        src={fullUrl}
+                        alt={file.filename}
+                        className={`relative h-full w-full object-contain ${preloaded ? "" : "transition-opacity duration-200"}`}
+                        style={{
+                            opacity: fullLoaded ? 1 : 0,
+                        }}
+                        onLoad={() => {
+                            setLoadedUrl(fullUrl);
+                            reportReady();
+                            // Keep it decoded in case it comes back (e.g. undo).
+                            preloadImage(fullUrl);
+                        }}
+                        onError={() => {
+                            setLoadedUrl(fullUrl);
+                            reportReady();
+                        }}
+                        draggable={false}
+                    />
+
                     {showLoadingCover && <LoadingCover />}
                 </div>
             )}

@@ -77,6 +77,7 @@ export function isDbTagArray(value: any): value is DbTag[] {
     return Array.isArray(value) && value.every(isDbTag);
 }
 export interface ComparisonResult {
+    comparisonId: number;
     newWinnerScore: number;
     newLoserScore: number;
     winner: DbFile;

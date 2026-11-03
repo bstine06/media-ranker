@@ -282,9 +282,14 @@ const api = {
     recordComparison: (
         winnerId: number,
         loserId: number,
-        margin: number,
     ): Promise<unknown | null> =>
-        ipcRenderer.invoke("record-comparison", winnerId, loserId, margin),
+        ipcRenderer.invoke("record-comparison", winnerId, loserId),
+
+    undoComparison: (
+        comparisonId: number,
+        fileIds: number[],
+    ): Promise<unknown[] | null> =>
+        ipcRenderer.invoke("undo-comparison", comparisonId, fileIds),
 
     getChallenger: (
         kingId: number,

@@ -106,8 +106,12 @@ declare global {
             recordComparison: (
                 winnerId: number,
                 loserId: number,
-                margin: number,
             ) => Promise<ComparisonResult | null>;
+            /** Reverts a comparison, then returns the given files' fresh rows. */
+            undoComparison: (
+                comparisonId: number,
+                fileIds: number[],
+            ) => Promise<(DbFile | undefined)[] | null>;
             getChallenger: (
                 kingId: number,
                 folderPrefixes: string[] | null,

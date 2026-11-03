@@ -15,17 +15,9 @@ function expectedScore(ratingA: number, ratingB: number): number {
     return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
 }
 
-// Maps a 1–3 point differential to an Elo "actual score" for the winner.
-function marginToScore(margin: number): number {
-    const clipped = Math.max(1, Math.min(3, Math.round(margin)));
-    const scores: Record<number, number> = { 1: 0.9, 2: 1.1, 3: 1.3 };
-    return scores[clipped];
-}
-
 export function computeEloUpdate(
     winner: DbFile,
     loser: DbFile,
-    margin: number = 1,
 ): { newWinnerScore: number; newLoserScore: number } {
     const expectedWinner = expectedScore(winner.elo_score, loser.elo_score);
     const expectedLoser = expectedScore(loser.elo_score, winner.elo_score);
@@ -33,12 +25,8 @@ export function computeEloUpdate(
     const kWinner = kFactor(winner.comparison_count);
     const kLoser = kFactor(loser.comparison_count);
 
-    const multiplier = marginToScore(margin);
-
-    const newWinnerScore =
-        winner.elo_score + kWinner * multiplier * (1 - expectedWinner);
-    const newLoserScore =
-        loser.elo_score + kLoser * multiplier * (0 - expectedLoser);
+    const newWinnerScore = winner.elo_score + kWinner * (1 - expectedWinner);
+    const newLoserScore = loser.elo_score + kLoser * (0 - expectedLoser);
 
     return { newWinnerScore, newLoserScore };
 }

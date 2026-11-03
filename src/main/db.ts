@@ -61,6 +61,8 @@ export interface DbComparison {
     loser_id: number;
     domain_path: string;
     timestamp: string;
+    winner_score_before: number | null;
+    loser_score_before: number | null;
 }
 
 export interface DbFolderMetadata {
@@ -353,6 +355,22 @@ function runMigrations(db: Database.Database): void {
         db.exec(
             `UPDATE tag_categories SET order_index = id WHERE order_index = 0`,
         );
+    }
+
+    // Migration 7: remember each file's score before a comparison, so the
+    // comparison can be undone. Older rows leave these NULL (not undoable).
+    const comparisonCols = new Set(
+        (
+            db.prepare(`PRAGMA table_info(comparisons)`).all() as {
+                name: string;
+            }[]
+        ).map((c) => c.name),
+    );
+    if (!comparisonCols.has("winner_score_before")) {
+        db.exec(`ALTER TABLE comparisons ADD COLUMN winner_score_before REAL`);
+    }
+    if (!comparisonCols.has("loser_score_before")) {
+        db.exec(`ALTER TABLE comparisons ADD COLUMN loser_score_before REAL`);
     }
 }
 
@@ -1177,19 +1195,58 @@ export function updateEloScores(
     newWinnerScore: number,
     newLoserScore: number,
     domainPath: string,
-): void {
+): number {
     const db = getDb();
+    const scoreOf = db.prepare(`SELECT elo_score FROM files WHERE id = ?`);
     const updateScore = db.prepare(
         `UPDATE files SET elo_score = ?, comparison_count = comparison_count + 1 WHERE id = ?`,
     );
     const insertComparison = db.prepare(
-        `INSERT INTO comparisons (winner_id, loser_id, domain_path) VALUES (?, ?, ?)`,
+        `INSERT INTO comparisons (winner_id, loser_id, domain_path, winner_score_before, loser_score_before)
+         VALUES (?, ?, ?, ?, ?)`,
     );
-    db.transaction(() => {
+    return db.transaction(() => {
+        const winnerBefore = (scoreOf.get(winnerId) as { elo_score: number })
+            .elo_score;
+        const loserBefore = (scoreOf.get(loserId) as { elo_score: number })
+            .elo_score;
         updateScore.run(newWinnerScore, winnerId);
         updateScore.run(newLoserScore, loserId);
-        insertComparison.run(winnerId, loserId, domainPath);
+        const info = insertComparison.run(
+            winnerId,
+            loserId,
+            domainPath,
+            winnerBefore,
+            loserBefore,
+        );
+        return Number(info.lastInsertRowid);
     })();
+}
+
+// Reverts a comparison: puts both files back to their scores from before it
+// and removes the record. Returns false if it can't be undone (unknown id, or
+// an old row recorded before pre-comparison scores were stored).
+export function undoComparison(comparisonId: number): boolean {
+    const db = getDb();
+    const row = db
+        .prepare(`SELECT * FROM comparisons WHERE id = ?`)
+        .get(comparisonId) as DbComparison | undefined;
+    if (
+        !row ||
+        row.winner_score_before == null ||
+        row.loser_score_before == null
+    ) {
+        return false;
+    }
+    const restore = db.prepare(
+        `UPDATE files SET elo_score = ?, comparison_count = MAX(comparison_count - 1, 0) WHERE id = ?`,
+    );
+    db.transaction(() => {
+        restore.run(row.winner_score_before, row.winner_id);
+        restore.run(row.loser_score_before, row.loser_id);
+        db.prepare(`DELETE FROM comparisons WHERE id = ?`).run(comparisonId);
+    })();
+    return true;
 }
 
 export function getRankedFiles(folderRelPath?: string): DbFile[] {
