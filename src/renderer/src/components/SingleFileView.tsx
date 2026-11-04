@@ -63,6 +63,7 @@ export default function SingleFileView({
                 setView("browse");
             }}
             onFileClick={(file) => showInFolder(rootPath!, file.path)}
+            allowRotate
         />
     );
 }

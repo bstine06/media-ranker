@@ -109,7 +109,7 @@ export default function FileView({
     }, [initialFile.content_hash, initialFile.filename, initialFile.path]);
 
     const isVideo = currentFile.media_type === "video";
-    const fullUrl = toMediaUrl(rootPath, currentFile.path);
+    const fullUrl = toMediaUrl(rootPath, currentFile.path, currentFile.content_hash);
 
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
     const [fullLoaded, setFullLoaded] = useState(false);

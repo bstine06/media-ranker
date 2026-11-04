@@ -1,6 +1,13 @@
 import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
 import { DbFile } from "@renderer/shared/types/types";
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+    useState,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useCallback,
+    useMemo,
+} from "react";
 import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
 
 function LoadingCover(): JSX.Element {
@@ -33,6 +40,8 @@ interface MediaPlayerProps {
     /** Off when the parent handles keys itself and drives `controlsRef`. */
     keyboardEnabled?: boolean;
     controlsRef?: React.MutableRefObject<MediaControls | null>;
+    /** Preview turn, quarter turns to the left. Turns the picture only, not the controls. */
+    rotation?: number;
     /** Called once there's something to show: a video's first frame, or an image (or its blurred thumbnail). */
     onReady?: () => void;
 }
@@ -49,13 +58,14 @@ export function MediaPlayer({
     keyboardEnabled = true,
     controlsRef,
     onReady,
+    rotation = 0,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
 
     const isVideo = file.media_type === "video";
     const isGif = file.media_type === "gif";
-    const fullUrl = toMediaUrl(rootPath, file.path);
+    const fullUrl = toMediaUrl(rootPath, file.path, file.content_hash);
 
     // Preloaded images show straight away: no blurred thumbnail, no fade.
     const preloaded = useMemo(() => isImageReady(fullUrl), [fullUrl]);
@@ -85,6 +95,86 @@ export function MediaPlayer({
     const [scrubbing, setScrubbing] = useState(false);
     const wasPlayingRef = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
+
+    // ── Rotation preview ────────────────────────────────────────────────────
+    // Only the media layer turns; the controls overlay stays put. A sideways
+    // turn swaps the layer's width and height so the turned media still fits.
+    const [box, setBox] = useState({ width: 0, height: 0 });
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver(([entry]) =>
+            setBox({
+                width: entry.contentRect.width,
+                height: entry.contentRect.height,
+            }),
+        );
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+    // Animate turning further; snap back when the saved (already rotated)
+    // version replaces the preview.
+    const prevRotationRef = useRef(rotation);
+    const animateTurn = rotation > prevRotationRef.current;
+    prevRotationRef.current = rotation;
+    const turnStyle = (turns: number, animate: boolean): React.CSSProperties => {
+        const sideways = turns % 2 === 1 && box.width > 0;
+        const t = "200ms ease-out";
+        return {
+            width: sideways ? box.height : "100%",
+            height: sideways ? box.width : "100%",
+            left: sideways ? (box.width - box.height) / 2 : 0,
+            top: sideways ? (box.height - box.width) / 2 : 0,
+            transform: turns ? `rotate(${-90 * turns}deg)` : undefined,
+            transition: animate
+                ? `transform ${t}, width ${t}, height ${t}, left ${t}, top ${t}`
+                : "none",
+        };
+    };
+
+    // ── Version hand-off ────────────────────────────────────────────────────
+    // When the same video gets a new version (rotation saved), the old
+    // element stays up, paused on its frame and still turned, until the new
+    // one has loaded and jumped to the same moment. No restart, no black.
+    const [handoff, setHandoff] = useState<{
+        url: string;
+        turns: number;
+        time: number;
+        paused: boolean;
+    } | null>(null);
+    const handoffElRef = useRef<HTMLVideoElement | null>(null);
+    const shownRef = useRef({ id: file.id, url: fullUrl, turns: rotation });
+    if (shownRef.current.url !== fullUrl) {
+        const old = videoRef.current;
+        if (isVideo && shownRef.current.id === file.id && old) {
+            handoffElRef.current = old;
+            setHandoff({
+                url: shownRef.current.url,
+                turns: shownRef.current.turns,
+                time: old.currentTime,
+                paused: old.paused,
+            });
+        } else if (handoff) {
+            setHandoff(null);
+        }
+        shownRef.current = { id: file.id, url: fullUrl, turns: rotation };
+    } else {
+        shownRef.current.turns = rotation;
+    }
+    useLayoutEffect(() => {
+        if (handoff) handoffElRef.current?.pause();
+    }, [handoff]);
+    // Never hold the old frame forever.
+    useEffect(() => {
+        if (!handoff) return;
+        const t = setTimeout(() => setHandoff(null), 3000);
+        return () => clearTimeout(t);
+    }, [handoff]);
+    const finishHandoff = (v: HTMLVideoElement): void => {
+        if (!handoff) return;
+        if (!handoff.paused && !disabled) v.play().catch(() => {});
+        setHandoff(null);
+    };
     const [isHovered, setIsHovered] = useState(false);
 
     useEffect(() => {
@@ -267,31 +357,60 @@ export function MediaPlayer({
             onMouseLeave={() => setIsHovered(false)}
         >
             {isVideo ? (
-                <video
-                    ref={videoRef}
-                    key={fullUrl}
-                    src={fullUrl}
-                    className="h-full w-full object-contain"
-                    muted={muted}
-                    loop
-                    playsInline
-                    autoPlay={!disabled}
-                    onLoadedMetadata={() => {
-                        const v = videoRef.current;
-                        const d = v?.duration;
-                        if (d && isFinite(d)) setDuration(d);
-                    }}
-                    onLoadedData={reportReady}
-                    onPlay={() => setPlaying(true)}
-                    onPause={() => setPlaying(false)}
-                    onClick={guardClick(
-                        clickToPauseEnabled ? togglePlay : () => handleClick(),
-                    )}
-                    {...dragOutProps}
-                />
+                // Keyed list, so the outgoing version is the same element it
+                // was a moment ago (not remounted) while it covers the swap.
+                [
+                    handoff && (
+                        <video
+                            key={handoff.url}
+                            src={handoff.url}
+                            className="pointer-events-none absolute z-[1] object-contain"
+                            style={turnStyle(handoff.turns, false)}
+                            muted
+                            playsInline
+                        />
+                    ),
+                    <video
+                        ref={videoRef}
+                        key={fullUrl}
+                        src={fullUrl}
+                        className="absolute object-contain"
+                        style={turnStyle(rotation, animateTurn)}
+                        muted={muted}
+                        loop
+                        playsInline
+                        autoPlay={!disabled && !handoff}
+                        onLoadedMetadata={() => {
+                            const v = videoRef.current;
+                            const d = v?.duration;
+                            if (d && isFinite(d)) setDuration(d);
+                            // Pick up where the previous version was.
+                            if (v && handoff) {
+                                if (handoff.time > 0.05) v.currentTime = handoff.time;
+                                else finishHandoff(v);
+                            }
+                        }}
+                        onSeeked={() => {
+                            const v = videoRef.current;
+                            if (v) finishHandoff(v);
+                        }}
+                        onLoadedData={reportReady}
+                        onPlay={() => setPlaying(true)}
+                        onPause={() => {
+                            // The old version pausing for the hand-off isn't
+                            // the viewer pausing.
+                            if (!handoff) setPlaying(false);
+                        }}
+                        onClick={guardClick(
+                            clickToPauseEnabled ? togglePlay : () => handleClick(),
+                        )}
+                        {...dragOutProps}
+                    />,
+                ]
             ) : (
                 <div
-                    className="relative h-full w-full bg-black"
+                    className="absolute bg-black"
+                    style={turnStyle(rotation, animateTurn)}
                     onClick={guardClick(() => handleClick())}
                     {...dragOutProps}
                 >

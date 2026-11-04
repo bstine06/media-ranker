@@ -460,10 +460,18 @@ export default function BrowseView({
             },
         );
 
+        // Edited in place (e.g. rotated): swap in the fresh record so the
+        // tile shows the new thumbnail.
+        const handleUpdated = window.api.onMediaUpdated(({ file }) => {
+            if (!file) return;
+            setFiles((prev) => prev.map((f) => (f.id === file.id ? file : f)));
+        });
+
         return () => {
             handleAdded();
             handleRemoved();
             handleRenamed();
+            handleUpdated();
         };
     }, [rootPath, activeFolder, setActiveFolder, showUnsorted]);
 
@@ -513,6 +521,7 @@ export default function BrowseView({
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}
                 onClose={() => setBrowseScrollIndex(null)}
                 onCrown={crownAndCompare}
+                allowRotate
                 progress={{
                     index: browseScrollIndex + 1,
                     total: sortedFiles.length,

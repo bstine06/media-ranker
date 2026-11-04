@@ -1,4 +1,4 @@
-export type View = "browse" | "compare" | "file" | "scroll" | "tag-manager" | "slideshow";
+export type View = "browse" | "compare" | "file" | "scroll" | "tag-manager";
 
 export interface DbFile {
     id: number;
@@ -76,6 +76,13 @@ export function isDbTag(value: any): value is DbTag {
 export function isDbTagArray(value: any): value is DbTag[] {
     return Array.isArray(value) && value.every(isDbTag);
 }
+/** What one side of Compare draws its files from. */
+export interface PoolFilter {
+    folderPrefixes: string[] | null;
+    tagList: number[] | null;
+    tagMode: "and" | "or";
+}
+
 export interface ComparisonResult {
     comparisonId: number;
     newWinnerScore: number;

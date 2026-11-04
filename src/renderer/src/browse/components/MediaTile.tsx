@@ -33,7 +33,7 @@ export default function MediaTile({
     } = useHoverPreview();
 
     const isVideo = file.media_type === "video";
-    const fullUrl = toMediaUrl(rootPath, file.path);
+    const fullUrl = toMediaUrl(rootPath, file.path, file.content_hash);
 
     useEffect(() => {
         window.api.getThumbnailPath(file.content_hash).then((absPath) => {

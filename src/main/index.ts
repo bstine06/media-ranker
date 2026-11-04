@@ -69,11 +69,19 @@ import {
     rename,
     existsSync,
 } from "fs";
-import { computeEloUpdate, getChallenger, getWeightedPair } from "./elo";
+import {
+    computeEloUpdate,
+    getChallenger,
+    getLanePair,
+    refitPair,
+    getWeightedPair,
+    type PoolFilter,
+} from "./elo";
 import { promisify } from "util";
 import { renameFolderPaths } from "./db";
 import { watchFolder, unwatchAll, ignoredPaths } from "./watcher";
 import { replaceTrackedFile } from "./replaceFile";
+import { rotateTrackedFile } from "./rotate";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
 import { loadSavedRootPath, saveRootPath, loadSettings, saveSettings } from "./config";
@@ -409,6 +417,23 @@ function registerIpcHandlers(): void {
             const updated = getFileByPath(oldRelPath); // fresh record with new hash
             win?.webContents.send("media:updated", {
                 relativePath: oldRelPath,
+                file: updated,
+            });
+            return updated;
+        },
+    );
+
+    // Rotate left by quarter turns, in place. Returns the fresh record (new
+    // content hash) and tells every view, so e.g. Compare shows it rotated.
+    ipcMain.handle(
+        "file:rotate",
+        async (_event, relPath: string, quarterTurns: number) => {
+            if (!rootPath) throw new Error("No library open");
+            await rotateTrackedFile(rootPath, relPath, quarterTurns, ignoredPaths);
+            const updated = getFileByPath(relPath);
+            BrowserWindow.getAllWindows()[0]?.webContents.send("media:updated", {
+                relativePath: relPath,
+                file: updated,
             });
             return updated;
         },
@@ -563,6 +588,25 @@ function registerIpcHandlers(): void {
         ) => {
             return getWeightedPair(folderPrefixes, tagList, tagMode);
         },
+    );
+
+    ipcMain.handle(
+        "get-lane-pair",
+        (_event, laneA: PoolFilter, laneB: PoolFilter) => {
+            return getLanePair(laneA, laneB);
+        },
+    );
+
+    ipcMain.handle(
+        "refit-pair",
+        (
+            _event,
+            ids: [number, number],
+            laneA: PoolFilter,
+            laneB: PoolFilter,
+            kingSide: "a" | "b" | null,
+            recentIds: number[],
+        ) => refitPair(ids, laneA, laneB, kingSide, recentIds),
     );
 
     ipcMain.handle(
@@ -805,7 +849,9 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
     protocol.handle("media", async (request) => {
-        const url = request.url.replace("media://local", "");
+        // Drop any ?query: it only versions the URL (so a rotated file isn't
+        // served from cache), it isn't part of the path.
+        const url = request.url.replace("media://local", "").split("?")[0];
         const filePath = decodeURIComponent(url);
 
         const ext = path.extname(filePath).toLowerCase();

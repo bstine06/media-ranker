@@ -15,6 +15,9 @@ interface Settings {
     togglePauseWhenUnfocused: () => void;
     alwaysShowUnsorted: boolean;
     toggleAlwaysShowUnsorted: () => void;
+    /** Compare: play both sides' audio, not just the focused side's. */
+    compareBothAudio: boolean;
+    toggleCompareBothAudio: () => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -32,6 +35,8 @@ const SettingsContext = createContext<Settings>({
     togglePauseWhenUnfocused: () => {},
     alwaysShowUnsorted: false,
     toggleAlwaysShowUnsorted: () => {},
+    compareBothAudio: false,
+    toggleCompareBothAudio: () => {},
 });
 
 // Saved settings (config.json), read once at startup. Anything missing or
@@ -98,6 +103,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setAlwaysShowUnsorted((a) => !a);
     }, []);
 
+    const [compareBothAudio, setCompareBothAudio] = useState(() => savedBool("compareBothAudio", false));
+    const toggleCompareBothAudio = useCallback(() => {
+        setCompareBothAudio((b) => !b);
+    }, []);
+
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
         setPauseWhenUnfocused((p) => !p);
@@ -145,6 +155,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     showTagCategoryNames,
                     pauseWhenUnfocused,
                     alwaysShowUnsorted,
+                    compareBothAudio,
                 })
                 .catch(() => {});
         }, 300);
@@ -157,6 +168,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         showTagCategoryNames,
         pauseWhenUnfocused,
         alwaysShowUnsorted,
+        compareBothAudio,
     ]);
 
     return (
@@ -176,6 +188,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 togglePauseWhenUnfocused,
                 alwaysShowUnsorted,
                 toggleAlwaysShowUnsorted,
+                compareBothAudio,
+                toggleCompareBothAudio,
             }}
         >
             {children}

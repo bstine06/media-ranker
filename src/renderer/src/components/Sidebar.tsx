@@ -5,7 +5,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "./icons/FolderIcon";
-import { useFolders } from "@renderer/contexts/FolderContext";
+import { useFolders, type Lane } from "@renderer/contexts/FolderContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { CompareIcon } from "./icons/CompareIcon";
 import { ScrollIcon } from "./icons/ScrollIcon";
@@ -55,10 +55,13 @@ function FolderItem({
     onToggleFolder,
     folderMetaVersion,
     onDropFiles,
+    lanes,
 }: {
     node: FolderNode;
     activeFolder: string | null;
     isFilterable: boolean;
+    /** Compare: a left and a right checkbox instead of the single filter one. */
+    lanes?: { checked: Record<Lane, boolean>; onToggle: (lane: Lane) => void };
     checkedFolders: Set<string>;
     onSelectFolder: (relativePath: string) => void;
     onToggleFolder: (relativePath: string, allPaths: string[]) => void;
@@ -94,29 +97,43 @@ function FolderItem({
             {...dropHandlers}
         >
             <span className="mr-1 w-4" />
-            {isFilterable && (
-                <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() =>
-                        onToggleFolder(node.relativePath, [node.relativePath])
-                    }
-                    className="mr-2 shrink-0 accent-white cursor-pointer"
-                    onClick={(e) => e.stopPropagation()}
+            {lanes ? (
+                <LaneCheckboxes
+                    checked={lanes.checked}
+                    onToggle={lanes.onToggle}
                 />
+            ) : (
+                isFilterable && (
+                    <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() =>
+                            onToggleFolder(node.relativePath, [node.relativePath])
+                        }
+                        className="mr-2 shrink-0 accent-white cursor-pointer"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                )
             )}
             <button
-                onClick={() =>
-                    isFilterable
-                        ? onToggleFolder(node.relativePath, [node.relativePath])
-                        : onSelectFolder(node.relativePath)
-                }
+                onClick={() => {
+                    if (lanes) {
+                        // Name toggles both sides together.
+                        const both = lanes.checked.a && lanes.checked.b;
+                        if (lanes.checked.a === both) lanes.onToggle("a");
+                        if (lanes.checked.b === both) lanes.onToggle("b");
+                        return;
+                    }
+                    if (isFilterable)
+                        onToggleFolder(node.relativePath, [node.relativePath]);
+                    else onSelectFolder(node.relativePath);
+                }}
                 className={`flex-1 truncate rounded-md py-1 pr-2 text-left text-sm transition-colors ${
                     !isFilterable
                         ? isActive
                             ? "text-white font-medium"
                             : "text-neutral-400 hover:text-white"
-                        : isChecked
+                        : (lanes ? lanes.checked.a || lanes.checked.b : isChecked)
                           ? "text-white"
                           : "text-neutral-300"
                 }`}
@@ -136,6 +153,36 @@ function FolderItem({
                 </div>
             </button>
         </div>
+    );
+}
+
+// Compare's left / right folder checkboxes for one row.
+function LaneCheckboxes({
+    checked,
+    indeterminate,
+    onToggle,
+}: {
+    checked: Record<Lane, boolean>;
+    indeterminate?: Record<Lane, boolean>;
+    onToggle: (lane: Lane) => void;
+}): JSX.Element {
+    return (
+        <span className="mr-2 flex shrink-0 items-center gap-1.5">
+            {(["a", "b"] as const).map((lane) => (
+                <input
+                    key={lane}
+                    type="checkbox"
+                    title={lane === "a" ? "Left side" : "Right side"}
+                    checked={checked[lane]}
+                    ref={(el) => {
+                        if (el) el.indeterminate = !!indeterminate?.[lane];
+                    }}
+                    onChange={() => onToggle(lane)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="shrink-0 accent-white cursor-pointer"
+                />
+            ))}
+        </span>
     );
 }
 
@@ -306,6 +353,8 @@ function SettingsSection(): JSX.Element {
         togglePauseWhenUnfocused,
         alwaysShowUnsorted,
         toggleAlwaysShowUnsorted,
+        compareBothAudio,
+        toggleCompareBothAudio,
     } = useSettings();
     const [open, setOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -395,6 +444,22 @@ function SettingsSection(): JSX.Element {
                             }`}
                         >
                             {alwaysShowUnsorted ? "on" : "off"}
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
+                        <p className="text-xs text-neutral-500">
+                            Compare: Both Sides' Audio (X)
+                        </p>
+                        <button
+                            onClick={toggleCompareBothAudio}
+                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
+                                compareBothAudio
+                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                            }`}
+                        >
+                            {compareBothAudio ? "on" : "off"}
                         </button>
                     </div>
 
@@ -511,6 +576,7 @@ export default function Sidebar({
     };
     const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion, refreshFolders, setAllChecked } = useFolders();
     const { showUnsorted, setShowUnsorted } = useFolders();
+    const { laneChecked, toggleLaneFolder, toggleLaneAll } = useFolders();
     const { alwaysShowUnsorted } = useSettings();
 
     // Count of files sitting directly in the library folder; refreshed when
@@ -591,6 +657,17 @@ export default function Sidebar({
     const someChecked = allPaths.some((p) => checkedFolders.has(p));
     const isIndeterminate = someChecked && !allChecked;
 
+    // Compare picks each side's folders separately.
+    const laneMode = view === "compare";
+    const laneAll = {
+        a: allPaths.every((p) => laneChecked.a.has(p)),
+        b: allPaths.every((p) => laneChecked.b.has(p)),
+    };
+    const laneSome = {
+        a: allPaths.some((p) => laneChecked.a.has(p)),
+        b: allPaths.some((p) => laneChecked.b.has(p)),
+    };
+
     const handleShowInFolder = (e: React.MouseEvent) => {
         e.stopPropagation();
         // file.path is relative, so reconstruct the absolute path
@@ -661,10 +738,32 @@ export default function Sidebar({
                         </p>
                     )}
 
+                    {laneMode && (
+                        <div
+                            className="flex items-center text-[10px] font-medium uppercase text-neutral-500"
+                            title="Which folders each side of Compare draws from"
+                        >
+                            <span className="mr-1 w-4" />
+                            <span className="flex gap-1.5">
+                                <span className="w-[13px] text-center">L</span>
+                                <span className="w-[13px] text-center">R</span>
+                            </span>
+                        </div>
+                    )}
+
                     {!isSearching && (
                         <FileDropRow onDropFiles={(paths) => handleDropOnFolder("", paths)}>
                             <span className="mr-1 w-4" />
-                            {isFilterable && (
+                            {laneMode ? (
+                                <LaneCheckboxes
+                                    checked={laneAll}
+                                    indeterminate={{
+                                        a: laneSome.a && !laneAll.a,
+                                        b: laneSome.b && !laneAll.b,
+                                    }}
+                                    onToggle={toggleLaneAll}
+                                />
+                            ) : isFilterable && (
                                 <input
                                     type="checkbox"
                                     checked={allChecked}
@@ -678,6 +777,12 @@ export default function Sidebar({
                             )}
                             <button
                                 onClick={() => {
+                                    if (laneMode) {
+                                        const both = laneAll.a && laneAll.b;
+                                        if (laneAll.a === both) toggleLaneAll("a");
+                                        if (laneAll.b === both) toggleLaneAll("b");
+                                        return;
+                                    }
                                     if (isFilterable) {
                                         checkAll();
                                         return;
@@ -689,7 +794,11 @@ export default function Sidebar({
                                 className={`flex-1 truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
                                     !isFilterable && activeFolder === null && !showUnsorted
                                         ? "text-white font-medium"
-                                        : isFilterable && allChecked
+                                        : laneMode
+                                          ? laneAll.a && laneAll.b
+                                              ? "text-white"
+                                              : "text-neutral-300"
+                                          : isFilterable && allChecked
                                           ? "text-white"
                                           : isFilterable && someChecked
                                             ? "text-neutral-300"
@@ -733,6 +842,18 @@ export default function Sidebar({
                                     folderMetaVersion={folderMetaVersion}
                                     onDropFiles={(paths) =>
                                         handleDropOnFolder(node.relativePath, paths)
+                                    }
+                                    lanes={
+                                        laneMode
+                                            ? {
+                                                  checked: {
+                                                      a: laneChecked.a.has(node.relativePath),
+                                                      b: laneChecked.b.has(node.relativePath),
+                                                  },
+                                                  onToggle: (lane) =>
+                                                      toggleLaneFolder(lane, node.relativePath),
+                                              }
+                                            : undefined
                                     }
                                 />
                             ))
@@ -793,12 +914,6 @@ export default function Sidebar({
                     className="w-full rounded-md px-3 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
                 >
                     ⌂ Change library
-                </button>
-                <button
-                    onClick={() => setView("slideshow")}
-                    className="w-full rounded-md px-3 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-                >
-                    Slideshow
                 </button>
                 <SettingsSection />
             </div>

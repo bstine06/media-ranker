@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
 import { FolderIcon } from "./icons/FolderIcon";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
-import { formatFileSize } from "@renderer/lib/media";
+import { formatFileSize, toMediaUrl } from "@renderer/lib/media";
+import { preloadImage } from "@renderer/lib/imageCache";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { MediaSlide } from "./MediaSlide";
 import ConfirmDialog from "./ConfirmDialog";
@@ -22,6 +23,7 @@ export default function ScrollView({
     progress,
     onFileChange,
     onCrown,
+    allowRotate = false,
 }: {
     initialFile: DbFile | null;
     resolver: SlotResolver;
@@ -35,6 +37,8 @@ export default function ScrollView({
     onFileChange?: (file: DbFile) => void;
     /** Send the current file to Compare and keep it on screen there. */
     onCrown?: (file: DbFile) => void;
+    /** Show the rotate-left button (single file view). */
+    allowRotate?: boolean;
 }): JSX.Element {
     const {
         slotFiles,
@@ -47,7 +51,89 @@ export default function ScrollView({
         cursor,
         handleWheel,
         navigate,
+        replaceFile,
     } = useScrollSlots({ initialFile, resolver, active });
+
+    // ── Rotate ──────────────────────────────────────────────────────────────
+    // Clicks turn the preview at once; the file is saved once clicking stops
+    // (or on leaving it), so several clicks make one save and one Trash item.
+    const [preview, setPreview] = useState<{ id: number; turns: number }>({
+        id: -1,
+        turns: 0,
+    });
+    const queuedRef = useRef<{ file: DbFile; turns: number } | null>(null);
+    const savingRef = useRef(false);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const saveRotation = useCallback(async (): Promise<void> => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        const queued = queuedRef.current;
+        if (!queued || savingRef.current) return;
+        queuedRef.current = null;
+        const { file, turns } = queued;
+        const dropPreview = () =>
+            setPreview((p) =>
+                p.id === file.id ? { ...p, turns: p.turns - turns } : p,
+            );
+        if (turns % 4 === 0) {
+            dropPreview(); // full circle: nothing to save
+            return;
+        }
+        savingRef.current = true;
+        try {
+            const updated = await window.api.rotateFile(file.path, turns);
+            // Have the new image decoded before it replaces the preview, so
+            // the swap is seamless.
+            if (updated.media_type !== "video") {
+                await Promise.race([
+                    preloadImage(
+                        toMediaUrl(rootPath, updated.path, updated.content_hash),
+                    ),
+                    new Promise((r) => setTimeout(r, 1500)),
+                ]);
+            }
+            replaceFile(updated);
+            dropPreview();
+            // Clicked again while saving: carry those on to the new version.
+            // (A plain read: TS narrowed the ref to null above, but clicks
+            // during the await can have set it again.)
+            const again = queuedRef.current as typeof queued | null;
+            if (again?.file.id === file.id) {
+                queuedRef.current = { ...again, file: updated };
+            }
+        } catch (err) {
+            console.error("Rotate failed:", err);
+            dropPreview();
+        } finally {
+            savingRef.current = false;
+        }
+        if (queuedRef.current) saveRotation();
+    }, [replaceFile, rootPath]);
+
+    const rotateLeft = useCallback(() => {
+        if (!currentFile) return;
+        const queued = queuedRef.current;
+        queuedRef.current = {
+            file: queued?.file.id === currentFile.id ? queued.file : currentFile,
+            turns: (queued?.file.id === currentFile.id ? queued.turns : 0) + 1,
+        };
+        setPreview((p) => ({
+            id: currentFile.id,
+            turns: (p.id === currentFile.id ? p.turns : 0) + 1,
+        }));
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(saveRotation, 900);
+    }, [currentFile, saveRotation]);
+
+    // Leaving the file (or the view) saves right away.
+    const saveRotationRef = useRef(saveRotation);
+    saveRotationRef.current = saveRotation;
+    useEffect(() => {
+        return () => {
+            saveRotationRef.current();
+        };
+    }, [currentFile?.id]);
 
     const videoRefs = [videoRef0, videoRef1];
 
@@ -169,6 +255,11 @@ export default function ScrollView({
                                     rootPath={rootPath}
                                     ref={videoRefs[slot]}
                                     disabled={!active || slot !== frontSlot}
+                                    rotation={
+                                        preview.id === slotFiles[slot]!.id
+                                            ? preview.turns
+                                            : 0
+                                    }
                                 />
                             )}
                         </div>
@@ -261,6 +352,26 @@ export default function ScrollView({
                                 onClick={() => onCrown(currentFile)}
                             >
                                 <CrownIcon className="h-4 w-4" />
+                            </button>
+                        )}
+                        {allowRotate && (
+                            <button
+                                className="px-2 py-1 rounded text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
+                                title="Rotate left"
+                                onClick={rotateLeft}
+                            >
+                                <svg
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={1.8}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="h-4 w-4"
+                                >
+                                    <path d="M4.5 8.5A6 6 0 1 1 6 14.5" />
+                                    <path d="M4 4v4.5h4.5" />
+                                </svg>
                             </button>
                         )}
                         <button

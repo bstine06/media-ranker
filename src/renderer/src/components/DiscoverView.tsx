@@ -90,7 +90,7 @@ export default function DiscoverView({
                 );
             }
             if (file && file.media_type !== "video") {
-                preloadImage(toMediaUrl(rootPath!, file.path));
+                preloadImage(toMediaUrl(rootPath!, file.path, file.content_hash));
             }
             return file;
         },
@@ -191,6 +191,20 @@ export default function DiscoverView({
         return () => unsub();
     }, []);
 
+    // Edited in place (rotated): keep history current, so scrolling back
+    // shows the new version.
+    useEffect(() => {
+        return window.api.onMediaUpdated(({ file }) => {
+            if (!file) return;
+            setHistory((prev) => {
+                const next = prev.map((f) => (f.id === file.id ? file : f));
+                historyRef.current = next;
+                return next;
+            });
+            if (prefetchRef.current?.id === file.id) prefetchRef.current = file;
+        });
+    }, []);
+
     const resolver: SlotResolver = useCallback(async (dir, cursor) => {
         const h = historyRef.current;
 
@@ -258,6 +272,7 @@ export default function DiscoverView({
                 crown(file);
                 setView("compare");
             }}
+            allowRotate
         />
     );
 }

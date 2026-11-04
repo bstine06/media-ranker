@@ -1,10 +1,20 @@
-export function toMediaUrl(rootPath: string, relativePath: string): string {
-  const absolute = `${rootPath}/${relativePath}`
-  return `media://local${absolute}`
+// Each path segment is escaped, so names with "#", "?" or "%" survive the
+// trip (the media:// handler decodes them).
+function encodePath(absPath: string): string {
+  return absPath.split("/").map(encodeURIComponent).join("/")
+}
+
+/**
+ * `version` (the file's content hash) changes when a file is edited in place,
+ * e.g. rotated, so the browser fetches the new content instead of a cached copy.
+ */
+export function toMediaUrl(rootPath: string, relativePath: string, version?: string): string {
+  const url = `media://local${encodePath(`${rootPath}/${relativePath}`)}`
+  return version ? `${url}?v=${version}` : url
 }
 
 export function toThumbnailUrl(absPath: string): string {
-  return `media://local${absPath}`
+  return `media://local${encodePath(absPath)}`
 }
 
 export function formatFileSize(bytes: number): string {

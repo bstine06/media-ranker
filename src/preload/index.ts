@@ -139,6 +139,9 @@ const api = {
     fileReplace: (oldRelPath: string, newAbsPath: string): Promise<DbFile> =>
         ipcRenderer.invoke("file:replace", oldRelPath, newAbsPath),
 
+    rotateFile: (relPath: string, quarterTurns: number): Promise<DbFile> =>
+        ipcRenderer.invoke("file:rotate", relPath, quarterTurns),
+
     openFile: (extensions: string[]) =>
         ipcRenderer.invoke("dialog:open-file", extensions),
 
@@ -196,6 +199,19 @@ const api = {
         ) => callback(data);
         ipcRenderer.on("media:renamed", handler);
         return () => ipcRenderer.removeListener("media:renamed", handler);
+    },
+
+    // A file's content changed in place (rotated / replaced); `file` is its
+    // fresh record.
+    onMediaUpdated: (
+        callback: (data: { relativePath: string; file: DbFile | undefined }) => void,
+    ) => {
+        const handler = (
+            _event: unknown,
+            data: { relativePath: string; file: DbFile | undefined },
+        ) => callback(data);
+        ipcRenderer.on("media:updated", handler);
+        return () => ipcRenderer.removeListener("media:updated", handler);
     },
 
     onFolderRenamed: (
@@ -278,6 +294,21 @@ const api = {
         tagMode: "and" | "or",
     ): Promise<[unknown, unknown] | null> =>
         ipcRenderer.invoke("get-pair", folderPrefixes, tagList, tagMode),
+
+    getLanePair: (
+        laneA: unknown,
+        laneB: unknown,
+    ): Promise<[unknown, unknown] | null> =>
+        ipcRenderer.invoke("get-lane-pair", laneA, laneB),
+
+    refitPair: (
+        ids: [number, number],
+        laneA: unknown,
+        laneB: unknown,
+        kingSide: "a" | "b" | null,
+        recentIds: number[],
+    ): Promise<[unknown, unknown] | null> =>
+        ipcRenderer.invoke("refit-pair", ids, laneA, laneB, kingSide, recentIds),
 
     recordComparison: (
         winnerId: number,

@@ -10,6 +10,9 @@ export async function replaceTrackedFile(
   oldRelPath: string,
   newAbsPath: string,
   ignoredPaths: Set<string>,
+  // 'trash' keeps the old version recoverable; 'overwrite' replaces it
+  // outright (rotations: the old version is just the same file turned).
+  oldVersion: 'trash' | 'overwrite' = 'trash',
 ): Promise<void> {
   const oldAbsPath = join(rootPath, oldRelPath)
   const filename = basename(oldAbsPath)
@@ -28,7 +31,8 @@ export async function replaceTrackedFile(
 
   ignoredPaths.add(oldAbsPath)
   try {
-    await shell.trashItem(oldAbsPath)
+    if (oldVersion === 'trash') await shell.trashItem(oldAbsPath)
+    // rename replaces whatever is at the destination
     await rename(newAbsPath, oldAbsPath)
   } finally {
     ignoredPaths.delete(oldAbsPath)

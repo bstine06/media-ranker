@@ -130,6 +130,110 @@ export function getWeightedPair(
     return [fileA, pickOpponent(fileA, others, 0.8)];
 }
 
+// What one side of Compare draws from. Same shape as the global filter so a
+// lane can narrow by folder now and by tags later.
+export interface PoolFilter {
+    folderPrefixes: string[] | null;
+    tagList: number[] | null;
+    tagMode: "and" | "or";
+}
+
+// A pair with each side drawn from its own pool. One side (chosen at random,
+// so neither lane is favored) is picked the usual way; the other side then
+// gets a similar-scored opponent from its pool. Pools may overlap; a file
+// never faces itself.
+export function getLanePair(
+    laneA: PoolFilter,
+    laneB: PoolFilter,
+): [DbFile, DbFile] | null {
+    const poolA = getFilteredFiles(
+        laneA.folderPrefixes,
+        laneA.tagList,
+        laneA.tagMode,
+    );
+    const poolB = getFilteredFiles(
+        laneB.folderPrefixes,
+        laneB.tagList,
+        laneB.tagMode,
+    );
+    if (poolA.length === 0 || poolB.length === 0) return null;
+
+    const anchorIsA = Math.random() < 0.5;
+    const anchorPool = anchorIsA ? poolA : poolB;
+    const otherPool = anchorIsA ? poolB : poolA;
+
+    // Anchors that have at least one possible opponent.
+    const otherIds = new Set(otherPool.map((f) => f.id));
+    const viable = anchorPool.filter(
+        (f) => otherIds.size > 1 || !otherIds.has(f.id),
+    );
+    if (viable.length === 0) return null;
+
+    let anchor: DbFile;
+    if (Math.random() < 0.3) {
+        const sorted = [...viable].sort(
+            (a, b) => a.comparison_count - b.comparison_count,
+        );
+        const pool = sorted.slice(0, Math.max(1, Math.floor(sorted.length * 0.3)));
+        anchor = pool[Math.floor(Math.random() * pool.length)];
+    } else {
+        anchor = viable[Math.floor(Math.random() * viable.length)];
+    }
+
+    const opponent = pickOpponent(
+        anchor,
+        otherPool.filter((f) => f.id !== anchor.id),
+        0.8,
+    );
+    return anchorIsA ? [anchor, opponent] : [opponent, anchor];
+}
+
+// After the filters change: keep each side of the current pair that still
+// fits its side's filter, and replace only the side(s) that don't. A king is
+// exempt (it stays whatever the filters say). Returns null if a side can't
+// be filled.
+export function refitPair(
+    ids: [number, number],
+    laneA: PoolFilter,
+    laneB: PoolFilter,
+    kingSide: "a" | "b" | null,
+    recentIds: number[] = [],
+): [DbFile, DbFile] | null {
+    const db = getDb();
+    const byId = (id: number): DbFile | undefined =>
+        db
+            .prepare(`SELECT * FROM files WHERE id = ? AND status = 'active'`)
+            .get(id) as DbFile | undefined;
+    const pools = [laneA, laneB].map((l) =>
+        getFilteredFiles(l.folderPrefixes, l.tagList, l.tagMode),
+    );
+    const current = ids.map(byId);
+    const fits = [0, 1].map((i) => {
+        const f = current[i];
+        if (!f) return false;
+        if (kingSide === (i === 0 ? "a" : "b")) return true;
+        return pools[i].some((p) => p.id === f.id);
+    });
+
+    if (fits[0] && fits[1]) return [current[0]!, current[1]!];
+    if (!fits[0] && !fits[1]) return getLanePair(laneA, laneB);
+
+    const keep = fits[0] ? 0 : 1;
+    const replace = 1 - keep;
+    const kept = current[keep]!;
+    const candidates = pools[replace].filter((f) => f.id !== kept.id);
+    if (candidates.length === 0) return null;
+    // A king's challenger skips recent opponents when it can.
+    const recent = new Set(kingSide ? recentIds : []);
+    const fresh = candidates.filter((f) => !recent.has(f.id));
+    const replacement = pickOpponent(
+        kept,
+        fresh.length > 0 ? fresh : candidates,
+        0.8,
+    );
+    return keep === 0 ? [kept, replacement] : [replacement, kept];
+}
+
 // King of the Hill: find a challenger for a fixed file. Challengers come from
 // the current filters (the king itself may be outside them). Recently-faced
 // challengers are skipped when possible so the king doesn't see repeats.

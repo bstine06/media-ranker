@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter } from "./src/shared/types/types";
 
 export {};
 
@@ -47,6 +47,13 @@ declare global {
                 callback: (file: { relativePath: string }) => void,
             ) => () => void;
 
+            /** A file's content changed in place (e.g. rotated). */
+            onMediaUpdated: (
+                callback: (data: {
+                    relativePath: string;
+                    file: DbFile | undefined;
+                }) => void,
+            ) => () => void;
             onMediaRenamed: (
                 callback: (file: {
                     oldRelativePath: string;
@@ -103,6 +110,19 @@ declare global {
             ) => Promise<
                 [import("./types").DbFile, import("./types").DbFile] | null
             >;
+            /** A pair with the left file from laneA's pool, the right from laneB's. */
+            getLanePair: (
+                laneA: PoolFilter,
+                laneB: PoolFilter,
+            ) => Promise<[DbFile, DbFile] | null>;
+            /** Keeps the sides of a pair that still fit their filters, replacing the rest. */
+            refitPair: (
+                ids: [number, number],
+                laneA: PoolFilter,
+                laneB: PoolFilter,
+                kingSide: "a" | "b" | null,
+                recentIds: number[],
+            ) => Promise<[DbFile, DbFile] | null>;
             recordComparison: (
                 winnerId: number,
                 loserId: number,
@@ -166,6 +186,8 @@ declare global {
                 oldRelPath: string,
                 newAbsPath: string,
             ) => Promise<DbFile>;
+            /** Rotates a file left by quarter turns, in place; resolves to its fresh record. */
+            rotateFile: (relPath: string, quarterTurns: number) => Promise<DbFile>;
             openFile: (extensions: string[]) => Promise<string | null>;
             deleteFile: (fileId: number) => Promise<void>;
             copyFileToClipboard: (filePath: string) => Promise<boolean>;

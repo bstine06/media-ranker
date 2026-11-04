@@ -12,7 +12,6 @@ import ScrollView from "./components/ScrollView";
 import CompareView from "./components/CompareView";
 import DiscoverView from "./components/DiscoverView";
 import TagManagerView from "./components/TagManagerView";
-import TripleLaneSlideshow from "./components/TripleLaneSlideshow";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -109,14 +108,6 @@ export default function App(): JSX.Element {
                 onSelect={handleSelectFolder}
                 isLoading={isScanning}
                 message={welcomeMessage}
-            />
-        );
-    }
-
-    if (view === "slideshow") {
-        return (
-            <TripleLaneSlideshow
-                onExit={() => setView("browse")}
             />
         );
     }

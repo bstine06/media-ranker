@@ -16,6 +16,8 @@ export interface ScrollSlotsState {
     setCursor: (i: number) => void;
     handleWheel: (e: React.WheelEvent) => void;
     navigate: (dir: "up" | "down") => void;
+    /** Swap in a fresh record for a file already showing (e.g. after a rotate). */
+    replaceFile: (file: DbFile) => void;
 }
 
 function computeSlope(history: { delta: number; time: number }[]): number {
@@ -182,7 +184,15 @@ export function useScrollSlots({
         navigate(e.deltaY > 0 ? "down" : "up");
     }, [navigate]);
 
+    const replaceFile = useCallback((file: DbFile) => {
+        setSlotFiles((prev) => [
+            prev[0]?.id === file.id ? file : prev[0],
+            prev[1]?.id === file.id ? file : prev[1],
+        ]);
+    }, []);
+
     return {
+        replaceFile,
         slotFiles,
         slotTransforms,
         slotTransitions,

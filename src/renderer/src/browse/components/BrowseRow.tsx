@@ -23,7 +23,7 @@ export default function BrowseRow({
     isSelected?: boolean;
 }): JSX.Element {
     const [thumbUrl, setThumbUrl] = useState<string | null>(null);
-    const fullUrl = toMediaUrl(rootPath!, file.path);
+    const fullUrl = toMediaUrl(rootPath!, file.path, file.content_hash);
 
     const {
         elementRef,

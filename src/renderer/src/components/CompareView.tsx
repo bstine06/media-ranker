@@ -5,7 +5,7 @@ import {
     useRef,
     useMemo,
 } from "react";
-import type { DbFile, DbTag, View } from "../shared/types/types";
+import type { DbFile, DbTag, PoolFilter, View } from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
 import { MediaPlayer, type MediaControls } from "./MediaPlayer";
@@ -20,10 +20,12 @@ import {
     type KingState,
 } from "@renderer/contexts/KingOfHillContext";
 import SingleFileView from "./SingleFileView";
+import { useSettings } from "@renderer/contexts/SettingsContext";
+import { useStatus } from "@renderer/contexts/StatusContext";
 
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
     if (file.media_type === "video") return;
-    preloadImage(toMediaUrl(rootPath, file.path));
+    preloadImage(toMediaUrl(rootPath, file.path, file.content_hash));
 }
 
 type Side = "a" | "b";
@@ -67,7 +69,11 @@ export default function CompareView({
     const controlsB = useRef<MediaControls | null>(null);
 
     const { activeTags, tagMode } = useTags();
-    const { rootPath, folderPrefixes, setActiveFolder } = useFolders();
+    const { compareBothAudio, toggleCompareBothAudio } = useSettings();
+    const { setStatus, resetStatus } = useStatus();
+    const { rootPath, laneFolderPrefixes, setActiveFolder } = useFolders();
+    // Each side's folders come from the sidebar's L / R checkboxes.
+    const laneKey = JSON.stringify(laneFolderPrefixes);
 
     const tagKey = useMemo(
         () => [...activeTags].sort().join(","),
@@ -91,25 +97,47 @@ export default function CompareView({
     const recentChallengersRef = useRef<number[]>([]);
 
     const loadPair = useCallback(
-        async (k: KingState | null = kingRef.current) => {
+        async (
+            k: KingState | null = kingRef.current,
+            // Filters changed with this pair on screen: keep whichever sides
+            // still fit and replace only the rest.
+            refit?: [DbFile, DbFile],
+        ) => {
             const tagList = activeTags.size > 0 ? [...activeTags] : null;
+            const lanes: Record<Side, string[] | null> = JSON.parse(laneKey);
             const filterKey = JSON.stringify([
-                folderPrefixes,
+                laneKey,
                 tagKey,
                 tagMode,
                 rootPath,
                 k?.file.id ?? null,
             ]);
 
+            // Folders per side; tags apply to both.
+            const laneFilter = (side: Side): PoolFilter => ({
+                folderPrefixes: lanes[side],
+                tagList,
+                tagMode,
+            });
+
             const fetchNext = async (): Promise<[DbFile, DbFile] | null> => {
                 if (!k) {
-                    return window.api.getPair(folderPrefixes, tagList, tagMode);
+                    // Same folders on both sides: the usual single-pool pick.
+                    if (JSON.stringify(lanes.a) === JSON.stringify(lanes.b)) {
+                        return window.api.getPair(lanes.a, tagList, tagMode);
+                    }
+                    return window.api.getLanePair(
+                        laneFilter("a"),
+                        laneFilter("b"),
+                    );
                 }
+                // Challengers come from the lane opposite the king.
+                const pool = laneFilter(k.side === "a" ? "b" : "a");
                 const challenger = await window.api.getChallenger(
                     k.file.id,
-                    folderPrefixes,
-                    tagList,
-                    tagMode,
+                    pool.folderPrefixes,
+                    pool.tagList,
+                    pool.tagMode,
                     recentChallengersRef.current,
                 );
                 if (!challenger) return null;
@@ -122,7 +150,15 @@ export default function CompareView({
             prefetchedRef.current = null;
 
             let result: [DbFile, DbFile] | null;
-            if (prefetched && prefetched.key === filterKey) {
+            if (refit) {
+                result = await window.api.refitPair(
+                    [refit[0].id, refit[1].id],
+                    laneFilter("a"),
+                    laneFilter("b"),
+                    k?.side ?? null,
+                    recentChallengersRef.current,
+                );
+            } else if (prefetched && prefetched.key === filterKey) {
                 result = prefetched.pair;
                 // Use the king's latest score, not the one from prefetch time.
                 if (k) {
@@ -172,11 +208,45 @@ export default function CompareView({
                 preloadFile(rootPath!, next[1]);
             });
         },
-        [folderPrefixes, rootPath, tagKey, tagMode, endKing],
+        [laneKey, rootPath, tagKey, tagMode, endKing],
     );
 
+    // Filters changed (or first load). With a pair already up from the same
+    // library, refit it so only sides that no longer fit get swapped.
+    // A file edited in place (e.g. rotated in the single file view) shows
+    // its new version here too: same record, new content hash.
     useEffect(() => {
-        loadPair();
+        return window.api.onMediaUpdated(({ file }) => {
+            if (!file) return;
+            const swap = (f: DbFile): DbFile => (f.id === file.id ? file : f);
+            setPair((p) => (p ? [swap(p[0]), swap(p[1])] : p));
+            if (kingRef.current?.file.id === file.id) {
+                const k = { ...kingRef.current, file };
+                kingRef.current = k;
+                setKing(k);
+            }
+            setInspectedFile((f) => (f ? swap(f) : f));
+            undoStackRef.current = undoStackRef.current.map((e) => ({
+                ...e,
+                pair: [swap(e.pair[0]), swap(e.pair[1])],
+                king:
+                    e.king?.file.id === file.id ? { ...e.king, file } : e.king,
+            }));
+            const pre = prefetchedRef.current;
+            if (pre) pre.pair = [swap(pre.pair[0]), swap(pre.pair[1])];
+        });
+    }, [setKing]);
+
+    const pairRef = useRef(pair);
+    pairRef.current = pair;
+    const loadedRootRef = useRef(rootPath);
+    useEffect(() => {
+        const current = pairRef.current;
+        const sameLibrary = loadedRootRef.current === rootPath;
+        loadedRootRef.current = rootPath;
+        if (current && sameLibrary) loadPair(undefined, current);
+        else loadPair();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadPair]);
 
     // A king crowned from elsewhere (Browse / Discover) isn't on screen yet,
@@ -289,13 +359,18 @@ export default function CompareView({
         if (!keysEnabled) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.metaKey || e.ctrlKey || e.altKey) return;
+            // Leave keys alone only while typing. A focused checkbox (the
+            // sidebar's L / R boxes) or button shouldn't swallow hotkeys.
             const el = document.activeElement as HTMLElement | null;
-            if (
-                el?.tagName === "INPUT" ||
+            const typing =
+                (el instanceof HTMLInputElement &&
+                    !["checkbox", "radio", "range", "button", "submit"].includes(
+                        el.type,
+                    )) ||
                 el?.tagName === "TEXTAREA" ||
-                el?.isContentEditable
-            )
-                return;
+                el?.tagName === "SELECT" ||
+                el?.isContentEditable;
+            if (typing) return;
 
             const controls =
                 focus === "a" ? controlsA.current : controlsB.current;
@@ -317,6 +392,26 @@ export default function CompareView({
                     if (e.repeat) return;
                     handleUndo();
                     break;
+                case "KeyX":
+                    e.preventDefault();
+                    if (e.repeat) return;
+                    toggleCompareBothAudio();
+                    setStatus(
+                        compareBothAudio
+                            ? "Audio: focused side only"
+                            : "Audio: both sides",
+                    );
+                    setTimeout(resetStatus, 2000);
+                    break;
+                case "KeyR": {
+                    // Crown the focused side, or uncrown it if it's king.
+                    e.preventDefault();
+                    if (e.repeat || !pair) return;
+                    const file = focus === "a" ? pair[0] : pair[1];
+                    if (king?.file.id === file.id) endKing();
+                    else crown(file, focus);
+                    break;
+                }
                 case "KeyQ":
                 case "KeyE":
                     e.preventDefault();
@@ -331,7 +426,20 @@ export default function CompareView({
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [keysEnabled, focus, submit, handleUndo]);
+    }, [
+        keysEnabled,
+        focus,
+        submit,
+        handleUndo,
+        pair,
+        king,
+        crown,
+        endKing,
+        compareBothAudio,
+        toggleCompareBothAudio,
+        setStatus,
+        resetStatus,
+    ]);
 
     // Only blank the screen on the very first load. Swapping in a new pair
     // keeps the cards mounted, so a video that stays on screen (the king)
@@ -345,6 +453,14 @@ export default function CompareView({
     }
 
     if (!pair) {
+        if (laneFolderPrefixes.a || laneFolderPrefixes.b) {
+            return (
+                <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
+                    Not enough files to compare in the folders checked for
+                    each side (L / R in the sidebar).
+                </div>
+            );
+        }
         return (
             <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
                 Not enough files to compare. Add more media to your library.
@@ -373,6 +489,7 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "a"}
+                        audible={compareBothAudio || focus === "a"}
                         controlsRef={controlsA}
                         onFocus={() => setFocus("a")}
                         onPick={() => handlePick("a")}
@@ -396,6 +513,7 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "b"}
+                        audible={compareBothAudio || focus === "b"}
                         controlsRef={controlsB}
                         onFocus={() => setFocus("b")}
                         onPick={() => handlePick("b")}
@@ -423,6 +541,7 @@ function CompareCard({
     rootPath,
     disabled,
     focused,
+    audible,
     controlsRef,
     onFocus,
     onPick,
@@ -438,6 +557,7 @@ function CompareCard({
     rootPath: string;
     disabled: boolean;
     focused: boolean;
+    audible: boolean;
     controlsRef: React.MutableRefObject<MediaControls | null>;
     onFocus: () => void;
     onPick: () => void;
@@ -482,6 +602,7 @@ function CompareCard({
     }, [outgoing, incomingReady]);
 
     const [showBar, setShowBar] = useState(false);
+
     // Bar pieces fade together; only shown pieces catch the mouse, and the
     // bar itself lets clicks through so they still pick.
     const fade = showBar
@@ -525,7 +646,7 @@ function CompareCard({
                                     file={f}
                                     rootPath={rootPath}
                                     disabled={disabled}
-                                    muted={!focused || disabled}
+                                    muted={!audible || disabled}
                                     onClick={disabled ? undefined : onPick}
                                     onMouseMove={handleMouseMove}
                                     onReady={incomingReady}
@@ -549,9 +670,9 @@ function CompareCard({
             <div
                 className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-150 ${showBar ? "opacity-100" : "opacity-0"}`}
             />
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 px-3 pt-2.5">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-2 px-3 pt-2.5">
                 <div
-                    className={`min-w-0 transition-opacity duration-150 ${fade}`}
+                    className={`min-w-0 flex-1 transition-opacity duration-150 ${fade}`}
                 >
                     <p
                         className="cursor-pointer truncate text-sm font-medium text-white/90 drop-shadow hover:text-white transition-colors"
