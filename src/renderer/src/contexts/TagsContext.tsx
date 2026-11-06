@@ -108,7 +108,11 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     const getTagsWithCategory = useCallback(
     (tags: DbTag[]) => {
         return tags
-            .map((t) => tagMap.get(t.id))
+            .map((t) => {
+                const full = tagMap.get(t.id);
+                // Keep a file tag's `inherited` flag (the map's copy has none).
+                return full && t.inherited ? { ...full, inherited: true } : full;
+            })
             .filter((t): t is DbTagWithCategory => t != null);
     },
     [tagMap],

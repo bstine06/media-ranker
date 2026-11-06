@@ -10,10 +10,12 @@ interface TagPillProps {
   onRemove?: () => void;   // renders × button when present
   applied: boolean;
   onAdd?: () => void;      // renders + prefix when present
+  /** Comes from the file's folder: dimmed, and can't be removed here. */
+  inherited?: boolean;
   className?: string;
 }
 
-export function TagPill({ tag, onRemove, applied, onAdd, className }: TagPillProps) {
+export function TagPill({ tag, onRemove, applied, onAdd, inherited, className }: TagPillProps) {
   const color = tag.category?.color ?? "#888";
   const icon = tag.category?.icon ?? "●";
 
@@ -121,7 +123,8 @@ export function TagPill({ tag, onRemove, applied, onAdd, className }: TagPillPro
       <span
         className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs group ${
           applied ? "border border-neutral-500" : ""
-        } ${className}`}
+        } ${inherited ? "opacity-50" : ""} ${className}`}
+        title={inherited ? "From the folder's tags. Remove it there to take it off." : undefined}
         onContextMenu={handleContextMenu}
       >
         {tag.category && !showTagCategoryNames && (
@@ -131,7 +134,7 @@ export function TagPill({ tag, onRemove, applied, onAdd, className }: TagPillPro
         )}
         <button
           onClick={onAdd ?? onRemove}
-          className="text-left hover:text-neutral-100 transition-colors"
+          className={`text-left transition-colors ${inherited ? "cursor-default" : "hover:text-neutral-100"}`}
         >
           {tag.name}
         </button>

@@ -34,7 +34,6 @@ import {
     getTagByName,
     removeTagFromFile,
     upsertFolder,
-    applyFolderTagsToExistingFiles,
     getTagsForFolderByPath,
     removeTagFromFolderByPath,
     getFolderMetadata,
@@ -55,7 +54,6 @@ import {
     getFileById,
     markFileMissingById,
     moveFileRecord,
-    applyFolderTagsToFile,
     getRootFiles,
     countRootFiles,
 } from "./db";
@@ -425,7 +423,6 @@ function registerIpcHandlers(): void {
                         ? upsertFolder(targetFolder, path.basename(targetFolder))
                         : null;
                     moveFileRecord(record.id, newRel, filename, folder?.id ?? null);
-                    if (folder) applyFolderTagsToFile(record.id, folder.id);
 
                     win?.webContents.send("media:renamed", {
                         oldRelativePath: rel,
@@ -593,7 +590,6 @@ function registerIpcHandlers(): void {
             );
             const { id: tagId } = upsertTag(tag);
             addTagToFolder(folder.id, tagId);
-            applyFolderTagsToExistingFiles(folder.id);
         },
     );
 

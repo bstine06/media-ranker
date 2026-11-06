@@ -23,8 +23,9 @@ import {
     getFileByHashAny,
     DbFolder,
     upsertFolder,
-    applyFolderTagsToFile,
     updateFileFolderAndPath,
+    normalizeFolderIds,
+    dropDirectTagsCoveredByFolder,
 } from "./db";
 import { getMediaType, type MediaType } from "./formats";
 import { ffmpegBin, imageToJpeg } from "./imageConvert";
@@ -270,9 +271,6 @@ export async function scanFolder(
                     missing_since: null,
                     folder_id: getFolderId(file),
                 });
-                if (inserted.folder_id != null) {
-                    applyFolderTagsToFile(inserted.id, inserted.folder_id);
-                }
                 added++;
                 //Resurrected/moved via hash match
             } else if (
@@ -295,14 +293,6 @@ export async function scanFolder(
                     file.filename,
                     file.mediaType,
                 );
-
-                // Apply folder tags if it moved to a different folder
-                if (
-                    newFolderId != null &&
-                    newFolderId !== existingByHash.folder_id
-                ) {
-                    applyFolderTagsToFile(existingByHash.id, newFolderId);
-                }
 
                 if (existingByHash.status === "missing") resurrected++;
                 else updated++;
@@ -336,6 +326,12 @@ export async function scanFolder(
             unsupported++;
         }
     }
+
+    // Files skipped above (unchanged on disk) keep whatever folder_id they
+    // had; fix any that drifted (e.g. a subfolder moved between folders in
+    // Finder), then apply the one-source rule for folder tags.
+    normalizeFolderIds();
+    dropDirectTagsCoveredByFolder();
 
     // Mark missing and delete thumbnails for anything not seen on disk
     const allDbFiles = getAllFiles();

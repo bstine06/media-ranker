@@ -182,9 +182,70 @@ export function initDb(rootPath: string): Database.Database {
     // ── Migrations (safe to run on every startup) ──────────────────────────
 
     runMigrations(db);
-    backfillFolderIds();
+    createViews(db);
+
+    // Inherited folder tags (schema version 1). The first time, back the
+    // database up before touching any data: the cleanup below deletes rows.
+    const version = db.pragma("user_version", { simple: true }) as number;
+    if (version < 1) {
+        const backup = join(rootPath, "_media_index.pre-folder-tags.db");
+        db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+    }
+    // Both idempotent and cheap, so they also run on every open to repair
+    // anything that drifted (e.g. a subfolder moved in Finder).
+    normalizeFolderIds();
+    dropDirectTagsCoveredByFolder();
+    if (version < 1) db.pragma("user_version = 1");
 
     return db;
+}
+
+// A file's tags are its own (file_tags) plus its folder's (folder_tags,
+// through files.folder_id), combined at query time. A tag never comes from
+// both: when a folder has a tag, files in it don't keep their own copy.
+// `inherited` is 1 for tags that come from the folder.
+function createViews(db: Database.Database): void {
+    db.exec(`
+        DROP VIEW IF EXISTS file_effective_tags;
+        CREATE VIEW file_effective_tags AS
+            SELECT file_id, tag_id, 0 AS inherited FROM file_tags
+            UNION ALL
+            SELECT f.id, ft.tag_id, 1 FROM files f
+            JOIN folder_tags ft ON ft.folder_id = f.folder_id;
+    `);
+}
+
+// Every file belongs to its top-level folder ("cats/kittens/a.jpg" is in
+// "cats"); files in the library root belong to none. Fixes any folder_id
+// that disagrees, e.g. after a subfolder was moved between folders in Finder.
+export function normalizeFolderIds(): void {
+    const topFolder = `(
+        SELECT fo.id FROM folders fo
+        WHERE instr(files.path, '/') > 0
+          AND fo.path = substr(files.path, 1, instr(files.path, '/') - 1)
+    )`;
+    getDb()
+        .prepare(
+            `UPDATE files SET folder_id = ${topFolder}
+             WHERE folder_id IS NOT ${topFolder}`,
+        )
+        .run();
+}
+
+// Deletes a file's own copy of any tag its folder already gives it. Pass a
+// file id to only check that file.
+export function dropDirectTagsCoveredByFolder(fileId?: number): void {
+    getDb()
+        .prepare(
+            `DELETE FROM file_tags
+             WHERE EXISTS (
+                 SELECT 1 FROM files f
+                 JOIN folder_tags ft ON ft.folder_id = f.folder_id
+                 WHERE f.id = file_tags.file_id AND ft.tag_id = file_tags.tag_id
+             )
+             ${fileId != null ? "AND file_tags.file_id = ?" : ""}`,
+        )
+        .run(...(fileId != null ? [fileId] : []));
 }
 
 function runMigrations(db: Database.Database): void {
@@ -420,9 +481,21 @@ export function deleteFolderByPath(path: string): void {
 }
 
 export function renameFolderPath(oldPath: string, newPath: string): void {
-    getDb()
-        .prepare(`UPDATE folders SET path = ?, name = ? WHERE path = ?`)
-        .run(newPath, basename(newPath), oldPath);
+    const db = getDb();
+    db.transaction(() => {
+        // Folder rows outlive their directory (so tags survive a folder being
+        // moved out and back). A leftover row at the new path belongs to a
+        // folder that's gone; the renamed folder replaces it.
+        db.prepare(`DELETE FROM folders WHERE path = ? AND path != ?`).run(
+            newPath,
+            oldPath,
+        );
+        db.prepare(`UPDATE folders SET path = ?, name = ? WHERE path = ?`).run(
+            newPath,
+            basename(newPath),
+            oldPath,
+        );
+    })();
 }
 
 // ── Folder tag queries ───────────────────────────────────────────────────────
@@ -437,12 +510,18 @@ export function getTagsForFolder(folderId: number): DbTag[] {
         .all(folderId) as DbTag[];
 }
 
+// Files in the folder now inherit the tag, so their own copies go.
 export function addTagToFolder(folderId: number, tagId: number): void {
-    getDb()
-        .prepare(
+    const db = getDb();
+    db.transaction(() => {
+        db.prepare(
             `INSERT OR IGNORE INTO folder_tags (folder_id, tag_id) VALUES (?, ?)`,
-        )
-        .run(folderId, tagId);
+        ).run(folderId, tagId);
+        db.prepare(
+            `DELETE FROM file_tags
+             WHERE tag_id = ? AND file_id IN (SELECT id FROM files WHERE folder_id = ?)`,
+        ).run(tagId, folderId);
+    })();
 }
 
 export function removeTagFromFolder(folderId: number, tagId: number): void {
@@ -472,9 +551,9 @@ export function getMostUsedTags(folderId?: number): DbTag[] {
     const query =
         folderId != null
             ? `
-            SELECT t.id, t.name, t.category_id, COUNT(*) as usage_count
+            SELECT t.id, t.name, t.category_id, COUNT(DISTINCT f.id) as usage_count
             FROM tags t
-            JOIN file_tags ft ON ft.tag_id = t.id
+            JOIN file_effective_tags ft ON ft.tag_id = t.id
             JOIN files f ON f.id = ft.file_id
             WHERE f.status = 'active'
               AND f.folder_id = ?
@@ -482,9 +561,9 @@ export function getMostUsedTags(folderId?: number): DbTag[] {
             ORDER BY usage_count DESC
           `
             : `
-            SELECT t.id, t.name, t.category_id, COUNT(*) as usage_count
+            SELECT t.id, t.name, t.category_id, COUNT(DISTINCT f.id) as usage_count
             FROM tags t
-            JOIN file_tags ft ON ft.tag_id = t.id
+            JOIN file_effective_tags ft ON ft.tag_id = t.id
             JOIN files f ON f.id = ft.file_id
             WHERE f.status = 'active'
             GROUP BY t.id
@@ -496,24 +575,9 @@ export function getMostUsedTags(folderId?: number): DbTag[] {
         .all(folderId != null ? [folderId] : []) as DbTag[];
 }
 
-// Stamp folder tags onto all files currently in the folder.
-// Called when a tag is added to a folder after files are already there.
-export function applyFolderTagsToExistingFiles(folderId: number): void {
-    getDb()
-        .prepare(
-            `INSERT OR IGNORE INTO file_tags (file_id, tag_id)
-             SELECT f.id, ft.tag_id
-             FROM files f
-             JOIN folder_tags ft ON ft.folder_id = ?
-             WHERE f.folder_id = ?`,
-        )
-        .run(folderId, folderId);
-}
-
-// Stamp a single folder's tags onto a single incoming file.
-// Called at move/index time.
 // Move a tracked file to a new path/folder in one go (used for in-app moves;
-// the watcher is told to ignore the filesystem events).
+// the watcher is told to ignore the filesystem events). It now inherits the
+// new folder's tags, and loses the old one's.
 export function moveFileRecord(
     fileId: number,
     newRelativePath: string,
@@ -525,15 +589,7 @@ export function moveFileRecord(
             `UPDATE files SET path = ?, filename = ?, folder_id = ? WHERE id = ?`,
         )
         .run(newRelativePath, newFilename, folderId, fileId);
-}
-
-export function applyFolderTagsToFile(fileId: number, folderId: number): void {
-    getDb()
-        .prepare(
-            `INSERT OR IGNORE INTO file_tags (file_id, tag_id)
-             SELECT ?, tag_id FROM folder_tags WHERE folder_id = ?`,
-        )
-        .run(fileId, folderId);
+    dropDirectTagsCoveredByFolder(fileId);
 }
 
 // ── Folder metadata queries ──────────────────────────────────────────────────
@@ -785,22 +841,35 @@ export function updateTagCategory(
 
 // ── File tag queries ─────────────────────────────────────────────────────────
 
-export function getTagsForFile(fileId: number): DbTag[] {
-    return getDb()
+// A file's tags, own and inherited. `inherited`: it comes from the file's
+// folder (shown dimmed; removed from the folder, not the file).
+export function getTagsForFile(
+    fileId: number,
+): (DbTag & { inherited: boolean })[] {
+    const rows = getDb()
         .prepare(
-            `SELECT t.* FROM tags t
-             JOIN file_tags ft ON ft.tag_id = t.id
-             WHERE ft.file_id = ?`,
+            `SELECT t.*, MAX(ft.inherited) AS inherited FROM tags t
+             JOIN file_effective_tags ft ON ft.tag_id = t.id
+             WHERE ft.file_id = ?
+             GROUP BY t.id`,
         )
-        .all(fileId) as DbTag[];
+        .all(fileId) as (DbTag & { inherited: number })[];
+    return rows.map((r) => ({ ...r, inherited: r.inherited === 1 }));
 }
 
+// No-op when the file's folder already gives it the tag.
 export function addTagToFile(fileId: number, tagId: number): void {
     getDb()
         .prepare(
-            `INSERT OR IGNORE INTO file_tags (file_id, tag_id) VALUES (?, ?)`,
+            `INSERT OR IGNORE INTO file_tags (file_id, tag_id)
+             SELECT ?, ?
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM files f
+                 JOIN folder_tags ft ON ft.folder_id = f.folder_id
+                 WHERE f.id = ? AND ft.tag_id = ?
+             )`,
         )
-        .run(fileId, tagId);
+        .run(fileId, tagId, fileId, tagId);
 }
 
 export function removeTagFromFile(fileId: number, tagId: number): void {
@@ -820,34 +889,19 @@ export function getFileIdsByTags(
     if (mode === "or") {
         const rows = db
             .prepare(
-                `SELECT DISTINCT file_id FROM file_tags WHERE tag_id IN (${placeholders})`,
+                `SELECT DISTINCT file_id FROM file_effective_tags WHERE tag_id IN (${placeholders})`,
             )
             .all(...tagIds) as { file_id: number }[];
         return rows.map((r) => r.file_id);
     } else {
         const rows = db
             .prepare(
-                `SELECT file_id FROM file_tags WHERE tag_id IN (${placeholders})
+                `SELECT file_id FROM file_effective_tags WHERE tag_id IN (${placeholders})
                  GROUP BY file_id HAVING COUNT(DISTINCT tag_id) = ?`,
             )
             .all(...tagIds, tagIds.length) as { file_id: number }[];
         return rows.map((r) => r.file_id);
     }
-}
-
-export function backfillFolderIds(): void {
-    const db = getDb();
-    const folders = db.prepare(`SELECT * FROM folders`).all() as DbFolder[];
-
-    const updateFile = db.prepare(
-        `UPDATE files SET folder_id = ? WHERE path LIKE ? ESCAPE '\\' AND folder_id IS NULL`,
-    );
-
-    db.transaction(() => {
-        for (const folder of folders) {
-            updateFile.run(folder.id, folderLikePattern(folder.path));
-        }
-    })();
 }
 
 // ── File queries ─────────────────────────────────────────────────────────────
@@ -889,10 +943,8 @@ export function upsertFile(
             );
         }
 
-        // Apply folder tags in case file moved to a new folder
-        if (file.folder_id != null) {
-            applyFolderTagsToFile(existing.id, file.folder_id);
-        }
+        // It may have moved into a folder that now gives it some tags.
+        dropDirectTagsCoveredByFolder(existing.id);
 
         return { ...existing, ...file };
     }
@@ -915,11 +967,6 @@ export function upsertFile(
     const inserted = db
         .prepare(`SELECT * FROM files WHERE id = ?`)
         .get(result.lastInsertRowid) as DbFile;
-
-    // Apply folder tags to newly indexed files
-    if (inserted.folder_id != null) {
-        applyFolderTagsToFile(inserted.id, inserted.folder_id);
-    }
 
     return inserted;
 }
@@ -1072,6 +1119,8 @@ export function updateFileFolderAndPath(
             `UPDATE files SET path = ?, filename = ?, mtime = ?, folder_id = ? WHERE content_hash = ?`,
         )
         .run(newRelativePath, newFilename, mtime, folderId, hash);
+    const moved = getFileByHashAny(hash);
+    if (moved) dropDirectTagsCoveredByFolder(moved.id);
 }
 
 export function getActiveFilesByTags(
@@ -1092,7 +1141,7 @@ export function getActiveFilesByTags(
         return db
             .prepare(
                 `SELECT DISTINCT f.* FROM files f
-             JOIN file_tags ft ON ft.file_id = f.id
+             JOIN file_effective_tags ft ON ft.file_id = f.id
              JOIN tags t ON t.id = ft.tag_id
              WHERE f.status = 'active'
              AND t.id IN (${placeholders})
@@ -1104,7 +1153,7 @@ export function getActiveFilesByTags(
         return db
             .prepare(
                 `SELECT f.* FROM files f
-             JOIN file_tags ft ON ft.file_id = f.id
+             JOIN file_effective_tags ft ON ft.file_id = f.id
              JOIN tags t ON t.id = ft.tag_id
              WHERE f.status = 'active'
              AND t.id IN (${placeholders})

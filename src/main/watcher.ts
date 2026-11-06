@@ -16,9 +16,7 @@ import {
     setFileStatus,
     getFolderByPath,
     upsertFolder,
-    deleteFolderByPath,
     renameFolderPath,
-    applyFolderTagsToFile,
     updateFileFolderAndPath,
     type DbFile,
 } from "./db";
@@ -127,8 +125,8 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
     }
 
     // A tracked file moved on disk (Finder, another app): point the record at
-    // the new path, file it under the folder it's in now, and give it that
-    // folder's tags, the same as moving it inside the app.
+    // the new path and file it under the folder it's in now, the same as
+    // moving it inside the app. It inherits that folder's tags (see db.ts).
     function commitFileMove(
         record: DbFile,
         relativePath: string,
@@ -142,9 +140,6 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
             mtime,
             folderId,
         );
-        if (folderId != null && folderId !== record.folder_id) {
-            applyFolderTagsToFile(record.id, folderId);
-        }
     }
 
     // A file's thumbnail is deleted when it goes missing, so one coming back
@@ -326,10 +321,6 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                         missing_since: null,
                         folder_id: topFolderId(relativePath),
                     });
-                    if (inserted.folder_id != null) {
-                        applyFolderTagsToFile(inserted.id, inserted.folder_id);
-                    }
-
                     getActiveWindow()?.webContents.send("media:added", {
                         relativePath,
                         hash,
@@ -422,7 +413,9 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
         const timer = setTimeout(() => {
             try {
                 pendingDirUnlinks.delete(oldRelativeDir);
-                deleteFolderByPath(oldRelativeDir);
+                // The folder's row (tags, metadata, profile image) is kept:
+                // its files inherit its tags, so if the folder comes back at
+                // the same path, everything is as it was.
                 const affected = getFilesByPathPrefix(oldRelativeDir);
                 for (const record of affected) {
                     markFileMissing(record.path);

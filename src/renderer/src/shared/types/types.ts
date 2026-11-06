@@ -20,6 +20,9 @@ export interface DbTag {
     id: number;
     name: string;
     category_id: number | null;
+    /** On a file's tag list: it comes from the file's folder, so it can only
+     *  be removed from the folder. */
+    inherited?: boolean;
 }
 
 export interface DbTagCategory {

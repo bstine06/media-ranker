@@ -31,7 +31,7 @@ export function getRandomFile(
             const placeholders = tagList.map(() => "?").join(", ");
             conditions.push(`
     f.id IN (
-        SELECT ft.file_id FROM file_tags ft
+        SELECT ft.file_id FROM file_effective_tags ft
         JOIN tags t ON t.id = ft.tag_id
         WHERE t.id IN (${placeholders})
     )
@@ -41,7 +41,7 @@ export function getRandomFile(
             tagList.forEach((tag) => {
                 conditions.push(`
         f.id IN (
-            SELECT ft.file_id FROM file_tags ft
+            SELECT ft.file_id FROM file_effective_tags ft
             JOIN tags t ON t.id = ft.tag_id
             WHERE t.id = ?
         )
