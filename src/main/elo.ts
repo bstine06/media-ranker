@@ -1,4 +1,4 @@
-import { getDb, folderLikePattern } from "./db";
+import { getDb, folderLikePattern, updateEloScores } from "./db";
 import type { DbFile } from "./db";
 import { tagFilterSql } from "./tagFilter";
 
@@ -32,7 +32,60 @@ export function computeEloUpdate(
     return { newWinnerScore, newLoserScore };
 }
 
-function getFilteredFiles(
+// Library-wide rank (1 = best) among active files.
+function rankOf(id: number): number {
+    return (
+        getDb()
+            .prepare(
+                `SELECT COUNT(*) AS n FROM files
+                 WHERE status = 'active' AND id != ?
+                 AND elo_score > (SELECT elo_score FROM files WHERE id = ?)`,
+            )
+            .get(id, id) as { n: number }
+    ).n + 1;
+}
+
+/**
+ * Records a pick and updates both scores: by Elo, or with `scores` when the
+ * caller works them out itself (placement). Either way the comparison keeps
+ * both files' previous scores, so it can be undone.
+ */
+export function recordComparison(
+    winnerId: number,
+    loserId: number,
+    domainPath: string,
+    scores?: { newWinnerScore: number; newLoserScore: number },
+) {
+    const db = getDb();
+    const getFile = (id: number) =>
+        db.prepare("SELECT * FROM files WHERE id = ?").get(id) as DbFile | undefined;
+    const winner = getFile(winnerId);
+    const loser = getFile(loserId);
+    if (!winner || !loser) return null;
+
+    const winnerRankBefore = rankOf(winnerId);
+    const loserRankBefore = rankOf(loserId);
+    const { newWinnerScore, newLoserScore } =
+        scores ?? computeEloUpdate(winner, loser);
+    const comparisonId = updateEloScores(
+        winnerId,
+        loserId,
+        newWinnerScore,
+        newLoserScore,
+        domainPath,
+    );
+    return {
+        comparisonId,
+        newWinnerScore,
+        newLoserScore,
+        winner: getFile(winnerId)!,
+        loser: getFile(loserId)!,
+        winnerRank: { before: winnerRankBefore, after: rankOf(winnerId) },
+        loserRank: { before: loserRankBefore, after: rankOf(loserId) },
+    };
+}
+
+export function getFilteredFiles(
     folderPrefixes: string[] | null,
     tagList: number[] | null,
     tagMode: "and" | "or",

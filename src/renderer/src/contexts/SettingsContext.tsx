@@ -3,6 +3,10 @@ import type { SortMode, ViewMode } from "@renderer/browse/types/browserTypes";
 
 export type SortDirection = "up" | "down";
 
+export const PLACEMENT_MIN = 3;
+export const PLACEMENT_MAX = 30;
+const PLACEMENT_DEFAULT = 10;
+
 interface Settings {
     hoverPreviewEnabled: boolean;
     toggleHoverPreview: () => void;
@@ -28,6 +32,12 @@ interface Settings {
     setBrowseSortDirection: (direction: SortDirection) => void;
     browseViewMode: ViewMode;
     setBrowseViewMode: (mode: ViewMode) => void;
+    /** Compare: files with fewer than placementMatches comparisons stay on
+     *  screen until they've had that many (main/placement.ts). */
+    placementEnabled: boolean;
+    togglePlacement: () => void;
+    placementMatches: number;
+    setPlacementMatches: (n: number) => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -53,6 +63,10 @@ const SettingsContext = createContext<Settings>({
     setBrowseSortDirection: () => {},
     browseViewMode: "grid",
     setBrowseViewMode: () => {},
+    placementEnabled: false,
+    togglePlacement: () => {},
+    placementMatches: 10,
+    setPlacementMatches: () => {},
 });
 
 // Saved settings (config.json), read once at startup. Anything missing or
@@ -138,6 +152,18 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         savedOneOf("browseViewMode", ["grid", "rows"], "grid"),
     );
 
+    const [placementEnabled, setPlacementEnabled] = useState(() => savedBool("placementEnabled", false));
+    const togglePlacement = useCallback(() => setPlacementEnabled((p) => !p), []);
+    const [placementMatches, setPlacementMatchesState] = useState(() =>
+        savedNum("placementMatches", PLACEMENT_DEFAULT, PLACEMENT_MIN, PLACEMENT_MAX),
+    );
+    const setPlacementMatches = useCallback((n: number) => {
+        if (!Number.isFinite(n)) return;
+        setPlacementMatchesState(
+            Math.max(PLACEMENT_MIN, Math.min(PLACEMENT_MAX, Math.round(n))),
+        );
+    }, []);
+
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
         setPauseWhenUnfocused((p) => !p);
@@ -189,6 +215,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     browseSortMode,
                     browseSortDirection,
                     browseViewMode,
+                    placementEnabled,
+                    placementMatches,
                 })
                 .catch(() => {});
         }, 300);
@@ -205,6 +233,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         browseSortMode,
         browseSortDirection,
         browseViewMode,
+        placementEnabled,
+        placementMatches,
     ]);
 
     return (
@@ -232,6 +262,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 setBrowseSortDirection,
                 browseViewMode,
                 setBrowseViewMode,
+                placementEnabled,
+                togglePlacement,
+                placementMatches,
+                setPlacementMatches,
             }}
         >
             {children}

@@ -96,6 +96,13 @@ export interface ComparisonResult {
     loserRank: { before: number; after: number };
 }
 
+/** Placement: where the file being placed may rank in its opponent pool,
+ *  as fractions from the top (0 = best, 1 = worst). See main/placement.ts. */
+export interface PlacementBounds {
+    lo: number;
+    hi: number;
+}
+
 /** How widely a tag is used (for confirm dialogs). */
 export interface TagUsage {
     /** Files that have it, their own or from their folder. */

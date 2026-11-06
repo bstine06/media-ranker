@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, TagUsage } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, TagUsage, PlacementBounds } from "./src/shared/types/types";
 
 export {};
 
@@ -207,6 +207,36 @@ declare global {
                 | { ok: false; conflict: DbTag & TagUsage }
             >;
             getTagUsage: (id: number) => Promise<TagUsage>;
+            getPlacementCandidate: (
+                laneA: PoolFilter,
+                laneB: PoolFilter,
+                matches: number,
+            ) => Promise<{ file: DbFile; side: "a" | "b" } | null>;
+            countPlacementCandidates: (
+                laneA: PoolFilter,
+                laneB: PoolFilter,
+                matches: number,
+            ) => Promise<number>;
+            getPlacementBounds: (
+                fileId: number,
+                pool: PoolFilter,
+                matches: number,
+            ) => Promise<PlacementBounds>;
+            getPlacementOpponent: (
+                fileId: number,
+                pool: PoolFilter,
+                matches: number,
+                bounds: PlacementBounds,
+                recentIds: number[],
+            ) => Promise<DbFile | null>;
+            recordPlacement: (
+                placingId: number,
+                opponentId: number,
+                placingWon: boolean,
+                pool: PoolFilter,
+                matches: number,
+                bounds: PlacementBounds,
+            ) => Promise<(ComparisonResult & { bounds: PlacementBounds }) | null>;
             mergeTags: (sourceId: number, targetId: number) => Promise<void>;
             deleteTag: (id: number) => Promise<void>;
 

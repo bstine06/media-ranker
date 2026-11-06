@@ -21,6 +21,7 @@ import { TagIcon } from "@renderer/components/icons/TagIcon";
 import FolderTagPanel from "./FolderTagPanel";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
 import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
+import { usePlacement } from "@renderer/contexts/PlacementContext";
 
 // ─── Sorting ──────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,7 @@ export default function BrowseView({
     const [deletingFile, setDeletingFile] = useState<DbFile | null>(null);
 
     const { crown } = useKingOfHill();
+    const { startSession, version: placementVersion } = usePlacement();
     const crownAndCompare = (file: DbFile) => {
         crown(file);
         setView("compare");
@@ -144,7 +146,28 @@ export default function BrowseView({
         setBrowseSortDirection: setSortDirection,
         browseViewMode: viewMode,
         setBrowseViewMode: setViewMode,
+        placementMatches,
     } = useSettings();
+
+    // Files in this collection that still need placement matches.
+    const [toPlace, setToPlace] = useState(0);
+    useEffect(() => {
+        if (!activeFolder) {
+            setToPlace(0);
+            return;
+        }
+        const pool = { folderPrefixes: [activeFolder], tagList: null, tagMode: "or" as const };
+        window.api
+            .countPlacementCandidates(pool, pool, placementMatches)
+            .then(setToPlace)
+            .catch(() => setToPlace(0));
+    }, [activeFolder, files, placementMatches, placementVersion]);
+
+    const placeNewFiles = () => {
+        if (!activeFolder || toPlace === 0) return;
+        startSession({ folder: activeFolder, total: toPlace });
+        setView("compare");
+    };
 
     //get files on mount, clear browseScroll
     useEffect(() => {
@@ -648,6 +671,15 @@ export default function BrowseView({
                 >
                     Select
                 </button>
+                {activeFolder && toPlace > 0 && (
+                    <button
+                        onClick={placeNewFiles}
+                        title={`Give the ${toPlace} file${toPlace === 1 ? "" : "s"} here with fewer than ${placementMatches} comparisons their placement matches in Compare, then come back`}
+                        className="shrink-0 whitespace-nowrap rounded px-2 py-1 text-xs text-amber-300/80 hover:bg-neutral-800 hover:text-amber-200 transition-colors"
+                    >
+                        Place {toPlace} new
+                    </button>
+                )}
                 {(selectMode || selectedIds.size > 0) && (
                     <div className="flex shrink-0 items-center gap-1 text-xs">
                         <span className="tabular-nums text-neutral-400 mr-1">

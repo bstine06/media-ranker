@@ -9,6 +9,7 @@ import { TagsProvider } from "./contexts/TagsContext";
 import { DragProvider } from "./contexts/DragContext";
 import { ClipboardProvider } from "./contexts/ClipboardContext";
 import { KingOfHillProvider } from "./contexts/KingOfHillContext";
+import { PlacementProvider } from "./contexts/PlacementContext";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
@@ -19,7 +20,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                         <DragProvider>
                             <ClipboardProvider>
                                 <KingOfHillProvider>
-                                    <App />
+                                    <PlacementProvider>
+                                        <App />
+                                    </PlacementProvider>
                                 </KingOfHillProvider>
                             </ClipboardProvider>
                         </DragProvider>

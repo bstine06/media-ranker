@@ -72,7 +72,7 @@ import {
     existsSync,
 } from "fs";
 import {
-    computeEloUpdate,
+    recordComparison,
     getChallenger,
     getLanePair,
     refitPair,
@@ -83,6 +83,14 @@ import { promisify } from "util";
 import { renameFolderPaths } from "./db";
 import { watchFolder, unwatchAll, ignoredPaths } from "./watcher";
 import { replaceTrackedFile } from "./replaceFile";
+import {
+    getPlacementCandidate,
+    countPlacementCandidates,
+    initialPlacementBounds,
+    getPlacementOpponent,
+    recordPlacement,
+    type PlacementBounds,
+} from "./placement";
 import { rotateTrackedFile } from "./rotate";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
@@ -687,54 +695,57 @@ function registerIpcHandlers(): void {
 
     ipcMain.handle(
         "record-comparison",
-        (_event, winnerId: number, loserId: number) => {
-            const db = getDb();
-            const winner = db
-                .prepare("SELECT * FROM files WHERE id = ?")
-                .get(winnerId) as DbFile;
-            const loser = db
-                .prepare("SELECT * FROM files WHERE id = ?")
-                .get(loserId) as DbFile;
-            if (!winner || !loser) return null;
+        (_event, winnerId: number, loserId: number) =>
+            recordComparison(winnerId, loserId, rootPath ?? "all"),
+    );
 
-            // Library-wide rank (1 = best) among active files.
-            const rankOf = (id: number): number =>
-                (
-                    db
-                        .prepare(
-                            `SELECT COUNT(*) AS n FROM files
-                             WHERE status = 'active' AND id != ?
-                             AND elo_score > (SELECT elo_score FROM files WHERE id = ?)`,
-                        )
-                        .get(id, id) as { n: number }
-                ).n + 1;
-            const winnerRankBefore = rankOf(winnerId);
-            const loserRankBefore = rankOf(loserId);
-
-            const { newWinnerScore, newLoserScore } = computeEloUpdate(
-                winner,
-                loser,
-            );
-            const comparisonId = updateEloScores(
-                winnerId,
-                loserId,
-                newWinnerScore,
-                newLoserScore,
+    // Placement (see placement.ts).
+    ipcMain.handle(
+        "placement:candidate",
+        (_event, laneA: PoolFilter, laneB: PoolFilter, matches: number) =>
+            getPlacementCandidate(laneA, laneB, matches),
+    );
+    ipcMain.handle(
+        "placement:count",
+        (_event, laneA: PoolFilter, laneB: PoolFilter, matches: number) =>
+            countPlacementCandidates(laneA, laneB, matches),
+    );
+    ipcMain.handle(
+        "placement:bounds",
+        (_event, fileId: number, pool: PoolFilter, matches: number) =>
+            initialPlacementBounds(fileId, pool, matches),
+    );
+    ipcMain.handle(
+        "placement:opponent",
+        (
+            _event,
+            fileId: number,
+            pool: PoolFilter,
+            matches: number,
+            bounds: PlacementBounds,
+            recentIds: number[],
+        ) => getPlacementOpponent(fileId, pool, matches, bounds, recentIds),
+    );
+    ipcMain.handle(
+        "placement:record",
+        (
+            _event,
+            placingId: number,
+            opponentId: number,
+            placingWon: boolean,
+            pool: PoolFilter,
+            matches: number,
+            bounds: PlacementBounds,
+        ) =>
+            recordPlacement(
+                placingId,
+                opponentId,
+                placingWon,
+                pool,
+                matches,
+                bounds,
                 rootPath ?? "all",
-            );
-
-            const getFile = (id: number) =>
-                db.prepare("SELECT * FROM files WHERE id = ?").get(id) as DbFile;
-            return {
-                comparisonId,
-                newWinnerScore,
-                newLoserScore,
-                winner: getFile(winnerId),
-                loser: getFile(loserId),
-                winnerRank: { before: winnerRankBefore, after: rankOf(winnerId) },
-                loserRank: { before: loserRankBefore, after: rankOf(loserId) },
-            };
-        },
+            ),
     );
 
     ipcMain.handle(

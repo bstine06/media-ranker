@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import { DbFile, DbFolder, DbTag, DbTagCategory, getAllTagCategories } from "@main/db";
+import type { PoolFilter } from "@main/elo";
 
 export interface FolderNode {
     name: string;
@@ -349,6 +350,38 @@ const api = {
             tagList,
             tagMode,
             recentIds,
+        ),
+
+    // Placement matches (main/placement.ts)
+    getPlacementCandidate: (laneA: PoolFilter, laneB: PoolFilter, matches: number) =>
+        ipcRenderer.invoke("placement:candidate", laneA, laneB, matches),
+    countPlacementCandidates: (laneA: PoolFilter, laneB: PoolFilter, matches: number) =>
+        ipcRenderer.invoke("placement:count", laneA, laneB, matches),
+    getPlacementBounds: (fileId: number, pool: PoolFilter, matches: number) =>
+        ipcRenderer.invoke("placement:bounds", fileId, pool, matches),
+    getPlacementOpponent: (
+        fileId: number,
+        pool: PoolFilter,
+        matches: number,
+        bounds: { lo: number; hi: number },
+        recentIds: number[],
+    ) => ipcRenderer.invoke("placement:opponent", fileId, pool, matches, bounds, recentIds),
+    recordPlacement: (
+        placingId: number,
+        opponentId: number,
+        placingWon: boolean,
+        pool: PoolFilter,
+        matches: number,
+        bounds: { lo: number; hi: number },
+    ) =>
+        ipcRenderer.invoke(
+            "placement:record",
+            placingId,
+            opponentId,
+            placingWon,
+            pool,
+            matches,
+            bounds,
         ),
 
     // Tag manager

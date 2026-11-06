@@ -5,7 +5,13 @@ import {
     useRef,
     useMemo,
 } from "react";
-import type { DbFile, DbTag, PoolFilter, View } from "../shared/types/types";
+import type {
+    DbFile,
+    DbTag,
+    PlacementBounds,
+    PoolFilter,
+    View,
+} from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
 import { MediaPlayer, type MediaControls } from "./MediaPlayer";
@@ -22,6 +28,7 @@ import {
 import SingleFileView from "./SingleFileView";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useStatus } from "@renderer/contexts/StatusContext";
+import { usePlacement } from "@renderer/contexts/PlacementContext";
 
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
     if (file.media_type === "video") return;
@@ -40,12 +47,27 @@ const INFO_BAR_ZONE_PX = 88;
 // How many picks W can step back through.
 const UNDO_LIMIT = 5;
 
+// Placement (main/placement.ts): the file being placed stays on its side
+// while opponents are picked by binary search over the other side's pool.
+interface PlacementState {
+    file: DbFile;
+    side: Side;
+    /** The opponents' pool (the other side's filters). */
+    pool: PoolFilter;
+    bounds: PlacementBounds;
+    /** Opponents already faced, so the search doesn't repeat them. */
+    recent: number[];
+    /** Filters it was started under; a change starts over. */
+    key: string;
+}
+
 interface UndoEntry {
     comparisonId: number;
     pair: [DbFile, DbFile];
     focus: Side;
     king: KingState | null;
     recentChallengers: number[];
+    placement: PlacementState | null;
 }
 
 export default function CompareView({
@@ -69,8 +91,33 @@ export default function CompareView({
     const controlsB = useRef<MediaControls | null>(null);
 
     const { activeTags, tagMode } = useTags();
-    const { compareBothAudio, toggleCompareBothAudio } = useSettings();
+    const {
+        compareBothAudio,
+        toggleCompareBothAudio,
+        placementEnabled,
+        placementMatches,
+    } = useSettings();
     const { setStatus, resetStatus } = useStatus();
+    // A session started from Browse places one collection's files, then
+    // returns to Browse. It works whether or not placement is switched on.
+    const { session, endSession, bump } = usePlacement();
+    const placementActive = !!session || placementEnabled;
+    const placementRef = useRef<PlacementState | null>(null);
+    // Mirrors placementRef for rendering (badge, banner).
+    const [placing, setPlacing] = useState<PlacementState | null>(null);
+    const [placementLeft, setPlacementLeft] = useState<number | null>(null);
+    // Status messages from Compare: a new one cancels the previous one's
+    // timer, so an older message's reset can't wipe a newer message.
+    const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const flashStatus = (message: string, ms: number) => {
+        if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+        setStatus(message);
+        statusTimerRef.current = setTimeout(resetStatus, ms);
+    };
+    const setPlacement = (st: PlacementState | null) => {
+        placementRef.current = st;
+        setPlacing(st);
+    };
     const { rootPath, laneFolderPrefixes, setActiveFolder } = useFolders();
     // Each side's folders come from the sidebar's L / R checkboxes.
     const laneKey = JSON.stringify(laneFolderPrefixes);
@@ -146,6 +193,80 @@ export default function CompareView({
                     : [challenger, k.file];
             };
 
+            // ── Placement: a file needing placement gets the next matchup ──
+            // (A king, crowned by hand, takes priority.)
+            if (!k && placementActive) {
+                const sessionPool: PoolFilter | null = session
+                    ? { folderPrefixes: [session.folder], tagList: null, tagMode: "or" }
+                    : null;
+                const laneA = sessionPool ?? laneFilter("a");
+                const laneB = sessionPool ?? laneFilter("b");
+                const key = JSON.stringify([filterKey, session?.folder, placementMatches]);
+
+                let st = placementRef.current;
+                if (st && (st.key !== key || st.file.comparison_count >= placementMatches)) {
+                    st = null;
+                }
+                if (!st) {
+                    const cand = await window.api.getPlacementCandidate(
+                        laneA,
+                        laneB,
+                        placementMatches,
+                    );
+                    if (cand) {
+                        const pool = cand.side === "a" ? laneB : laneA;
+                        st = {
+                            file: cand.file,
+                            side: cand.side,
+                            pool,
+                            bounds: await window.api.getPlacementBounds(
+                                cand.file.id,
+                                pool,
+                                placementMatches,
+                            ),
+                            recent: [],
+                            key,
+                        };
+                    }
+                }
+                const opponent = st
+                    ? await window.api.getPlacementOpponent(
+                          st.file.id,
+                          st.pool,
+                          placementMatches,
+                          st.bounds,
+                          st.recent,
+                      )
+                    : null;
+                window.api
+                    .countPlacementCandidates(laneA, laneB, placementMatches)
+                    .then(setPlacementLeft)
+                    .catch(() => {});
+
+                if (st && opponent) {
+                    setPlacement(st);
+                    prefetchedRef.current = null;
+                    setPair(st.side === "a" ? [st.file, opponent] : [opponent, st.file]);
+                    setLoading(false);
+                    return;
+                }
+                setPlacement(null);
+                if (session) {
+                    // Everything in the collection is placed: back to Browse.
+                    const n = session.total;
+                    endSession();
+                    setView("browse");
+                    flashStatus(
+                        n > 0
+                            ? `Placed ${n} file${n === 1 ? "" : "s"} in ${session.folder}`
+                            : `Nothing left to place in ${session.folder}`,
+                        3000,
+                    );
+                    return;
+                }
+                // Nothing to place: carry on with normal pairs.
+            }
+
             const prefetched = prefetchedRef.current;
             prefetchedRef.current = null;
 
@@ -208,8 +329,19 @@ export default function CompareView({
                 preloadFile(rootPath!, next[1]);
             });
         },
-        [laneKey, rootPath, tagKey, tagMode, endKing],
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [laneKey, rootPath, tagKey, tagMode, endKing, placementActive, placementMatches, session],
     );
+
+    // Starting a session from Browse: placement takes over (a king would
+    // otherwise hold the screen).
+    useEffect(() => {
+        if (!session) return;
+        endKing();
+        kingRef.current = null;
+        setPlacement(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session]);
 
     // Filters changed (or first load). With a pair already up from the same
     // library, refit it so only sides that no longer fit get swapped.
@@ -226,6 +358,8 @@ export default function CompareView({
                 setKing(k);
             }
             setInspectedFile((f) => (f ? swap(f) : f));
+            const st = placementRef.current;
+            if (st?.file.id === file.id) setPlacement({ ...st, file });
             undoStackRef.current = undoStackRef.current.map((e) => ({
                 ...e,
                 pair: [swap(e.pair[0]), swap(e.pair[1])],
@@ -271,6 +405,9 @@ export default function CompareView({
                 (e) => !e.pair.some(gone),
             );
             setInspectedFile((f) => (f && gone(f) ? null : f));
+            if (placementRef.current && gone(placementRef.current.file)) {
+                setPlacement(null);
+            }
 
             const current = pairRef.current;
             if (!current?.some(gone)) return;
@@ -308,6 +445,10 @@ export default function CompareView({
                     pair: movePair(e.pair),
                     king: e.king ? { ...e.king, file: move(e.king.file) } : e.king,
                 }));
+                const st = placementRef.current;
+                if (st && st.file.path === oldRelativePath) {
+                    setPlacement({ ...st, file: move(st.file) });
+                }
                 const k = kingRef.current;
                 if (k && k.file.path === oldRelativePath) {
                     const next = { ...k, file: move(k.file) };
@@ -345,20 +486,59 @@ export default function CompareView({
             setComparing(true);
             const kingBefore = kingRef.current;
             const recentBefore = recentChallengersRef.current;
-            const res = await window.api.recordComparison(winner.id, loser.id);
-
-            if (res) {
+            const placementBefore = placementRef.current;
+            const pushUndo = (comparisonId: number) => {
                 undoStackRef.current = [
                     ...undoStackRef.current,
                     {
-                        comparisonId: res.comparisonId,
+                        comparisonId,
                         pair,
                         focus,
                         king: kingBefore,
                         recentChallengers: recentBefore,
+                        placement: placementBefore,
                     },
                 ].slice(-UNDO_LIMIT);
+            };
+
+            // A placement match: narrows the file's range and sets its score.
+            const st = placementRef.current;
+            if (st && !kingBefore && pair.some((f) => f.id === st.file.id)) {
+                const opponent = pair.find((f) => f.id !== st.file.id)!;
+                const res = await window.api.recordPlacement(
+                    st.file.id,
+                    opponent.id,
+                    winner.id === st.file.id,
+                    st.pool,
+                    placementMatches,
+                    st.bounds,
+                );
+                if (res) {
+                    pushUndo(res.comparisonId);
+                    const placed = res.winner.id === st.file.id ? res.winner : res.loser;
+                    setPlacement({
+                        ...st,
+                        file: placed,
+                        bounds: res.bounds,
+                        recent: [opponent.id, ...st.recent].slice(0, 30),
+                    });
+                    if (placed.comparison_count >= placementMatches) {
+                        const rank =
+                            res.winner.id === placed.id
+                                ? res.winnerRank.after
+                                : res.loserRank.after;
+                        flashStatus(`Placed ${placed.filename} at #${rank}`, 2500);
+                    }
+                    bump();
+                }
+                await loadPair(null);
+                setFocus(winnerSide);
+                setComparing(false);
+                return;
             }
+
+            const res = await window.api.recordComparison(winner.id, loser.id);
+            if (res) pushUndo(res.comparisonId);
 
             let nextKing = kingRef.current;
             if (res && nextKing) {
@@ -388,7 +568,8 @@ export default function CompareView({
             setFocus(winnerSide);
             setComparing(false);
         },
-        [comparing, pair, focus, loadPair, setKing],
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [comparing, pair, focus, loadPair, setKing, placementMatches, bump],
     );
 
     // Rolls back the last pick and puts that matchup back on screen.
@@ -413,11 +594,16 @@ export default function CompareView({
             recentChallengersRef.current = entry.recentChallengers;
             kingRef.current = k;
             setKing(k);
+            const p = entry.placement;
+            const placedFile = p ? restored.find((f) => f.id === p.file.id) : undefined;
+            setPlacement(p && placedFile ? { ...p, file: placedFile } : p);
+            if (p) bump();
             setPair(restored);
             setFocus(entry.focus);
         }
         setComparing(false);
-    }, [comparing, setKing]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [comparing, setKing, bump]);
 
     // S: the focused side wins.
     const submit = useCallback(() => {
@@ -470,12 +656,12 @@ export default function CompareView({
                     e.preventDefault();
                     if (e.repeat) return;
                     toggleCompareBothAudio();
-                    setStatus(
+                    flashStatus(
                         compareBothAudio
                             ? "Audio: focused side only"
                             : "Audio: both sides",
+                        2000,
                     );
-                    setTimeout(resetStatus, 2000);
                     break;
                 case "KeyR": {
                     // Crown the focused side, or uncrown it if it's king.
@@ -544,6 +730,12 @@ export default function CompareView({
 
     const [a, b] = pair;
 
+    // "Placing 3/10" on the file being placed (hidden while a king holds).
+    const placingLabel = (f: DbFile): string | undefined =>
+        placing && !king && placing.file.id === f.id
+            ? `Placing ${Math.min(placing.file.comparison_count + 1, placementMatches)}/${placementMatches}`
+            : undefined;
+
 
     if (inspectedFile) {
         return (<SingleFileView
@@ -556,6 +748,27 @@ export default function CompareView({
 
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden">
+            {session && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-3 z-40 flex justify-center">
+                    <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-black/70 px-3 py-1 text-xs text-white/80 shadow">
+                        <span>
+                            Placing new files in{" "}
+                            <span className="text-white">{session.folder}</span>
+                            {placementLeft != null && ` · ${placementLeft} left`}
+                        </span>
+                        <button
+                            onClick={() => {
+                                endSession();
+                                setPlacement(null);
+                                setView("browse");
+                            }}
+                            className="rounded-full bg-white/10 px-2 py-0.5 text-white/80 hover:bg-white/20 hover:text-white transition-colors"
+                        >
+                            Stop
+                        </button>
+                    </div>
+                </div>
+            )}
             <div className="flex flex-1 min-h-0 overflow-hidden bg-black">
                     <CompareCard
                         file={a}
@@ -571,6 +784,7 @@ export default function CompareView({
                             setInspectedFile(a);
                         }}
                         isKing={king?.file.id === a.id}
+                        placingLabel={placingLabel(a)}
                         streak={king?.streak ?? 0}
                         onCrown={() => crown(a, "a")}
                         onUncrown={endKing}
@@ -595,6 +809,7 @@ export default function CompareView({
                             setInspectedFile(b);
                         }}
                         isKing={king?.file.id === b.id}
+                        placingLabel={placingLabel(b)}
                         streak={king?.streak ?? 0}
                         onCrown={() => crown(b, "b")}
                         onUncrown={endKing}
@@ -622,6 +837,7 @@ function CompareCard({
     onInspectFile,
     onGoToFolder,
     isKing,
+    placingLabel,
     streak,
     onCrown,
     onUncrown,
@@ -638,6 +854,8 @@ function CompareCard({
     onInspectFile: (file: DbFile) => void;
     onGoToFolder: (folderPath: string) => void;
     isKing: boolean;
+    /** Shown while this file is going through placement matches. */
+    placingLabel?: string;
     streak: number;
     onCrown: () => void;
     onUncrown: () => void;
@@ -764,6 +982,14 @@ function CompareCard({
                     </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
+                    {placingLabel && (
+                        <span
+                            className="pointer-events-auto mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white/80 drop-shadow"
+                            title="New file: kept on screen until it has had its placement matches"
+                        >
+                            {placingLabel}
+                        </span>
+                    )}
                     {/* The king's crown stays visible even with the bar hidden. */}
                     <button
                         className={`rounded-md p-1.5 drop-shadow transition-all duration-150 ${
