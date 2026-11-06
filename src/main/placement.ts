@@ -5,9 +5,11 @@
 //
 // Opponents are picked like a binary search over the ranking. The file's
 // possible position is a range of the opponent pool, as fractions of it
-// from the top (0 = best, 1 = worst). Each match is against the file at the
-// middle of the range; a win keeps the better half, a loss the worse half.
-// Ten matches narrow it to about 1 in 1000.
+// from the top (0 = best, 1 = worst). Each match is against a random file
+// from the middle of the range (not always the exact middle, so the same
+// handful of files don't come up every time); a win keeps the part above
+// that opponent, a loss the part below. Ten matches narrow it to well
+// under 1% of the pool on average.
 //
 // Plain Elo would lag far behind that search (a new file beating your top
 // file still only gains ~30 points), so during placement the file's score
@@ -27,18 +29,44 @@ export interface PlacementBounds {
 const filesIn = (pool: PoolFilter): DbFile[] =>
     getFilteredFiles(pool.folderPrefixes, pool.tagList, pool.tagMode);
 
+/** Middle part of the range an opponent is drawn from (0.4 = the middle 40%). */
+const PIVOT_WINDOW = 0.4;
+
+/**
+ * Share of placement matches played against a random never-compared file,
+ * to get its stats going. Those files all sit at the starting score, so
+ * the result doesn't steer the search; it's a normal Elo match for them.
+ */
+const UNCOMPARED_SHARE = 0.25;
+
 /**
  * The files a placement is measured against, best first: the pool minus the
- * file itself, and only files that have finished placement when there are
- * enough of them (unplaced files all sit near 1000 and would skew it).
+ * file itself, preferring files with an established score. Uncompared files
+ * all sit near the starting score and would skew it. The bar drops (full
+ * placement, then 5, 3, 1 comparisons) until enough files clear it: a strict
+ * bar in a mostly-new library would leave a few files facing every match.
  */
 function rankedOpponents(pool: PoolFilter, fileId: number, matches: number): DbFile[] {
     const others = filesIn(pool).filter((f) => f.id !== fileId);
-    const placed = others.filter((f) => f.comparison_count >= matches);
-    return (placed.length >= 2 ? placed : others).sort(
-        (a, b) => b.elo_score - a.elo_score,
-    );
+    const enough = Math.max(2, Math.min(200, Math.ceil(others.length * 0.25)));
+    let chosen = others;
+    for (const bar of [matches, 5, 3, 1]) {
+        const established = others.filter((f) => f.comparison_count >= bar);
+        if (established.length >= enough) {
+            chosen = established;
+            break;
+        }
+    }
+    if (chosen === others) {
+        // Not enough anywhere: anything compared at all, if that's two or more.
+        const compared = others.filter((f) => f.comparison_count > 0);
+        if (compared.length >= 2) chosen = compared;
+    }
+    return [...chosen].sort((a, b) => b.elo_score - a.elo_score);
 }
+
+/** Position of index `i` in a best-first list of `n`, 0 = top, 1 = bottom. */
+const fractionOf = (i: number, n: number): number => (n > 1 ? i / (n - 1) : 0.5);
 
 /** The score at `fraction` of the way down a best-first list. */
 function scoreAt(ranked: DbFile[], fraction: number): number {
@@ -130,8 +158,8 @@ export function initialPlacementBounds(
 }
 
 /**
- * The opponent at the middle of the file's range, skipping recent ones
- * (the range can get narrower than one file) by stepping outward.
+ * A random opponent from the middle of the file's range, skipping recent
+ * ones (the range can get narrower than one file) by stepping outward.
  */
 export function getPlacementOpponent(
     fileId: number,
@@ -141,9 +169,27 @@ export function getPlacementOpponent(
     recentIds: number[],
 ): DbFile | null {
     const ranked = rankedOpponents(pool, fileId, matches);
-    if (ranked.length === 0) return null;
-    const target = Math.round(((bounds.lo + bounds.hi) / 2) * (ranked.length - 1));
     const recent = new Set(recentIds);
+
+    if (Math.random() < UNCOMPARED_SHARE) {
+        const rankedIds = new Set(ranked.map((f) => f.id));
+        const uncompared = filesIn(pool).filter(
+            (f) =>
+                f.id !== fileId &&
+                f.comparison_count === 0 &&
+                !rankedIds.has(f.id) &&
+                !recent.has(f.id),
+        );
+        if (uncompared.length > 0) {
+            return uncompared[Math.floor(Math.random() * uncompared.length)];
+        }
+    }
+
+    if (ranked.length === 0) return null;
+    const pivot =
+        bounds.lo +
+        (bounds.hi - bounds.lo) * (0.5 + (Math.random() - 0.5) * PIVOT_WINDOW);
+    const target = Math.round(pivot * (ranked.length - 1));
     for (let step = 0; step < ranked.length; step++) {
         for (const i of [target - step, target + step]) {
             if (i >= 0 && i < ranked.length && !recent.has(ranked[i].id)) {
@@ -175,11 +221,22 @@ export function recordPlacement(
     const opponent = get(opponentId);
     if (!placing || !opponent) return null;
 
-    const mid = (bounds.lo + bounds.hi) / 2;
-    const next: PlacementBounds = placingWon
-        ? { lo: bounds.lo, hi: mid }
-        : { lo: mid, hi: bounds.hi };
     const ranked = rankedOpponents(pool, placingId, matches);
+    // Narrow at the opponent's own position (it was drawn at random from
+    // the middle of the range). An opponent outside the ranked list (a
+    // never-compared file, played to get its stats going) says nothing
+    // about where this file belongs: the range stays as it was.
+    const at = ranked.findIndex((f) => f.id === opponentId);
+    let next: PlacementBounds = bounds;
+    if (at >= 0) {
+        const split = Math.min(
+            bounds.hi,
+            Math.max(bounds.lo, fractionOf(at, ranked.length)),
+        );
+        next = placingWon
+            ? { lo: bounds.lo, hi: split }
+            : { lo: split, hi: bounds.hi };
+    }
 
     // The opponent's side of a normal Elo update.
     const elo = placingWon
@@ -190,13 +247,15 @@ export function recordPlacement(
     let placedScore = scoreAt(ranked, (next.lo + next.hi) / 2);
     // Never lost (range still touches the top): above everyone, even though
     // its wins lowered the scores of the files it beat. Likewise never won.
+    // Not while the range is still the whole pool (only side matches so
+    // far): that's neither.
     const scoresAfter = ranked.map((f) =>
         f.id === opponentId ? opponentScore : f.elo_score,
     );
-    if (scoresAfter.length > 0 && next.lo === 0) {
+    if (scoresAfter.length > 0 && next.lo === 0 && next.hi < 1) {
         placedScore = Math.max(placedScore, Math.max(...scoresAfter) + 1);
     }
-    if (scoresAfter.length > 0 && next.hi === 1) {
+    if (scoresAfter.length > 0 && next.hi === 1 && next.lo > 0) {
         placedScore = Math.min(placedScore, Math.min(...scoresAfter) - 1);
     }
 
