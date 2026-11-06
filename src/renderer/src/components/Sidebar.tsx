@@ -10,6 +10,12 @@ import { useTags } from "@renderer/contexts/TagsContext";
 import { CompareIcon } from "./icons/CompareIcon";
 import { ScrollIcon } from "./icons/ScrollIcon";
 import { TagIcon } from "./icons/TagIcon";
+import {
+    UNTAGGED,
+    missingCategory,
+    filterLabel,
+    isSpecialFilter,
+} from "@renderer/lib/tagFilters";
 
 // Makes an element a drop target for files dragged from Browse / the media
 // player / Finder. dragenter/leave also fire for child elements, so track
@@ -255,13 +261,27 @@ function TagFilterSection({
 }): JSX.Element {
     const [search, setSearch] = useState("");
     const [focused, setFocused] = useState(false);
-    const { allTags, activeTags, tagMode, toggleTag, setTagMode } = useTags();
+    const { allTags, allCategories, activeTags, tagMode, toggleTag, setTagMode } =
+        useTags();
 
-    const suggestions = search.trim()
-        ? allTags.filter((t) =>
-              t.name.toLowerCase().includes(search.toLowerCase()),
-          )
+    const q = search.trim().toLowerCase();
+    // Tags matching the search, then "no <category>" for matching categories
+    // (files missing a tag from it, e.g. ones still needing a subject).
+    const suggestions: { id: number; label: string; special: boolean }[] = q
+        ? [
+              ...allTags
+                  .filter((t) => t.name.toLowerCase().includes(q))
+                  .map((t) => ({ id: t.id, label: t.name, special: false })),
+              ...allCategories
+                  .filter((c) => c.name.toLowerCase().includes(q))
+                  .map((c) => ({
+                      id: missingCategory(c.id),
+                      label: `no ${c.name}`,
+                      special: true,
+                  })),
+          ]
         : [];
+    const untaggedOn = activeTags.has(UNTAGGED);
 
     return (
         <div className="px-2 mb-3 mt-1">
@@ -269,30 +289,45 @@ function TagFilterSection({
                 <p className="text-xs px-1 font-semibold uppercase tracking-widest text-neutral-500">
                     Tags
                 </p>
-                {activeTags.size >= 2 && (
+                <div className="flex items-center gap-1">
                     <button
-                        onClick={() =>
-                            setTagMode(tagMode === "and" ? "or" : "and")
-                        }
-                        className="text-[10px] rounded px-1.5 py-0.5 bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
+                        onClick={() => toggleTag({ id: UNTAGGED })}
+                        title="Only files with no tags at all (their own or their folder's)"
+                        className={`text-[10px] rounded px-1.5 py-0.5 transition-colors ${
+                            untaggedOn
+                                ? "bg-neutral-200 text-neutral-900"
+                                : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                        }`}
                     >
-                        {tagMode.toUpperCase()}
+                        UNTAGGED
                     </button>
-                )}
+                    {activeTags.size >= 2 && (
+                        <button
+                            onClick={() =>
+                                setTagMode(tagMode === "and" ? "or" : "and")
+                            }
+                            className="text-[10px] rounded px-1.5 py-0.5 bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
+                        >
+                            {tagMode.toUpperCase()}
+                        </button>
+                    )}
+                </div>
             </div>
 
             {activeTags.size > 0 && (
                 <div className="flex flex-wrap gap-1 mb-1.5">
                     {[...activeTags].map((tagId) => {
-                        const tag = allTags.find((t) => t.id === tagId);
-                        if (!tag) return null;
+                        const label = filterLabel(tagId, allTags, allCategories);
+                        if (!label) return null;
                         return (
                             <button
-                                key={tag.id}
-                                onClick={() => toggleTag(tag)}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900 text-xs"
+                                key={tagId}
+                                onClick={() => toggleTag({ id: tagId })}
+                                className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900 text-xs ${
+                                    isSpecialFilter(tagId) ? "italic" : ""
+                                }`}
                             >
-                                {tag.name}
+                                {label}
                                 <span className="opacity-50 hover:opacity-100">
                                     ×
                                 </span>
@@ -309,25 +344,27 @@ function TagFilterSection({
                     onChange={(e) => setSearch(e.target.value)}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setTimeout(() => setFocused(false), 150)}
-                    placeholder="Filter by tag…"
+                    placeholder="Filter by tag or category…"
                     className="w-full rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors"
                 />
                 {focused && suggestions.length > 0 && (
                     <div className="absolute left-0 right-0 top-full mt-1 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg max-h-40 overflow-y-auto">
-                        {suggestions.slice(0, 20).map((tag) => (
+                        {suggestions.slice(0, 20).map((item) => (
                             <button
-                                key={tag.id}
+                                key={item.id}
                                 onMouseDown={() => {
-                                    toggleTag(tag);
+                                    toggleTag({ id: item.id });
                                     setSearch("");
                                 }}
                                 className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                                    activeTags.has(tag.id)
+                                    item.special ? "italic" : ""
+                                } ${
+                                    activeTags.has(item.id)
                                         ? "text-white bg-neutral-700"
                                         : "text-neutral-300 hover:bg-neutral-800"
                                 }`}
                             >
-                                {tag.name}
+                                {item.label}
                             </button>
                         ))}
                     </div>

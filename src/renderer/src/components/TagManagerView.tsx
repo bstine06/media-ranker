@@ -3,7 +3,9 @@ import {
     DbTag,
     DbTagCategory,
     DbTagWithCategory,
+    TagUsage,
 } from "@renderer/shared/types/types";
+import ConfirmDialog from "./ConfirmDialog";
 import React, { useEffect, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
 
@@ -47,7 +49,15 @@ function CategoryEditor({
     const [icon, setIcon] = useState(category?.icon ?? PRESET_ICONS[0]);
     const [customIcon, setCustomIcon] = useState("");
 
-    const { createCategory, updateCategory, deleteCategory } = useTags();
+    const { allTags, allCategories, createCategory, updateCategory, deleteCategory } =
+        useTags();
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const nameTaken = allCategories.some(
+        (c) => c.name === name.trim() && c.id !== category?.id,
+    );
+    const tagsInCategory = category
+        ? allTags.filter((t) => t.category_id === category.id).length
+        : 0;
 
     const handleCustomIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
@@ -61,6 +71,7 @@ function CategoryEditor({
 
     const handleSave = async () => {
         const trimmedName = name.trim().toLowerCase();
+        if (!trimmedName || nameTaken) return;
 
         if (category) {
             const updates: Partial<
@@ -120,6 +131,11 @@ function CategoryEditor({
                     // Force lowercase as-typed, same as tag names.
                     onChange={(e) => setName(e.target.value.toLowerCase())}
                 />
+                {nameTaken && (
+                    <p className="text-[11px] text-red-400">
+                        A category named "{name.trim()}" already exists.
+                    </p>
+                )}
             </div>
 
             <div className="flex flex-col gap-2">
@@ -191,20 +207,37 @@ function CategoryEditor({
                 </button>
                 <button
                     onClick={handleSave}
-                    className="px-3 py-1.5 text-xs bg-neutral-200 text-neutral-900 rounded-md hover:bg-white transition-colors"
+                    disabled={!name.trim() || nameTaken}
+                    className="px-3 py-1.5 text-xs bg-neutral-200 text-neutral-900 rounded-md hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                     {category ? "Save changes" : "Create category"}
                 </button>
 
                 {category && (
                     <button
-                        onClick={handleDelete}
+                        onClick={() => setConfirmDelete(true)}
                         className="ml-auto px-3 py-1.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/30 transition-colors"
                     >
                         Delete category
                     </button>
                 )}
             </div>
+
+            {confirmDelete && category && (
+                <ConfirmDialog
+                    title="Delete category?"
+                    message={
+                        `Delete the category "${category.name}"?` +
+                        (tagsInCategory > 0
+                            ? ` Its ${tagsInCategory} tag${tagsInCategory === 1 ? "" : "s"} ` +
+                              `will be kept, without a category.`
+                            : "")
+                    }
+                    confirmText="Delete"
+                    onConfirm={handleDelete}
+                    onCancel={() => setConfirmDelete(false)}
+                />
+            )}
         </div>
     );
 }
@@ -214,14 +247,16 @@ function CategoryEditor({
 function NewTagEditor({ onDone }: { onDone: () => void }) {
     const [name, setName] = useState("");
     const [categoryId, setCategoryId] = useState<number | null>(null);
-    const { allCategories, createTag } = useTags();
+    const { allTags, allCategories, createTag } = useTags();
+
+    // Belt-and-suspenders: lowercase again on save in case name was ever
+    // set some other way. The input's onChange already keeps it lowercase
+    // as the user types, so this should normally be a no-op.
+    const trimmed = name.trim().toLowerCase();
+    const exists = allTags.some((t) => t.name === trimmed);
 
     const handleSave = async () => {
-        // Belt-and-suspenders: lowercase again on save in case name was ever
-        // set some other way. The input's onChange already keeps it lowercase
-        // as the user types, so this should normally be a no-op.
-        const trimmed = name.trim().toLowerCase();
-        if (!trimmed) return;
+        if (!trimmed || exists) return;
         await createTag(trimmed, categoryId);
         onDone();
     };
@@ -242,6 +277,11 @@ function NewTagEditor({ onDone }: { onDone: () => void }) {
                     onKeyDown={(e) => e.key === "Enter" && handleSave()}
                     placeholder="Tag name"
                 />
+                {exists && (
+                    <p className="text-[11px] text-red-400">
+                        A tag named "{trimmed}" already exists.
+                    </p>
+                )}
             </div>
 
             <div className="flex flex-col gap-1">
@@ -280,7 +320,7 @@ function NewTagEditor({ onDone }: { onDone: () => void }) {
                 </button>
                 <button
                     onClick={handleSave}
-                    disabled={!name.trim()}
+                    disabled={!trimmed || exists}
                     className="px-3 py-1.5 text-xs bg-neutral-200 text-neutral-900 rounded-md hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                     Create tag
@@ -303,7 +343,13 @@ function TagEditor({
     const [categoryId, setCategoryId] = useState<number | null>(
         tag.category_id,
     );
-    const { allCategories, updateTag, deleteTag } = useTags();
+    const { allCategories, updateTag, mergeTags, deleteTag } = useTags();
+    // Renamed onto an existing tag: confirm before merging, since the user
+    // may not know it exists, or it may mean something else.
+    const [mergeTarget, setMergeTarget] = useState<
+        (DbTag & TagUsage) | null
+    >(null);
+    const [deleteUsage, setDeleteUsage] = useState<TagUsage | null>(null);
 
     const handleSave = async () => {
         // Same lowercase enforcement here: renaming a tag to mixed case would
@@ -311,14 +357,30 @@ function TagEditor({
         // FolderTagPanel just as badly as creating one with capitals would.
         const trimmed = name.trim().toLowerCase();
         if (!trimmed) return;
-        await updateTag(tag.id, trimmed, categoryId);
+        const result = await updateTag(tag.id, trimmed, categoryId);
+        if (!result.ok) {
+            setMergeTarget(result.conflict);
+            return;
+        }
+        onDone();
+    };
+
+    const handleMerge = async () => {
+        if (!mergeTarget) return;
+        await mergeTags(tag.id, mergeTarget.id);
+        setMergeTarget(null);
         onDone();
     };
 
     const handleDelete = async () => {
         await deleteTag(tag.id);
+        setDeleteUsage(null);
         onDone();
     };
+
+    const targetCategory = mergeTarget
+        ? allCategories.find((c) => c.id === mergeTarget.category_id)
+        : undefined;
 
     return (
         <div className="p-5 flex flex-col gap-5">
@@ -330,7 +392,11 @@ function TagEditor({
                     className="bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
                     value={name}
                     onChange={(e) => setName(e.target.value.toLowerCase())}
+                    onKeyDown={(e) => e.key === "Enter" && handleSave()}
                 />
+                <p className="text-[11px] text-neutral-600">
+                    Renaming it to another tag's name lets you merge the two.
+                </p>
             </div>
 
             <div className="flex flex-col gap-1">
@@ -371,14 +437,57 @@ function TagEditor({
                     Save changes
                 </button>
                 <button
-                    onClick={handleDelete}
+                    onClick={async () =>
+                        setDeleteUsage(await window.api.getTagUsage(tag.id))
+                    }
                     className="ml-auto px-3 py-1.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/30 transition-colors"
                 >
                     Delete tag
                 </button>
             </div>
+
+            {mergeTarget && (
+                <ConfirmDialog
+                    title="Merge tags?"
+                    message={
+                        `A tag named "${mergeTarget.name}" already exists` +
+                        ` (${usageText(mergeTarget)}). ` +
+                        `Merge "${tag.name}" into it? Everything tagged ` +
+                        `"${tag.name}" will be tagged "${mergeTarget.name}" ` +
+                        `instead, and "${tag.name}" will be deleted. ` +
+                        (targetCategory
+                            ? `"${mergeTarget.name}" stays in ${targetCategory.name}.`
+                            : `"${mergeTarget.name}" has no category.`)
+                    }
+                    confirmText="Merge"
+                    onConfirm={handleMerge}
+                    onCancel={() => setMergeTarget(null)}
+                />
+            )}
+            {deleteUsage && (
+                <ConfirmDialog
+                    title="Delete tag?"
+                    message={
+                        deleteUsage.files === 0 && deleteUsage.folders === 0
+                            ? `Delete "${tag.name}"? It isn't on any files.`
+                            : `Delete "${tag.name}"? It's on ${usageText(deleteUsage)}, ` +
+                              `and will be removed from all of them. This can't be undone.`
+                    }
+                    confirmText="Delete"
+                    onConfirm={handleDelete}
+                    onCancel={() => setDeleteUsage(null)}
+                />
+            )}
         </div>
     );
+}
+
+// "3 files and 1 folder"
+function usageText({ files, folders }: TagUsage): string {
+    const n = (count: number, word: string) =>
+        `${count} ${word}${count === 1 ? "" : "s"}`;
+    if (folders === 0) return n(files, "file");
+    return `${n(files, "file")} and ${n(folders, "folder")}`;
 }
 
 // ─── TagManagerView ───────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, TagUsage } from "./src/shared/types/types";
 
 export {};
 
@@ -198,7 +198,16 @@ declare global {
 
             // Tag CRUD
             createTag: (name: string, categoryId: number | null) => Promise<DbTag>;
-            updateTag: (id: number, name: string, categoryId: number | null) => Promise<void>;
+            updateTag: (
+                id: number,
+                name: string,
+                categoryId: number | null,
+            ) => Promise<
+                | { ok: true; tag: DbTag }
+                | { ok: false; conflict: DbTag & TagUsage }
+            >;
+            getTagUsage: (id: number) => Promise<TagUsage>;
+            mergeTags: (sourceId: number, targetId: number) => Promise<void>;
             deleteTag: (id: number) => Promise<void>;
 
             // Category CRUD

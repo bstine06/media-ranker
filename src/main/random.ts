@@ -1,5 +1,6 @@
 import { getDb, folderLikePattern } from "./db";
 import type { DbFile } from "./db";
+import { tagFilterSql } from "./tagFilter";
 
 export function getRandomFile(
     folderPrefixes: string[] | null,
@@ -26,29 +27,10 @@ export function getRandomFile(
         params.push(...folderPrefixes.map(folderLikePattern));
     }
 
-    if (tagList && tagList.length > 0) {
-        if (tagMode === "or") {
-            const placeholders = tagList.map(() => "?").join(", ");
-            conditions.push(`
-    f.id IN (
-        SELECT ft.file_id FROM file_effective_tags ft
-        JOIN tags t ON t.id = ft.tag_id
-        WHERE t.id IN (${placeholders})
-    )
-`);
-            params.push(...tagList);
-        } else {
-            tagList.forEach((tag) => {
-                conditions.push(`
-        f.id IN (
-            SELECT ft.file_id FROM file_effective_tags ft
-            JOIN tags t ON t.id = ft.tag_id
-            WHERE t.id = ?
-        )
-    `);
-                params.push(tag);
-            });
-        }
+    const tagFilter = tagFilterSql(tagList, tagMode);
+    if (tagFilter) {
+        conditions.push(tagFilter.sql);
+        params.push(...tagFilter.params);
     }
 
     const whereClause =

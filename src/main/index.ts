@@ -56,6 +56,8 @@ import {
     moveFileRecord,
     getRootFiles,
     countRootFiles,
+    getTagUsage,
+    mergeTags,
 } from "./db";
 import type { DbFile } from "./db";
 import { scanFolder, getThumbnailPath, getFolderTree, type ScanResult } from "./scanner";
@@ -754,7 +756,18 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "create-tag",
         (_event, name: string, categoryId: number | null) => {
-            return upsertTag(name, categoryId);
+            // An existing tag is returned as is (upsert would move it into
+            // this category).
+            return getTagByName(name) ?? upsertTag(name, categoryId);
+        },
+    );
+
+    ipcMain.handle("get-tag-usage", (_event, id: number) => getTagUsage(id));
+
+    ipcMain.handle(
+        "merge-tags",
+        (_event, sourceId: number, targetId: number) => {
+            mergeTags(sourceId, targetId);
         },
     );
 
@@ -776,7 +789,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "create-tag-category",
         (_event, name: string, color: string, icon: string) => {
-            upsertTagCategory(name, color, icon);
+            return upsertTagCategory(name, color, icon);
         },
     );
 

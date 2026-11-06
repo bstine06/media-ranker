@@ -2,7 +2,9 @@ import {
     DbTag,
     DbTagCategory,
     DbTagWithCategory,
+    TagUsage,
 } from "@renderer/shared/types/types";
+import { missingCategory } from "@renderer/lib/tagFilters";
 import {
     createContext,
     useContext,
@@ -20,7 +22,8 @@ interface Tags {
     // Filtering state (unchanged)
     activeTags: Set<number>;
     tagMode: "and" | "or";
-    toggleTag: (tag: DbTag) => void;
+    /** Also takes the special filters in lib/tagFilters.ts ({ id: UNTAGGED }). */
+    toggleTag: (tag: Pick<DbTag, "id">) => void;
     setTagMode: (mode: "and" | "or") => void;
     clearTags: () => void;
     resetTags: () => void;
@@ -30,11 +33,18 @@ interface Tags {
 
     // Tag CRUD
     createTag: (name: string, categoryId: number | null) => Promise<void>;
+    /** On a name clash nothing changes and the other tag comes back as
+     *  `conflict`, so the caller can offer to merge. */
     updateTag: (
         id: number,
         name: string,
         categoryId: number | null,
-    ) => Promise<void>;
+    ) => Promise<
+        | { ok: true }
+        | { ok: false; conflict: DbTag & TagUsage }
+    >;
+    /** Source's files and folders get target instead; source is deleted. */
+    mergeTags: (sourceId: number, targetId: number) => Promise<void>;
     deleteTag: (id: number) => Promise<void>;
 
     // Category CRUD
@@ -65,7 +75,8 @@ const TagsContext = createContext<Tags>({
     resetTags: () => {},
     refreshTags: async () => {},
     createTag: async () => {},
-    updateTag: async () => {},
+    updateTag: async () => ({ ok: true }),
+    mergeTags: async () => {},
     deleteTag: async () => {},
     createCategory: async () => {},
     updateCategory: async () => {},
@@ -120,7 +131,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
 
     // --- Filtering ---
 
-    const toggleTag = useCallback((tag: DbTag) => {
+    const toggleTag = useCallback((tag: Pick<DbTag, "id">) => {
         setActiveTags((prev) => {
             const next = new Set(prev);
             next.has(tag.id) ? next.delete(tag.id) : next.add(tag.id);
@@ -149,15 +160,31 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
 
     const updateTag = useCallback(
         async (id: number, name: string, categoryId: number | null) => {
-            await window.api.updateTag(id, name, categoryId);
-            // Optimistic update — swap in the new values without a round-trip
+            const result = await window.api.updateTag(id, name, categoryId);
+            if (!result.ok) return result;
+            // Swap in the saved values without a round-trip
             setAllTags((prev) =>
-                prev.map((t) =>
-                    t.id === id ? { ...t, name, category_id: categoryId } : t,
-                ),
+                prev.map((t) => (t.id === id ? result.tag : t)),
             );
+            return { ok: true as const };
         },
         [],
+    );
+
+    const mergeTags = useCallback(
+        async (sourceId: number, targetId: number) => {
+            await window.api.mergeTags(sourceId, targetId);
+            await refreshTags();
+            // A filter on the merged-away tag now means the target.
+            setActiveTags((prev) => {
+                if (!prev.has(sourceId)) return prev;
+                const next = new Set(prev);
+                next.delete(sourceId);
+                next.add(targetId);
+                return next;
+            });
+        },
+        [refreshTags],
     );
 
     const deleteTag = useCallback(async (id: number) => {
@@ -204,6 +231,14 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
             ),
         );
         setAllCategories((prev) => prev.filter((c) => c.id !== id));
+        // Drop a "no <category>" filter for it.
+        setActiveTags((prev) => {
+            const special = missingCategory(id);
+            if (!prev.has(special)) return prev;
+            const next = new Set(prev);
+            next.delete(special);
+            return next;
+        });
     }, []);
 
     return (
@@ -220,6 +255,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
                 refreshTags,
                 createTag,
                 updateTag,
+                mergeTags,
                 deleteTag,
                 createCategory,
                 updateCategory,

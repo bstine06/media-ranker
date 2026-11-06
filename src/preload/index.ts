@@ -363,8 +363,16 @@ const api = {
         id: number,
         name: string,
         categoryId: number | null,
-    ): Promise<void> =>
-        ipcRenderer.invoke("update-tag", id, name, categoryId),
+    ): Promise<
+        | { ok: true; tag: DbTag }
+        | { ok: false; conflict: DbTag & { files: number; folders: number } }
+    > => ipcRenderer.invoke("update-tag", id, name, categoryId),
+
+    getTagUsage: (id: number): Promise<{ files: number; folders: number }> =>
+        ipcRenderer.invoke("get-tag-usage", id),
+
+    mergeTags: (sourceId: number, targetId: number): Promise<void> =>
+        ipcRenderer.invoke("merge-tags", sourceId, targetId),
 
     deleteTag: (
         id: number,

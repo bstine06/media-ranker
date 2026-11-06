@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { basename, join } from "path";
 import { statSync } from "fs";
+import { tagFilterSql } from "./tagFilter";
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -184,24 +185,54 @@ export function initDb(rootPath: string): Database.Database {
     runMigrations(db);
     createViews(db);
 
-    // Inherited folder tags (schema version 1). The first time, back the
-    // database up before touching any data: the cleanup below deletes rows.
+    // Data migrations (see SCHEMA_VERSION). They delete rows, so the first
+    // time they run the database is backed up first. If the backup can't be
+    // written (e.g. a full disk), they wait for a later open: the library
+    // still opens, and tag reads are correct either way.
     const version = db.pragma("user_version", { simple: true }) as number;
-    if (version < 1) {
-        const backup = join(rootPath, "_media_index.pre-folder-tags.db");
-        db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
-    }
+    const migrate =
+        version >= SCHEMA_VERSION || backupDb(db, rootPath, "pre-migration");
+
     // Only top-level folders are collections. Older versions of the watcher
-    // also made rows for subfolders; nothing could tag or edit those, so
-    // they're dropped (their files belong to the top-level folder).
-    db.exec(`DELETE FROM folders WHERE instr(path, '/') > 0`);
+    // made rows for every subfolder; the empty ones are dropped. Ones that
+    // carry tags, metadata or a profile image (older versions let you open a
+    // subfolder and edit it) are kept untouched.
+    db.exec(`
+        DELETE FROM folders
+        WHERE instr(path, '/') > 0
+          AND profile_image_hash IS NULL
+          AND id NOT IN (SELECT folder_id FROM folder_tags)
+          AND id NOT IN (SELECT folder_id FROM folder_metadata)
+    `);
     // Both idempotent and cheap, so they also run on every open to repair
     // anything that drifted (e.g. a subfolder moved in Finder).
     normalizeFolderIds();
-    dropDirectTagsCoveredByFolder();
-    if (version < 1) db.pragma("user_version = 1");
+    if (migrate) {
+        // Version 2: tags differing only by case/spaces become one tag.
+        if (version < 2) mergeCaseDuplicateTags(db);
+        dropDirectTagsCoveredByFolder();
+        if (version < SCHEMA_VERSION) db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    }
 
     return db;
+}
+
+// Data migrations done so far (PRAGMA user_version). 1: inherited folder
+// tags. 2: merged case-duplicate tags.
+const SCHEMA_VERSION = 2;
+
+// Copies the database next to it, before a migration that deletes data.
+// Never overwrites an earlier backup. Returns false if it couldn't be made.
+function backupDb(db: Database.Database, rootPath: string, label: string): boolean {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backup = join(rootPath, `_media_index.${label}.${stamp}.db`);
+    try {
+        db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+        return true;
+    } catch (err) {
+        console.error("Database backup failed; migration postponed:", err);
+        return false;
+    }
 }
 
 // A file's tags are its own (file_tags) plus its folder's (folder_tags,
@@ -709,8 +740,14 @@ export function setFolderProfileImageByPath(
 
 // ── Tag queries ──────────────────────────────────────────────────────────────
 
+// Tag names are compared lowercased and trimmed ("Cat " is "cat").
+export function normalizeTagName(name: string): string {
+    return name.trim().toLowerCase();
+}
+
 export function upsertTag(name: string, categoryId?: number | null): DbTag {
     const db = getDb();
+    name = normalizeTagName(name);
 
     if (categoryId === undefined) {
         db.prepare(
@@ -734,29 +771,112 @@ export function upsertTag(name: string, categoryId?: number | null): DbTag {
     return db.prepare(`SELECT * FROM tags WHERE name = ?`).get(name) as DbTag;
 }
 
+export type UpdateTagResult =
+    | { ok: true; tag: DbTag }
+    // Another tag already has that name: nothing was changed. The renderer
+    // asks whether to merge (they may not mean the same thing).
+    | { ok: false; conflict: DbTag & TagUsage };
+
 export function updateTag(
     id: number,
     name: string,
     categoryId: number | null,
-): DbTag {
+): UpdateTagResult {
     const db = getDb();
+    name = normalizeTagName(name);
+    const other = db
+        .prepare(`SELECT * FROM tags WHERE name = ? AND id != ?`)
+        .get(name, id) as DbTag | undefined;
+    if (other) return { ok: false, conflict: { ...other, ...getTagUsage(other.id) } };
 
-    return db
+    const tag = db
         .prepare(
-            `
-        UPDATE tags
-        SET name = ?, category_id = ?
-        WHERE id = ?
-        RETURNING *
-    `,
+            `UPDATE tags SET name = ?, category_id = ? WHERE id = ? RETURNING *`,
         )
         .get(name, categoryId, id) as DbTag;
+    return { ok: true, tag };
+}
+
+export interface TagUsage {
+    /** Active files that have the tag (their own or from their folder). */
+    files: number;
+    /** Folders that give the tag to their files. */
+    folders: number;
+}
+
+export function getTagUsage(tagId: number): TagUsage {
+    const db = getDb();
+    const files = (
+        db
+            .prepare(
+                `SELECT COUNT(DISTINCT eft.file_id) AS n FROM file_effective_tags eft
+                 JOIN files f ON f.id = eft.file_id
+                 WHERE eft.tag_id = ? AND f.status = 'active'`,
+            )
+            .get(tagId) as { n: number }
+    ).n;
+    const folders = (
+        db
+            .prepare(`SELECT COUNT(*) AS n FROM folder_tags WHERE tag_id = ?`)
+            .get(tagId) as { n: number }
+    ).n;
+    return { files, folders };
+}
+
+// Every file and folder tagged `sourceId` gets `targetId` instead, and the
+// source tag is deleted. The target keeps its name and category.
+export function mergeTags(sourceId: number, targetId: number): void {
+    if (sourceId === targetId) return;
+    const db = getDb();
+    db.transaction(() => {
+        db.prepare(
+            `INSERT OR IGNORE INTO file_tags (file_id, tag_id)
+             SELECT file_id, ? FROM file_tags WHERE tag_id = ?`,
+        ).run(targetId, sourceId);
+        db.prepare(
+            `INSERT OR IGNORE INTO folder_tags (folder_id, tag_id)
+             SELECT folder_id, ? FROM folder_tags WHERE tag_id = ?`,
+        ).run(targetId, sourceId);
+        db.prepare(`DELETE FROM tags WHERE id = ?`).run(sourceId); // cascades
+        // A file may now have the target both directly and from its folder.
+        dropDirectTagsCoveredByFolder();
+    })();
+}
+
+// Older versions could create tags differing only by case or spaces ("Cat",
+// "cat "). Merges each such group into one tag with the normalized name:
+// the one already named that way if there is one, else the oldest. It keeps
+// its category, or takes the first one in the group that has one.
+function mergeCaseDuplicateTags(db: Database.Database): void {
+    const tags = db
+        .prepare(`SELECT * FROM tags ORDER BY id`)
+        .all() as DbTag[];
+    const groups = new Map<string, DbTag[]>();
+    for (const t of tags) {
+        const key = normalizeTagName(t.name);
+        groups.set(key, [...(groups.get(key) ?? []), t]);
+    }
+    db.transaction(() => {
+        for (const [name, group] of groups) {
+            const keep = group.find((t) => t.name === name) ?? group[0];
+            for (const t of group) if (t.id !== keep.id) mergeTags(t.id, keep.id);
+            const categoryId =
+                keep.category_id ??
+                group.find((t) => t.category_id != null)?.category_id ??
+                null;
+            if (keep.name !== name || keep.category_id !== categoryId) {
+                db.prepare(
+                    `UPDATE tags SET name = ?, category_id = ? WHERE id = ?`,
+                ).run(name, categoryId, keep.id);
+            }
+        }
+    })();
 }
 
 export function getTagByName(name: string): DbTag | undefined {
-    return getDb().prepare(`SELECT * FROM tags WHERE name = ?`).get(name) as
-        | DbTag
-        | undefined;
+    return getDb()
+        .prepare(`SELECT * FROM tags WHERE name = ?`)
+        .get(normalizeTagName(name)) as DbTag | undefined;
 }
 
 export function getAllTags(): DbTag[] {
@@ -882,30 +1002,17 @@ export function removeTagFromFile(fileId: number, tagId: number): void {
         .run(fileId, tagId);
 }
 
+// Ids of files passing a tag filter (see tagFilter.ts), any status.
 export function getFileIdsByTags(
     tagIds: number[],
     mode: "and" | "or",
 ): number[] {
-    const db = getDb();
-    if (tagIds.length === 0) return [];
-    const placeholders = tagIds.map(() => "?").join(", ");
-
-    if (mode === "or") {
-        const rows = db
-            .prepare(
-                `SELECT DISTINCT file_id FROM file_effective_tags WHERE tag_id IN (${placeholders})`,
-            )
-            .all(...tagIds) as { file_id: number }[];
-        return rows.map((r) => r.file_id);
-    } else {
-        const rows = db
-            .prepare(
-                `SELECT file_id FROM file_effective_tags WHERE tag_id IN (${placeholders})
-                 GROUP BY file_id HAVING COUNT(DISTINCT tag_id) = ?`,
-            )
-            .all(...tagIds, tagIds.length) as { file_id: number }[];
-        return rows.map((r) => r.file_id);
-    }
+    const filter = tagFilterSql(tagIds, mode);
+    if (!filter) return [];
+    const rows = getDb()
+        .prepare(`SELECT f.id FROM files f WHERE ${filter.sql}`)
+        .all(...filter.params) as { id: number }[];
+    return rows.map((r) => r.id);
 }
 
 // ── File queries ─────────────────────────────────────────────────────────────
@@ -1132,41 +1239,17 @@ export function getActiveFilesByTags(
     mode: "and" | "or",
     folderPath?: string,
 ): DbFile[] {
-    const db = getDb();
-    if (tagIds.length === 0) return [];
-
-    const placeholders = tagIds.map(() => "?").join(", ");
-    const folderClause = folderPath
-        ? `AND f.path LIKE ? ESCAPE '\\'`
-        : "";
+    const filter = tagFilterSql(tagIds, mode);
+    if (!filter) return [];
+    const folderClause = folderPath ? `AND f.path LIKE ? ESCAPE '\\'` : "";
     const folderParams = folderPath ? [folderLikePattern(folderPath)] : [];
-
-    if (mode === "or") {
-        return db
-            .prepare(
-                `SELECT DISTINCT f.* FROM files f
-             JOIN file_effective_tags ft ON ft.file_id = f.id
-             JOIN tags t ON t.id = ft.tag_id
-             WHERE f.status = 'active'
-             AND t.id IN (${placeholders})
-             ${folderClause}
+    return getDb()
+        .prepare(
+            `SELECT f.* FROM files f
+             WHERE f.status = 'active' AND ${filter.sql} ${folderClause}
              ORDER BY f.elo_score DESC`,
-            )
-            .all(...tagIds, ...folderParams) as DbFile[];
-    } else {
-        return db
-            .prepare(
-                `SELECT f.* FROM files f
-             JOIN file_effective_tags ft ON ft.file_id = f.id
-             JOIN tags t ON t.id = ft.tag_id
-             WHERE f.status = 'active'
-             AND t.id IN (${placeholders})
-             ${folderClause}
-             GROUP BY f.id HAVING COUNT(DISTINCT t.id) = ?
-             ORDER BY f.elo_score DESC`,
-            )
-            .all(...tagIds, ...folderParams, tagIds.length) as DbFile[];
-    }
+        )
+        .all(...filter.params, ...folderParams) as DbFile[];
 }
 
 // ── File status + cleanup ────────────────────────────────────────────────────

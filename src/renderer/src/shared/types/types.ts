@@ -95,3 +95,11 @@ export interface ComparisonResult {
     winnerRank: { before: number; after: number };
     loserRank: { before: number; after: number };
 }
+
+/** How widely a tag is used (for confirm dialogs). */
+export interface TagUsage {
+    /** Files that have it, their own or from their folder. */
+    files: number;
+    /** Folders that give it to their files. */
+    folders: number;
+}
