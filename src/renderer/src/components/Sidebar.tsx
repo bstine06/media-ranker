@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DbFile, DbTag, FolderNode, View } from "../shared/types/types";
 import NavItem from "./NavItem";
 import ConfirmDialog from "./ConfirmDialog";
@@ -485,6 +486,23 @@ function CompareOptionsSection(): JSX.Element {
 }
 
 function SettingsSection(): JSX.Element {
+    const [open, setOpen] = useState(false);
+    return (
+        <>
+            <button
+                onClick={() => setOpen(true)}
+                className="flex items-center justify-between w-full mb-1 px-2 group"
+            >
+                <p className="w-full rounded-md px-1 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+                    ⚙ Settings
+                </p>
+            </button>
+            {open && <SettingsModal onClose={() => setOpen(false)} />}
+        </>
+    );
+}
+
+function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
     const {
         hoverPreviewEnabled,
         toggleHoverPreview,
@@ -501,97 +519,70 @@ function SettingsSection(): JSX.Element {
         alwaysShowUnsorted,
         toggleAlwaysShowUnsorted,
     } = useSettings();
-    const [open, setOpen] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
+    // A confirm opened from inside handles its own Escape.
+    const confirmOpen = useRef(false);
 
+    // While open, keys belong to the modal: Escape closes it, and nothing
+    // reaches Browse/Compare shortcuts behind it (picks, Z, arrows).
     useEffect(() => {
-        if (!open) return;
-        const handler = (e: MouseEvent) => {
-            if (!containerRef.current?.contains(e.target as Node)) {
-                setOpen(false);
-            }
+        const onKey = (e: KeyboardEvent) => {
+            e.stopPropagation();
+            if (e.key === "Escape" && !confirmOpen.current) onClose();
         };
-        document.addEventListener("mousedown", handler);
-        return () => document.removeEventListener("mousedown", handler);
-    }, [open]);
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, [onClose]);
 
-    return (
-        <div ref={containerRef} className="relative">
-            <button
-                onClick={() => setOpen((p) => !p)}
-                className="flex items-center justify-between w-full mb-1 px-2 group"
-            >
-                <p className="w-full rounded-md px-1 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
-                    ⚙ Settings
-                </p>
-            </button>
+    return createPortal(
+        <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-black/60"
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) onClose();
+            }}
+        >
+            <div className="w-[26rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-4rem)] overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+                <div className="mb-3 flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-neutral-200">Settings</h2>
+                    <button
+                        onClick={onClose}
+                        title="Close (Esc)"
+                        className="rounded px-2 py-0.5 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
+                    >
+                        ✕
+                    </button>
+                </div>
 
-            {open && (
-                <div className="absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-neutral-700 bg-neutral-900 shadow-lg p-3 z-50">
-                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
-                        <p className="text-xs text-neutral-500">
-                            Toggle Hover Preview (Z)
-                        </p>
-                        <button
-                            onClick={toggleHoverPreview}
-                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
-                                hoverPreviewEnabled
-                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
-                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
-                            }`}
-                        >
-                            {hoverPreviewEnabled ? "on" : "off"}
-                        </button>
-                    </div>
+                <SettingsGroup title="Display">
+                    <ToggleRow
+                        label="Hover preview (Z)"
+                        on={hoverPreviewEnabled}
+                        onToggle={toggleHoverPreview}
+                    />
+                    <ToggleRow
+                        label="Show tag category names"
+                        on={showTagCategoryNames}
+                        onToggle={toggleShowTagCategoryNames}
+                    />
+                    <ToggleRow
+                        label="Show Unsorted when empty"
+                        on={alwaysShowUnsorted}
+                        onToggle={toggleAlwaysShowUnsorted}
+                    />
+                    <SliderInput
+                        name="tile size"
+                        min={100}
+                        max={300}
+                        value={tileSize}
+                        onChange={handleTileSizeChange}
+                    />
+                </SettingsGroup>
 
-                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
-                        <p className="text-xs text-neutral-500">
-                            Show Tag Category Names
-                        </p>
-                        <button
-                            onClick={toggleShowTagCategoryNames}
-                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
-                                showTagCategoryNames
-                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
-                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
-                            }`}
-                        >
-                            {showTagCategoryNames ? "on" : "off"}
-                        </button>
-                    </div>
-
-                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
-                        <p className="text-xs text-neutral-500">
-                            Pause Videos When App Not Focused
-                        </p>
-                        <button
-                            onClick={togglePauseWhenUnfocused}
-                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
-                                pauseWhenUnfocused
-                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
-                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
-                            }`}
-                        >
-                            {pauseWhenUnfocused ? "on" : "off"}
-                        </button>
-                    </div>
-
-                    <div className="flex items-center justify-between py-2 border-b border-neutral-800">
-                        <p className="text-xs text-neutral-500">
-                            Show Unsorted When Empty
-                        </p>
-                        <button
-                            onClick={toggleAlwaysShowUnsorted}
-                            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
-                                alwaysShowUnsorted
-                                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
-                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
-                            }`}
-                        >
-                            {alwaysShowUnsorted ? "on" : "off"}
-                        </button>
-                    </div>
-
+                <SettingsGroup title="Playback">
+                    <ToggleRow
+                        label="Pause videos when app not focused"
+                        on={pauseWhenUnfocused}
+                        onToggle={togglePauseWhenUnfocused}
+                    />
                     <SliderInput
                         name="volume"
                         min={0}
@@ -606,16 +597,60 @@ function SettingsSection(): JSX.Element {
                         value={scrollTime}
                         onChange={handleScrollTimeChange}
                     />
-                    <SliderInput
-                        name="tile size"
-                        min={100}
-                        max={300}
-                        value={tileSize}
-                        onChange={handleTileSizeChange}
+                </SettingsGroup>
+
+                <SettingsGroup title="Library">
+                    <MissingRecordsRow
+                        onConfirmingChange={(c) => {
+                            confirmOpen.current = c;
+                        }}
                     />
-                    <MissingRecordsRow />
-                </div>
-            )}
+                </SettingsGroup>
+            </div>
+        </div>,
+        document.body,
+    );
+}
+
+function SettingsGroup({
+    title,
+    children,
+}: {
+    title: string;
+    children: React.ReactNode;
+}): JSX.Element {
+    return (
+        <section className="mt-4 first-of-type:mt-0">
+            <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+                {title}
+            </h3>
+            <div className="divide-y divide-neutral-800">{children}</div>
+        </section>
+    );
+}
+
+function ToggleRow({
+    label,
+    on,
+    onToggle,
+}: {
+    label: string;
+    on: boolean;
+    onToggle: () => void;
+}): JSX.Element {
+    return (
+        <div className="flex items-center justify-between py-2">
+            <p className="text-xs text-neutral-400">{label}</p>
+            <button
+                onClick={onToggle}
+                className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
+                    on
+                        ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                        : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                }`}
+            >
+                {on ? "on" : "off"}
+            </button>
         </div>
     );
 }
@@ -624,10 +659,18 @@ function SettingsSection(): JSX.Element {
  * Deleted or moved-out files keep their record (rank, tags, history) so
  * they're restored if they come back. This forgets them for good.
  */
-function MissingRecordsRow(): JSX.Element {
+function MissingRecordsRow({
+    onConfirmingChange,
+}: {
+    onConfirmingChange: (confirming: boolean) => void;
+}): JSX.Element {
     const { setStatus } = useStatus();
     const [count, setCount] = useState<number | null>(null);
     const [confirming, setConfirming] = useState(false);
+
+    useEffect(() => {
+        onConfirmingChange(confirming);
+    }, [confirming, onConfirmingChange]);
 
     useEffect(() => {
         window.api.countMissingFiles().then(setCount);
@@ -643,9 +686,9 @@ function MissingRecordsRow(): JSX.Element {
     const files = (n: number) => `${n} missing file${n === 1 ? "" : "s"}`;
 
     return (
-        <div className="flex items-center justify-between py-2 border-t border-neutral-800">
+        <div className="flex items-center justify-between py-2">
             <p
-                className="text-xs text-neutral-500"
+                className="text-xs text-neutral-400"
                 title="Files deleted or moved out of the library keep their rank and tags, so they come back if the file is returned."
             >
                 Missing file records
@@ -687,7 +730,7 @@ function SliderInput({
 
     return (
         <div className="flex items-center justify-between py-2">
-            <p className="text-xs text-neutral-500">{name}</p>
+            <p className="text-xs text-neutral-400">{name}</p>
             <div className="flex items-center gap-2">
                 <div
                     className="relative w-24 h-1 bg-neutral-700 rounded cursor-pointer"
