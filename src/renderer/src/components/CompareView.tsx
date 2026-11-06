@@ -21,6 +21,9 @@ import { showInFolder } from "@renderer/lib/filesystem";
 import { TagPill } from "./TagPill";
 import { CrownIcon } from "./icons/CrownIcon";
 import { FolderIcon } from "./icons/FolderIcon";
+import { RotateIcon } from "./icons/RotateIcon";
+import { useRotation } from "@renderer/hooks/useRotation";
+import { useLibraryRank } from "@renderer/contexts/RankContext";
 import {
     useKingOfHill,
     type KingState,
@@ -28,7 +31,7 @@ import {
 import SingleFileView from "./SingleFileView";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useStatus } from "@renderer/contexts/StatusContext";
-import { usePlacement } from "@renderer/contexts/PlacementContext";
+import { usePlacement, PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
 
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
     if (file.media_type === "video") return;
@@ -94,14 +97,12 @@ export default function CompareView({
     const {
         compareBothAudio,
         toggleCompareBothAudio,
-        placementEnabled,
-        placementMatches,
     } = useSettings();
     const { setStatus, resetStatus } = useStatus();
     // A session started from Browse places one collection's files, then
     // returns to Browse. It works whether or not placement is switched on.
     const { session, endSession, bump } = usePlacement();
-    const placementActive = !!session || placementEnabled;
+    const placementActive = !!session;
     const placementRef = useRef<PlacementState | null>(null);
     // Mirrors placementRef for rendering (badge, banner).
     const [placing, setPlacing] = useState<PlacementState | null>(null);
@@ -201,17 +202,17 @@ export default function CompareView({
                     : null;
                 const laneA = sessionPool ?? laneFilter("a");
                 const laneB = sessionPool ?? laneFilter("b");
-                const key = JSON.stringify([filterKey, session?.folder, placementMatches]);
+                const key = JSON.stringify([filterKey, session?.folder, PLACEMENT_MATCHES]);
 
                 let st = placementRef.current;
-                if (st && (st.key !== key || st.file.comparison_count >= placementMatches)) {
+                if (st && (st.key !== key || st.file.comparison_count >= PLACEMENT_MATCHES)) {
                     st = null;
                 }
                 if (!st) {
                     const cand = await window.api.getPlacementCandidate(
                         laneA,
                         laneB,
-                        placementMatches,
+                        PLACEMENT_MATCHES,
                     );
                     if (cand) {
                         const pool = cand.side === "a" ? laneB : laneA;
@@ -222,7 +223,7 @@ export default function CompareView({
                             bounds: await window.api.getPlacementBounds(
                                 cand.file.id,
                                 pool,
-                                placementMatches,
+                                PLACEMENT_MATCHES,
                             ),
                             recent: [],
                             key,
@@ -233,13 +234,13 @@ export default function CompareView({
                     ? await window.api.getPlacementOpponent(
                           st.file.id,
                           st.pool,
-                          placementMatches,
+                          PLACEMENT_MATCHES,
                           st.bounds,
                           st.recent,
                       )
                     : null;
                 window.api
-                    .countPlacementCandidates(laneA, laneB, placementMatches)
+                    .countPlacementCandidates(laneA, laneB, PLACEMENT_MATCHES)
                     .then(setPlacementLeft)
                     .catch(() => {});
 
@@ -330,7 +331,7 @@ export default function CompareView({
             });
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [laneKey, rootPath, tagKey, tagMode, endKing, placementActive, placementMatches, session],
+        [laneKey, rootPath, tagKey, tagMode, endKing, placementActive, session],
     );
 
     // Starting a session from Browse: placement takes over (a king would
@@ -347,9 +348,10 @@ export default function CompareView({
     // library, refit it so only sides that no longer fit get swapped.
     // A file edited in place (e.g. rotated in the single file view) shows
     // its new version here too: same record, new content hash.
-    useEffect(() => {
-        return window.api.onMediaUpdated(({ file }) => {
-            if (!file) return;
+    // Also called directly by a card that rotated its file, so the new
+    // version is in place before the preview turn is dropped.
+    const replaceFile = useCallback(
+        (file: DbFile) => {
             const swap = (f: DbFile): DbFile => (f.id === file.id ? file : f);
             setPair((p) => (p ? [swap(p[0]), swap(p[1])] : p));
             if (kingRef.current?.file.id === file.id) {
@@ -368,8 +370,14 @@ export default function CompareView({
             }));
             const pre = prefetchedRef.current;
             if (pre) pre.pair = [swap(pre.pair[0]), swap(pre.pair[1])];
+        },
+        [setKing],
+    );
+    useEffect(() => {
+        return window.api.onMediaUpdated(({ file }) => {
+            if (file) replaceFile(file);
         });
-    }, [setKing]);
+    }, [replaceFile]);
 
     // After the launch catch-up scan the queued pair may include files that
     // turned out to be gone; fetch a fresh one when it's needed.
@@ -510,7 +518,7 @@ export default function CompareView({
                     opponent.id,
                     winner.id === st.file.id,
                     st.pool,
-                    placementMatches,
+                    PLACEMENT_MATCHES,
                     st.bounds,
                 );
                 if (res) {
@@ -522,7 +530,7 @@ export default function CompareView({
                         bounds: res.bounds,
                         recent: [opponent.id, ...st.recent].slice(0, 30),
                     });
-                    if (placed.comparison_count >= placementMatches) {
+                    if (placed.comparison_count >= PLACEMENT_MATCHES) {
                         const rank =
                             res.winner.id === placed.id
                                 ? res.winnerRank.after
@@ -569,7 +577,7 @@ export default function CompareView({
             setComparing(false);
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [comparing, pair, focus, loadPair, setKing, placementMatches, bump],
+        [comparing, pair, focus, loadPair, setKing, bump],
     );
 
     // Rolls back the last pick and puts that matchup back on screen.
@@ -733,7 +741,7 @@ export default function CompareView({
     // "Placing 3/10" on the file being placed (hidden while a king holds).
     const placingLabel = (f: DbFile): string | undefined =>
         placing && !king && placing.file.id === f.id
-            ? `Placing ${Math.min(placing.file.comparison_count + 1, placementMatches)}/${placementMatches}`
+            ? `Placing ${Math.min(placing.file.comparison_count + 1, PLACEMENT_MATCHES)}/${PLACEMENT_MATCHES}`
             : undefined;
 
 
@@ -788,6 +796,7 @@ export default function CompareView({
                         streak={king?.streak ?? 0}
                         onCrown={() => crown(a, "a")}
                         onUncrown={endKing}
+                        onReplaceFile={replaceFile}
                         onGoToFolder={() => {
                             const folderName = a.path.split("/")[0];
                             setActiveFolder(folderName);
@@ -813,6 +822,7 @@ export default function CompareView({
                         streak={king?.streak ?? 0}
                         onCrown={() => crown(b, "b")}
                         onUncrown={endKing}
+                        onReplaceFile={replaceFile}
                         onGoToFolder={() => {
                             const folderName = b.path.split("/")[0];
                             setActiveFolder(folderName);
@@ -841,6 +851,7 @@ function CompareCard({
     streak,
     onCrown,
     onUncrown,
+    onReplaceFile,
 }: {
     file: DbFile;
     side: Side;
@@ -859,7 +870,12 @@ function CompareCard({
     streak: number;
     onCrown: () => void;
     onUncrown: () => void;
+    /** A rotated file's new version (same record, new content hash). */
+    onReplaceFile: (file: DbFile) => void;
 }): JSX.Element {
+    const { turns: rotationOf, rotateLeft } = useRotation(file, rootPath, onReplaceFile);
+    const libraryRank = useLibraryRank(file.id);
+
     // Only real mouse movement takes focus. The browser can fire mousemove
     // when the content under a resting cursor changes (a new pair loading),
     // which must not override the keyboard's focus.
@@ -946,6 +962,7 @@ function CompareCard({
                                     clickToPauseEnabled={false}
                                     keyboardEnabled={false}
                                     controlsRef={controlsRef}
+                                    rotation={rotationOf(f.id)}
                                 />
                             )}
                         </div>
@@ -982,6 +999,15 @@ function CompareCard({
                     </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
+                    {/* Library rank stays visible, like the king's crown. */}
+                    {libraryRank && (
+                        <span
+                            className="mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/80 drop-shadow"
+                            title="Place in the whole library"
+                        >
+                            {libraryRank}
+                        </span>
+                    )}
                     {placingLabel && (
                         <span
                             className="pointer-events-auto mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white/80 drop-shadow"
@@ -1005,6 +1031,16 @@ function CompareCard({
                         }}
                     >
                         <CrownIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                        className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${fade}`}
+                        title="Rotate left"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            rotateLeft();
+                        }}
+                    >
+                        <RotateIcon className="h-4 w-4" />
                     </button>
                     <button
                         className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${fade}`}

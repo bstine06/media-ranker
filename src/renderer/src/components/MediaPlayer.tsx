@@ -3,12 +3,15 @@ import { DbFile } from "@renderer/shared/types/types";
 import React, {
     useState,
     useEffect,
-    useLayoutEffect,
     useRef,
     useCallback,
     useMemo,
 } from "react";
 import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
+
+/** How far ahead of the old version a rotated video's new version starts,
+ *  to cover the time its seek takes while the old one keeps playing. */
+const HANDOFF_LEAD_S = 0.15;
 
 function LoadingCover(): JSX.Element {
     return (
@@ -125,6 +128,10 @@ export function MediaPlayer({
             height: sideways ? box.width : "100%",
             left: sideways ? (box.width - box.height) / 2 : 0,
             top: sideways ? (box.height - box.width) / 2 : 0,
+            // Tailwind's base styles cap <video> at max-width: 100%, which
+            // would squash a sideways layer in a tall, narrow box (Compare).
+            maxWidth: "none",
+            maxHeight: "none",
             transform: turns ? `rotate(${-90 * turns}deg)` : undefined,
             transition: animate
                 ? `transform ${t}, width ${t}, height ${t}, left ${t}, top ${t}`
@@ -134,52 +141,69 @@ export function MediaPlayer({
 
     // ── Version hand-off ────────────────────────────────────────────────────
     // When the same video gets a new version (rotation saved), the old
-    // element stays up, paused on its frame and still turned, until the new
-    // one has loaded and jumped to the same moment. No restart, no black.
+    // element stays up, still turned and still playing, until the new one
+    // has loaded and jumped to where the old one has got to. No restart, no
+    // black, no freeze.
     const [handoff, setHandoff] = useState<{
         url: string;
         turns: number;
-        time: number;
-        paused: boolean;
     } | null>(null);
     const handoffElRef = useRef<HTMLVideoElement | null>(null);
+    // Where the new version should pick up. Kept apart from `handoff` (the
+    // visual cover), which gives up after a few seconds: a slow load must
+    // still resume at the same moment rather than restart.
+    const resumeRef = useRef<{ time: number; paused: boolean } | null>(null);
     const shownRef = useRef({ id: file.id, url: fullUrl, turns: rotation });
     if (shownRef.current.url !== fullUrl) {
         const old = videoRef.current;
         if (isVideo && shownRef.current.id === file.id && old) {
             handoffElRef.current = old;
+            resumeRef.current = { time: old.currentTime, paused: old.paused };
             setHandoff({
                 url: shownRef.current.url,
                 turns: shownRef.current.turns,
-                time: old.currentTime,
-                paused: old.paused,
             });
-        } else if (handoff) {
-            setHandoff(null);
+        } else {
+            resumeRef.current = null;
+            if (handoff) setHandoff(null);
         }
         shownRef.current = { id: file.id, url: fullUrl, turns: rotation };
     } else {
         shownRef.current.turns = rotation;
     }
-    useLayoutEffect(() => {
-        if (handoff) handoffElRef.current?.pause();
-    }, [handoff]);
-    // Never hold the old frame forever.
+    // Where the hand-off should resume: the old element's live position
+    // while it's still up (it keeps playing), else the last one recorded.
+    const resumeTime = (): number => {
+        const old = handoffElRef.current;
+        if (old && handoff) return old.currentTime;
+        return resumeRef.current?.time ?? 0;
+    };
+    // Never hold the old version forever: drop the cover, but remember
+    // where it had got to so the new one still resumes there.
     useEffect(() => {
         if (!handoff) return;
-        const t = setTimeout(() => setHandoff(null), 3000);
+        const t = setTimeout(() => {
+            if (resumeRef.current && handoffElRef.current) {
+                resumeRef.current.time = handoffElRef.current.currentTime;
+            }
+            setHandoff(null);
+        }, 3000);
         return () => clearTimeout(t);
     }, [handoff]);
     const finishHandoff = (v: HTMLVideoElement): void => {
-        if (!handoff) return;
-        if (!handoff.paused && !disabled) v.play().catch(() => {});
+        const resume = resumeRef.current;
+        if (!resume) return;
+        resumeRef.current = null;
+        if (!resume.paused && !disabled) v.play().catch(() => {});
         setHandoff(null);
     };
     const [isHovered, setIsHovered] = useState(false);
 
+    // A new file starts at 0; a new version of the same file (rotated)
+    // keeps its place.
     useEffect(() => {
         setCurrentTime(0);
-    }, [file.content_hash]);
+    }, [file.id]);
 
     // The full image starts loading right away (see the <img> below); the
     // blurred thumbnail only covers the wait if it isn't already in hand.
@@ -208,7 +232,9 @@ export function MediaPlayer({
         if (!isVideo) return;
         let rafId: number;
         const tick = () => {
-            if (videoRef.current && !scrubbing)
+            // Mid hand-off the old version is the one playing.
+            if (resumeRef.current) setCurrentTime(resumeTime());
+            else if (videoRef.current && !scrubbing)
                 setCurrentTime(videoRef.current.currentTime);
             rafId = requestAnimationFrame(tick);
         };
@@ -366,7 +392,8 @@ export function MediaPlayer({
                             src={handoff.url}
                             className="pointer-events-none absolute z-[1] object-contain"
                             style={turnStyle(handoff.turns, false)}
-                            muted
+                            muted={muted}
+                            loop
                             playsInline
                         />
                     ),
@@ -379,14 +406,19 @@ export function MediaPlayer({
                         muted={muted}
                         loop
                         playsInline
-                        autoPlay={!disabled && !handoff}
+                        autoPlay={!disabled && !resumeRef.current}
                         onLoadedMetadata={() => {
                             const v = videoRef.current;
                             const d = v?.duration;
                             if (d && isFinite(d)) setDuration(d);
                             // Pick up where the previous version was.
-                            if (v && handoff) {
-                                if (handoff.time > 0.05) v.currentTime = handoff.time;
+                            const resume = resumeRef.current;
+                            if (v && resume) {
+                                // Playing: aim a little ahead, since the old
+                                // one keeps going while the seek happens.
+                                const lead = resume.paused ? 0 : HANDOFF_LEAD_S;
+                                const t = resumeTime() + lead;
+                                if (t > 0.05 && (!d || t < d)) v.currentTime = t;
                                 else finishHandoff(v);
                             }
                         }}

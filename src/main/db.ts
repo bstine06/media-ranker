@@ -1294,6 +1294,22 @@ export function getMissingFiles(): DbFile[] {
         .all() as DbFile[];
 }
 
+/**
+ * Every ranked file's place in the whole library, best = 1. Files never
+ * compared are left out (they all sit at the starting score, so a place
+ * would mean nothing) and don't push anyone down. Ties share a place.
+ */
+export function getLibraryRanks(): { ranks: [number, number][]; total: number } {
+    const rows = getDb()
+        .prepare(
+            `SELECT id, RANK() OVER (ORDER BY elo_score DESC) AS place
+             FROM files
+             WHERE status = 'active' AND comparison_count > 0`,
+        )
+        .all() as { id: number; place: number }[];
+    return { ranks: rows.map((r) => [r.id, r.place]), total: rows.length };
+}
+
 export function countMissingFiles(): number {
     return (
         getDb()

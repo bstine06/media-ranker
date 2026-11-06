@@ -1,5 +1,9 @@
 import { createContext, useCallback, useContext, useState } from "react";
 
+/** Placement matches each new file gets: it stays on screen in Compare
+ *  until it has this many comparisons (main/placement.ts). */
+export const PLACEMENT_MATCHES = 10;
+
 /** Placement started from Browse: only this collection's files are placed
  *  (against each other), then Compare returns to Browse. */
 export interface PlacementSession {

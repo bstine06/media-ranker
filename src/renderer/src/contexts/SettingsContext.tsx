@@ -3,10 +3,6 @@ import type { SortMode, ViewMode } from "@renderer/browse/types/browserTypes";
 
 export type SortDirection = "up" | "down";
 
-export const PLACEMENT_MIN = 3;
-export const PLACEMENT_MAX = 30;
-const PLACEMENT_DEFAULT = 10;
-
 interface Settings {
     hoverPreviewEnabled: boolean;
     toggleHoverPreview: () => void;
@@ -22,6 +18,9 @@ interface Settings {
     togglePauseWhenUnfocused: () => void;
     alwaysShowUnsorted: boolean;
     toggleAlwaysShowUnsorted: () => void;
+    /** Show each file's place in the whole library (#12) wherever it appears. */
+    showLibraryRank: boolean;
+    toggleShowLibraryRank: () => void;
     /** Compare: play both sides' audio, not just the focused side's. */
     compareBothAudio: boolean;
     toggleCompareBothAudio: () => void;
@@ -32,12 +31,6 @@ interface Settings {
     setBrowseSortDirection: (direction: SortDirection) => void;
     browseViewMode: ViewMode;
     setBrowseViewMode: (mode: ViewMode) => void;
-    /** Compare: files with fewer than placementMatches comparisons stay on
-     *  screen until they've had that many (main/placement.ts). */
-    placementEnabled: boolean;
-    togglePlacement: () => void;
-    placementMatches: number;
-    setPlacementMatches: (n: number) => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -55,6 +48,8 @@ const SettingsContext = createContext<Settings>({
     togglePauseWhenUnfocused: () => {},
     alwaysShowUnsorted: false,
     toggleAlwaysShowUnsorted: () => {},
+    showLibraryRank: true,
+    toggleShowLibraryRank: () => {},
     compareBothAudio: false,
     toggleCompareBothAudio: () => {},
     browseSortMode: "alphabetical",
@@ -63,10 +58,6 @@ const SettingsContext = createContext<Settings>({
     setBrowseSortDirection: () => {},
     browseViewMode: "grid",
     setBrowseViewMode: () => {},
-    placementEnabled: false,
-    togglePlacement: () => {},
-    placementMatches: 10,
-    setPlacementMatches: () => {},
 });
 
 // Saved settings (config.json), read once at startup. Anything missing or
@@ -132,6 +123,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setShowTagCategoryNames((tgn) => !tgn)
     }, []);
 
+    const [showLibraryRank, setShowLibraryRank] = useState(() => savedBool("showLibraryRank", true));
+    const toggleShowLibraryRank = useCallback(() => setShowLibraryRank((s) => !s), []);
     const [alwaysShowUnsorted, setAlwaysShowUnsorted] = useState(() => savedBool("alwaysShowUnsorted", false));
     const toggleAlwaysShowUnsorted = useCallback(() => {
         setAlwaysShowUnsorted((a) => !a);
@@ -151,18 +144,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const [browseViewMode, setBrowseViewMode] = useState<ViewMode>(() =>
         savedOneOf("browseViewMode", ["grid", "rows"], "grid"),
     );
-
-    const [placementEnabled, setPlacementEnabled] = useState(() => savedBool("placementEnabled", false));
-    const togglePlacement = useCallback(() => setPlacementEnabled((p) => !p), []);
-    const [placementMatches, setPlacementMatchesState] = useState(() =>
-        savedNum("placementMatches", PLACEMENT_DEFAULT, PLACEMENT_MIN, PLACEMENT_MAX),
-    );
-    const setPlacementMatches = useCallback((n: number) => {
-        if (!Number.isFinite(n)) return;
-        setPlacementMatchesState(
-            Math.max(PLACEMENT_MIN, Math.min(PLACEMENT_MAX, Math.round(n))),
-        );
-    }, []);
 
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
@@ -211,12 +192,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     showTagCategoryNames,
                     pauseWhenUnfocused,
                     alwaysShowUnsorted,
+                    showLibraryRank,
                     compareBothAudio,
                     browseSortMode,
                     browseSortDirection,
                     browseViewMode,
-                    placementEnabled,
-                    placementMatches,
                 })
                 .catch(() => {});
         }, 300);
@@ -229,12 +209,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         showTagCategoryNames,
         pauseWhenUnfocused,
         alwaysShowUnsorted,
+        showLibraryRank,
         compareBothAudio,
         browseSortMode,
         browseSortDirection,
         browseViewMode,
-        placementEnabled,
-        placementMatches,
     ]);
 
     return (
@@ -254,6 +233,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 togglePauseWhenUnfocused,
                 alwaysShowUnsorted,
                 toggleAlwaysShowUnsorted,
+                showLibraryRank,
+                toggleShowLibraryRank,
                 compareBothAudio,
                 toggleCompareBothAudio,
                 browseSortMode,
@@ -262,10 +243,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 setBrowseSortDirection,
                 browseViewMode,
                 setBrowseViewMode,
-                placementEnabled,
-                togglePlacement,
-                placementMatches,
-                setPlacementMatches,
             }}
         >
             {children}

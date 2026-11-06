@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DbFile } from '@renderer/shared/types/types'
+import { useLibraryRank } from '@renderer/contexts/RankContext'
 
 export default function HoverPreview({
   file,
@@ -21,6 +22,7 @@ export default function HoverPreview({
 }): JSX.Element {
   const isVideo = file.media_type === 'video'
   const isGif = file.media_type === 'gif'
+  const libraryRank = useLibraryRank(file.id)
   const videoRef = useRef<HTMLVideoElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const [ready, setReady] = useState(false)
@@ -114,6 +116,14 @@ export default function HoverPreview({
           />
         )}
 
+        {ready && libraryRank && (
+          <div
+            className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white"
+            title="Place in the whole library"
+          >
+            {libraryRank}
+          </div>
+        )}
         {ready && (
           <div
             className="absolute bottom-0 left-0 right-0 px-3 py-2"

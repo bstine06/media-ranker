@@ -26,6 +26,7 @@ import {
     getFileByPath,
     getMissingFiles,
     countMissingFiles,
+    getLibraryRanks,
     deleteMissingFiles,
     reconcileMissingFiles,
     getAllActiveFiles,
@@ -93,7 +94,7 @@ import {
     recordPlacement,
     type PlacementBounds,
 } from "./placement";
-import { rotateTrackedFile } from "./rotate";
+import { rotateTrackedFile, previousVersionPath } from "./rotate";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
 import {
@@ -105,6 +106,13 @@ import {
 } from "./config";
 
 let rootPath: string | null = null;
+
+/** Scores changed: views showing library ranks refetch them. Passes the
+ *  handler's result through. */
+function ranksChanged<T>(result: T): T {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("ranks:changed");
+    return result;
+}
 
 const renameAsync = promisify(rename);
 
@@ -698,7 +706,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "record-comparison",
         (_event, winnerId: number, loserId: number) =>
-            recordComparison(winnerId, loserId, rootPath ?? "all"),
+            ranksChanged(recordComparison(winnerId, loserId, rootPath ?? "all")),
     );
 
     // Placement (see placement.ts).
@@ -739,14 +747,16 @@ function registerIpcHandlers(): void {
             matches: number,
             bounds: PlacementBounds,
         ) =>
-            recordPlacement(
-                placingId,
-                opponentId,
-                placingWon,
-                pool,
-                matches,
-                bounds,
-                rootPath ?? "all",
+            ranksChanged(
+                recordPlacement(
+                    placingId,
+                    opponentId,
+                    placingWon,
+                    pool,
+                    matches,
+                    bounds,
+                    rootPath ?? "all",
+                ),
             ),
     );
 
@@ -754,6 +764,7 @@ function registerIpcHandlers(): void {
         "undo-comparison",
         (_event, comparisonId: number, fileIds: number[]) => {
             if (!undoComparison(comparisonId)) return null;
+            ranksChanged(null);
             const db = getDb();
             return fileIds.map(
                 (id) =>
@@ -778,6 +789,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle("get-tag-usage", (_event, id: number) => getTagUsage(id));
 
     ipcMain.handle("count-missing-files", () => countMissingFiles());
+    ipcMain.handle("get-library-ranks", () => getLibraryRanks());
     ipcMain.handle("delete-missing-files", () => deleteMissingFiles());
 
     ipcMain.handle(
@@ -930,12 +942,62 @@ function createWindow(): void {
     }
 }
 
+/**
+ * A file as a web stream for protocol responses. Handing a Node stream to
+ * Response lets undici close it after the page has already cancelled the
+ * request (a video swapped out mid-load, e.g. after rotating), which
+ * throws "ReadableStream is already closed" in the main process. Here a
+ * cancel stops the read, and nothing is enqueued or closed after that.
+ */
+function fileStream(
+    filePath: string,
+    range?: { start: number; end: number },
+): ReadableStream<Uint8Array> {
+    let file: ReturnType<typeof createReadStream> | null = null;
+    let finished = false;
+    return new ReadableStream<Uint8Array>({
+        start(controller) {
+            file = createReadStream(filePath, range);
+            file.on("data", (chunk) => {
+                if (finished) return;
+                controller.enqueue(chunk as Buffer);
+                // Backpressure: wait for pull() before reading more.
+                if ((controller.desiredSize ?? 1) <= 0) file?.pause();
+            });
+            file.on("end", () => {
+                if (finished) return;
+                finished = true;
+                controller.close();
+            });
+            file.on("error", (err) => {
+                if (finished) return;
+                finished = true;
+                controller.error(err);
+            });
+        },
+        pull() {
+            file?.resume();
+        },
+        cancel() {
+            finished = true;
+            file?.destroy();
+        },
+    });
+}
+
 app.whenReady().then(() => {
     protocol.handle("media", async (request) => {
         // Drop any ?query: it only versions the URL (so a rotated file isn't
         // served from cache), it isn't part of the path.
-        const url = request.url.replace("media://local", "").split("?")[0];
+        const [url, query = ""] = request.url.replace("media://local", "").split("?");
         let filePath = decodeURIComponent(url);
+        // An older version of a rotated video, still being streamed by the
+        // player it's handing over from: serve those bytes, not the new file.
+        const version = new URLSearchParams(query).get("v");
+        if (rootPath && version && /^[0-9a-f]+$/i.test(version)) {
+            const previous = previousVersionPath(rootPath, version, path.extname(filePath));
+            if (existsSync(previous)) filePath = previous;
+        }
         let contentType = getMimeType(path.extname(filePath));
 
         try {
@@ -954,8 +1016,7 @@ app.whenReady().then(() => {
                 const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
                 const chunkSize = end - start + 1;
 
-                const stream = createReadStream(filePath, { start, end });
-                return new Response(stream as any, {
+                return new Response(fileStream(filePath, { start, end }), {
                     status: 206,
                     headers: {
                         "Content-Range": `bytes ${start}-${end}/${fileSize}`,
@@ -965,8 +1026,7 @@ app.whenReady().then(() => {
                     },
                 });
             } else {
-                const stream = createReadStream(filePath);
-                return new Response(stream as any, {
+                return new Response(fileStream(filePath), {
                     status: 200,
                     headers: {
                         "Content-Length": String(fileSize),

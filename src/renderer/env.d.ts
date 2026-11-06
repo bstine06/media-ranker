@@ -208,6 +208,8 @@ declare global {
             >;
             getTagUsage: (id: number) => Promise<TagUsage>;
             countMissingFiles: () => Promise<number>;
+            getLibraryRanks: () => Promise<{ ranks: [number, number][]; total: number }>;
+            onRanksChanged: (callback: () => void) => () => void;
             deleteMissingFiles: () => Promise<number>;
             getPlacementCandidate: (
                 laneA: PoolFilter,

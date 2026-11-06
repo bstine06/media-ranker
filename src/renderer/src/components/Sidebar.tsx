@@ -3,12 +3,7 @@ import { createPortal } from "react-dom";
 import type { DbFile, DbTag, FolderNode, View } from "../shared/types/types";
 import NavItem from "./NavItem";
 import ConfirmDialog from "./ConfirmDialog";
-import {
-    useSettings,
-    PLACEMENT_MIN,
-    PLACEMENT_MAX,
-} from "../contexts/SettingsContext";
-import { usePlacement } from "@renderer/contexts/PlacementContext";
+import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "./icons/FolderIcon";
@@ -381,110 +376,6 @@ function TagFilterSection({
     );
 }
 
-// Compare's own options, shown in the sidebar only while in Compare.
-function CompareOptionsSection(): JSX.Element {
-    const [open, setOpen] = useState(true);
-    const {
-        compareBothAudio,
-        toggleCompareBothAudio,
-        placementEnabled,
-        togglePlacement,
-        placementMatches,
-        setPlacementMatches,
-    } = useSettings();
-    const { laneFolderPrefixes } = useFolders();
-    const { activeTags, tagMode } = useTags();
-    const { version } = usePlacement();
-    // Typed freely, applied (and clamped) on Enter or leaving the field.
-    const [matchesDraft, setMatchesDraft] = useState(String(placementMatches));
-    useEffect(() => setMatchesDraft(String(placementMatches)), [placementMatches]);
-    const applyMatches = () => {
-        const n = Number(matchesDraft);
-        if (matchesDraft.trim() && Number.isFinite(n)) setPlacementMatches(n);
-        setMatchesDraft(String(placementMatches));
-    };
-
-    // Files on either side with fewer comparisons than placement asks for.
-    const [toPlace, setToPlace] = useState<number | null>(null);
-    const laneKey = JSON.stringify(laneFolderPrefixes);
-    const tagKey = [...activeTags].sort().join(",");
-    useEffect(() => {
-        const tagList = activeTags.size > 0 ? [...activeTags] : null;
-        const lane = (side: "a" | "b") => ({
-            folderPrefixes: laneFolderPrefixes[side],
-            tagList,
-            tagMode,
-        });
-        window.api
-            .countPlacementCandidates(lane("a"), lane("b"), placementMatches)
-            .then(setToPlace)
-            .catch(() => setToPlace(null));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [laneKey, tagKey, tagMode, placementMatches, version]);
-
-    const toggleButton = (on: boolean, onClick: () => void) => (
-        <button
-            onClick={onClick}
-            className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
-                on
-                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
-                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
-            }`}
-        >
-            {on ? "on" : "off"}
-        </button>
-    );
-
-    return (
-        <div className="px-3 mb-2">
-            <button
-                onClick={() => setOpen((o) => !o)}
-                className="flex w-full items-center gap-1 px-1 text-xs font-semibold uppercase tracking-widest text-neutral-500 hover:text-neutral-300 transition-colors"
-            >
-                <span className="w-3 text-[10px]">{open ? "▾" : "▸"}</span>
-                Compare options
-            </button>
-            {open && (
-                <div className="mt-1 flex flex-col gap-1.5 px-1">
-                    <div
-                        className="flex items-center justify-between"
-                        title="Files with few comparisons stay on screen until they've had their placement matches, against opponents picked to find their rank quickly"
-                    >
-                        <span className="text-xs text-neutral-400">Placement matches</span>
-                        {toggleButton(placementEnabled, togglePlacement)}
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <span className="text-xs text-neutral-400">Matches per file</span>
-                        <input
-                            type="number"
-                            min={PLACEMENT_MIN}
-                            max={PLACEMENT_MAX}
-                            value={matchesDraft}
-                            onChange={(e) => setMatchesDraft(e.target.value)}
-                            onBlur={applyMatches}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter") e.currentTarget.blur();
-                            }}
-                            className="w-12 rounded bg-neutral-800 px-1.5 py-0.5 text-right text-xs text-neutral-200 outline-none focus:ring-1 focus:ring-neutral-600"
-                        />
-                    </div>
-                    {toPlace != null && (
-                        <p className="text-[11px] text-neutral-600">
-                            {toPlace === 0
-                                ? "Every file here is placed"
-                                : `${toPlace} file${toPlace === 1 ? "" : "s"} to place`}
-                        </p>
-                    )}
-                    <div className="flex items-center justify-between">
-                        <span className="text-xs text-neutral-400">Both sides' audio (X)</span>
-                        {toggleButton(compareBothAudio, toggleCompareBothAudio)}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
 function SettingsSection(): JSX.Element {
     const [open, setOpen] = useState(false);
     return (
@@ -518,6 +409,10 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
         togglePauseWhenUnfocused,
         alwaysShowUnsorted,
         toggleAlwaysShowUnsorted,
+        compareBothAudio,
+        toggleCompareBothAudio,
+        showLibraryRank,
+        toggleShowLibraryRank,
     } = useSettings();
     // A confirm opened from inside handles its own Escape.
     const confirmOpen = useRef(false);
@@ -559,6 +454,11 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         onToggle={toggleHoverPreview}
                     />
                     <ToggleRow
+                        label="Show library rank on files"
+                        on={showLibraryRank}
+                        onToggle={toggleShowLibraryRank}
+                    />
+                    <ToggleRow
                         label="Show tag category names"
                         on={showTagCategoryNames}
                         onToggle={toggleShowTagCategoryNames}
@@ -582,6 +482,11 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         label="Pause videos when app not focused"
                         on={pauseWhenUnfocused}
                         onToggle={togglePauseWhenUnfocused}
+                    />
+                    <ToggleRow
+                        label="Compare: play both sides' audio"
+                        on={compareBothAudio}
+                        onToggle={toggleCompareBothAudio}
                     />
                     <SliderInput
                         name="volume"
@@ -1095,7 +1000,6 @@ export default function Sidebar({
 
             
 
-            {view === "compare" && <CompareOptionsSection />}
 
             <TagFilterSection
             />

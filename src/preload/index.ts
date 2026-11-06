@@ -401,6 +401,13 @@ const api = {
         | { ok: false; conflict: DbTag & { files: number; folders: number } }
     > => ipcRenderer.invoke("update-tag", id, name, categoryId),
 
+    getLibraryRanks: (): Promise<{ ranks: [number, number][]; total: number }> =>
+        ipcRenderer.invoke("get-library-ranks"),
+    onRanksChanged: (callback: () => void) => {
+        const handler = () => callback();
+        ipcRenderer.on("ranks:changed", handler);
+        return () => ipcRenderer.removeListener("ranks:changed", handler);
+    },
     countMissingFiles: (): Promise<number> =>
         ipcRenderer.invoke("count-missing-files"),
     deleteMissingFiles: (): Promise<number> =>

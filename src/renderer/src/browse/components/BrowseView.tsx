@@ -21,7 +21,7 @@ import { TagIcon } from "@renderer/components/icons/TagIcon";
 import FolderTagPanel from "./FolderTagPanel";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
 import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
-import { usePlacement } from "@renderer/contexts/PlacementContext";
+import { usePlacement, PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
 
 // ─── Sorting ──────────────────────────────────────────────────────────────────
 
@@ -148,7 +148,6 @@ export default function BrowseView({
         setBrowseSortDirection: setSortDirection,
         browseViewMode: viewMode,
         setBrowseViewMode: setViewMode,
-        placementMatches,
     } = useSettings();
 
     // Files in this collection that still need placement matches.
@@ -160,10 +159,10 @@ export default function BrowseView({
         }
         const pool = { folderPrefixes: [activeFolder], tagList: null, tagMode: "or" as const };
         window.api
-            .countPlacementCandidates(pool, pool, placementMatches)
+            .countPlacementCandidates(pool, pool, PLACEMENT_MATCHES)
             .then(setToPlace)
             .catch(() => setToPlace(0));
-    }, [activeFolder, files, placementMatches, placementVersion]);
+    }, [activeFolder, files, placementVersion]);
 
     const placeNewFiles = () => {
         if (!activeFolder || toPlace === 0) return;
@@ -696,7 +695,7 @@ export default function BrowseView({
                 {activeFolder && toPlace > 0 && (
                     <button
                         onClick={placeNewFiles}
-                        title={`Give the ${toPlace} file${toPlace === 1 ? "" : "s"} here with fewer than ${placementMatches} comparisons their placement matches in Compare, then come back`}
+                        title={`Give the ${toPlace} file${toPlace === 1 ? "" : "s"} here with fewer than ${PLACEMENT_MATCHES} comparisons their placement matches in Compare, then come back`}
                         className="shrink-0 whitespace-nowrap rounded px-2 py-1 text-xs text-amber-300/80 hover:bg-neutral-800 hover:text-amber-200 transition-colors"
                     >
                         Place {toPlace} new
