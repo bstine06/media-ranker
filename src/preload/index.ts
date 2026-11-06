@@ -353,8 +353,12 @@ const api = {
         ),
 
     // Placement matches (main/placement.ts)
-    getPlacementCandidate: (laneA: PoolFilter, laneB: PoolFilter, matches: number) =>
-        ipcRenderer.invoke("placement:candidate", laneA, laneB, matches),
+    getPlacementCandidate: (
+        laneA: PoolFilter,
+        laneB: PoolFilter,
+        matches: number,
+        opponentPool?: PoolFilter,
+    ) => ipcRenderer.invoke("placement:candidate", laneA, laneB, matches, opponentPool),
     countPlacementCandidates: (laneA: PoolFilter, laneB: PoolFilter, matches: number) =>
         ipcRenderer.invoke("placement:count", laneA, laneB, matches),
     getPlacementBounds: (fileId: number, pool: PoolFilter, matches: number) =>

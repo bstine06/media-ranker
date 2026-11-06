@@ -1,16 +1,27 @@
 import { createContext, useCallback, useContext, useState } from "react";
+import type { DbFile, View } from "@renderer/shared/types/types";
 
 /** Placement matches each new file gets: it stays on screen in Compare
  *  until it has this many comparisons (main/placement.ts). */
 export const PLACEMENT_MATCHES = 10;
 
-/** Placement started from Browse: only this collection's files are placed
- *  (against each other), then Compare returns to Browse. */
-export interface PlacementSession {
-    folder: string;
-    /** Files needing placement when it started, for the "N placed" message. */
-    total: number;
-}
+/**
+ * Placement run in Compare, against the whole library, then back to
+ * `returnTo`:
+ * - "folder": a collection's files that still need placement (Browse's
+ *   "Place N new").
+ * - "file": one file gets PLACEMENT_MATCHES fresh matches, however many
+ *   comparisons it already has (the single file view's Place button).
+ */
+export type PlacementSession =
+    | {
+          kind: "folder";
+          folder: string;
+          /** Files needing placement when it started, for the "N placed" message. */
+          total: number;
+          returnTo: View;
+      }
+    | { kind: "file"; file: DbFile; returnTo: View };
 
 interface PlacementContextValue {
     session: PlacementSession | null;

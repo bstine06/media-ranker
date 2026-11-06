@@ -712,8 +712,13 @@ function registerIpcHandlers(): void {
     // Placement (see placement.ts).
     ipcMain.handle(
         "placement:candidate",
-        (_event, laneA: PoolFilter, laneB: PoolFilter, matches: number) =>
-            getPlacementCandidate(laneA, laneB, matches),
+        (
+            _event,
+            laneA: PoolFilter,
+            laneB: PoolFilter,
+            matches: number,
+            opponentPool?: PoolFilter,
+        ) => getPlacementCandidate(laneA, laneB, matches, opponentPool),
     );
     ipcMain.handle(
         "placement:count",

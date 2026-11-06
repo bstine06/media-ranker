@@ -8,6 +8,7 @@ import React, {
     useMemo,
 } from "react";
 import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
+import { useSettings } from "@renderer/contexts/SettingsContext";
 
 /** How far ahead of the old version a rotated video's new version starts,
  *  to cover the time its seek takes while the old one keeps playing. */
@@ -198,6 +199,15 @@ export function MediaPlayer({
         setHandoff(null);
     };
     const [isHovered, setIsHovered] = useState(false);
+
+    // Settings volume (0–100). Set on every new element too: a new file or
+    // version mounts a fresh <video> at full volume.
+    const { volume } = useSettings();
+    useEffect(() => {
+        const level = Math.max(0, Math.min(1, volume / 100));
+        if (videoRef.current) videoRef.current.volume = level;
+        if (handoffElRef.current) handoffElRef.current.volume = level;
+    }, [volume, fullUrl, handoff]);
 
     // A new file starts at 0; a new version of the same file (rotated)
     // keeps its place.

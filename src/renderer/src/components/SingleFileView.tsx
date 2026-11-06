@@ -8,6 +8,7 @@ import { useFolders } from "@renderer/contexts/FolderContext";
 import ScrollView from "./ScrollView";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { SlotResolver } from "@renderer/hooks/useScrollSlots";
+import { usePlacement } from "@renderer/contexts/PlacementContext";
 
 
 export default function SingleFileView({
@@ -26,6 +27,7 @@ export default function SingleFileView({
     );
 
     const { rootPath, setActiveFolder, folderMetaVersion } = useFolders();
+    const { startSession } = usePlacement();
 
     //resolver to appease ScrollView
     const resolver: SlotResolver = useCallback(async () => {
@@ -63,6 +65,11 @@ export default function SingleFileView({
                 setView("browse");
             }}
             onFileClick={(file) => showInFolder(rootPath!, file.path)}
+            onPlace={(file) => {
+                // Opened from Compare: the session takes over Compare.
+                startSession({ kind: "file", file, returnTo: "compare" });
+                setView("compare");
+            }}
             allowRotate
         />
     );

@@ -52,12 +52,14 @@ function scoreAt(ranked: DbFile[], fraction: number): number {
 /**
  * The next file to place: newest added first, from either side's pool.
  * `side` is the side it fits (a if both), so the opponent comes from the
- * other side's pool.
+ * other side's pool, or from `opponentPool` when given (placing one
+ * collection's files against the whole library).
  */
 export function getPlacementCandidate(
     laneA: PoolFilter,
     laneB: PoolFilter,
     matches: number,
+    opponentPool?: PoolFilter,
 ): { file: DbFile; side: "a" | "b" } | null {
     const newestFirst = (files: DbFile[]) =>
         files
@@ -80,7 +82,9 @@ export function getPlacementCandidate(
                 : null;
     // Needs at least one possible opponent on the other side.
     if (!pick) return null;
-    const opponents = filesIn(pick.side === "a" ? laneB : laneA).filter(
+    const opponents = filesIn(
+        opponentPool ?? (pick.side === "a" ? laneB : laneA),
+    ).filter(
         (f) => f.id !== pick.file.id,
     );
     return opponents.length > 0 ? pick : null;

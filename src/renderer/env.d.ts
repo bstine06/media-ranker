@@ -215,6 +215,7 @@ declare global {
                 laneA: PoolFilter,
                 laneB: PoolFilter,
                 matches: number,
+                opponentPool?: PoolFilter,
             ) => Promise<{ file: DbFile; side: "a" | "b" } | null>;
             countPlacementCandidates: (
                 laneA: PoolFilter,

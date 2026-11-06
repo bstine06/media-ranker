@@ -166,7 +166,7 @@ export default function BrowseView({
 
     const placeNewFiles = () => {
         if (!activeFolder || toPlace === 0) return;
-        startSession({ folder: activeFolder, total: toPlace });
+        startSession({ kind: "folder", folder: activeFolder, total: toPlace, returnTo: "browse" });
         setView("compare");
     };
 
@@ -657,6 +657,10 @@ export default function BrowseView({
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}
                 onClose={() => setBrowseScrollIndex(null)}
                 onCrown={crownAndCompare}
+                onPlace={(file) => {
+                    startSession({ kind: "file", file, returnTo: "browse" });
+                    setView("compare");
+                }}
                 allowRotate
                 progress={{
                     index: browseScrollIndex + 1,

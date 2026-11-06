@@ -60,8 +60,12 @@ interface PlacementState {
     bounds: PlacementBounds;
     /** Opponents already faced, so the search doesn't repeat them. */
     recent: number[];
-    /** Filters it was started under; a change starts over. */
+    /** The session it belongs to; a different session starts over. */
     key: string;
+    /** Comparison count it had when its placement started… */
+    startCount: number;
+    /** …and the count at which it's done. */
+    target: number;
 }
 
 interface UndoEntry {
@@ -99,10 +103,9 @@ export default function CompareView({
         toggleCompareBothAudio,
     } = useSettings();
     const { setStatus, resetStatus } = useStatus();
-    // A session started from Browse places one collection's files, then
-    // returns to Browse. It works whether or not placement is switched on.
+    // Placement runs only as a session: a collection's new files, or one
+    // file, against the whole library (see the placement branch in loadPair).
     const { session, endSession, bump } = usePlacement();
-    const placementActive = !!session;
     const placementRef = useRef<PlacementState | null>(null);
     // Mirrors placementRef for rendering (badge, banner).
     const [placing, setPlacing] = useState<PlacementState | null>(null);
@@ -194,78 +197,111 @@ export default function CompareView({
                     : [challenger, k.file];
             };
 
-            // ── Placement: a file needing placement gets the next matchup ──
-            // (A king, crowned by hand, takes priority.)
-            if (!k && placementActive) {
-                const sessionPool: PoolFilter | null = session
-                    ? { folderPrefixes: [session.folder], tagList: null, tagMode: "or" }
-                    : null;
-                const laneA = sessionPool ?? laneFilter("a");
-                const laneB = sessionPool ?? laneFilter("b");
-                const key = JSON.stringify([filterKey, session?.folder, PLACEMENT_MATCHES]);
+            // ── Placement session (Browse's "Place N new", or one file's
+            // Place button). The file being placed stays on the left, against
+            // the whole library. (A king, crowned by hand, takes priority.)
+            if (!k && session) {
+                const wholeLibrary: PoolFilter = {
+                    folderPrefixes: null,
+                    tagList: null,
+                    tagMode: "or",
+                };
+                const key =
+                    session.kind === "folder"
+                        ? `folder:${session.folder}`
+                        : `file:${session.file.id}`;
+                let st = placementRef.current?.key === key ? placementRef.current : null;
+                let done = false;
 
-                let st = placementRef.current;
-                if (st && (st.key !== key || st.file.comparison_count >= PLACEMENT_MATCHES)) {
-                    st = null;
-                }
-                if (!st) {
-                    const cand = await window.api.getPlacementCandidate(
-                        laneA,
-                        laneB,
-                        PLACEMENT_MATCHES,
-                    );
-                    if (cand) {
-                        const pool = cand.side === "a" ? laneB : laneA;
+                if (session.kind === "file") {
+                    // Fresh matches from wherever it stands now, however many
+                    // comparisons it already has.
+                    if (!st) {
+                        const start = session.file.comparison_count;
                         st = {
-                            file: cand.file,
-                            side: cand.side,
-                            pool,
-                            bounds: await window.api.getPlacementBounds(
-                                cand.file.id,
-                                pool,
-                                PLACEMENT_MATCHES,
-                            ),
+                            file: session.file,
+                            side: "a",
+                            pool: wholeLibrary,
+                            bounds: { lo: 0, hi: 1 },
                             recent: [],
                             key,
+                            startCount: start,
+                            target: start + PLACEMENT_MATCHES,
                         };
                     }
+                    done = st.file.comparison_count >= st.target;
+                } else {
+                    const folderPool: PoolFilter = {
+                        folderPrefixes: [session.folder],
+                        tagList: null,
+                        tagMode: "or",
+                    };
+                    if (st && st.file.comparison_count >= st.target) st = null;
+                    if (!st) {
+                        const cand = await window.api.getPlacementCandidate(
+                            folderPool,
+                            folderPool,
+                            PLACEMENT_MATCHES,
+                            wholeLibrary,
+                        );
+                        if (cand) {
+                            st = {
+                                file: cand.file,
+                                side: "a",
+                                pool: wholeLibrary,
+                                bounds: await window.api.getPlacementBounds(
+                                    cand.file.id,
+                                    wholeLibrary,
+                                    PLACEMENT_MATCHES,
+                                ),
+                                recent: [],
+                                key,
+                                startCount: 0,
+                                target: PLACEMENT_MATCHES,
+                            };
+                        }
+                    }
+                    window.api
+                        .countPlacementCandidates(folderPool, folderPool, PLACEMENT_MATCHES)
+                        .then(setPlacementLeft)
+                        .catch(() => {});
                 }
-                const opponent = st
-                    ? await window.api.getPlacementOpponent(
-                          st.file.id,
-                          st.pool,
-                          PLACEMENT_MATCHES,
-                          st.bounds,
-                          st.recent,
-                      )
-                    : null;
-                window.api
-                    .countPlacementCandidates(laneA, laneB, PLACEMENT_MATCHES)
-                    .then(setPlacementLeft)
-                    .catch(() => {});
 
+                const opponent =
+                    st && !done
+                        ? await window.api.getPlacementOpponent(
+                              st.file.id,
+                              st.pool,
+                              PLACEMENT_MATCHES,
+                              st.bounds,
+                              st.recent,
+                          )
+                        : null;
                 if (st && opponent) {
                     setPlacement(st);
                     prefetchedRef.current = null;
-                    setPair(st.side === "a" ? [st.file, opponent] : [opponent, st.file]);
+                    setPair([st.file, opponent]);
                     setLoading(false);
                     return;
                 }
+
+                // Finished (or nothing to do): back where it was started.
                 setPlacement(null);
-                if (session) {
-                    // Everything in the collection is placed: back to Browse.
+                endSession();
+                setView(session.returnTo);
+                if (session.kind === "folder") {
                     const n = session.total;
-                    endSession();
-                    setView("browse");
                     flashStatus(
                         n > 0
                             ? `Placed ${n} file${n === 1 ? "" : "s"} in ${session.folder}`
                             : `Nothing left to place in ${session.folder}`,
                         3000,
                     );
-                    return;
+                } else if (!done) {
+                    flashStatus("Nothing else in the library to compare it with", 3000);
                 }
-                // Nothing to place: carry on with normal pairs.
+                // A finished file's "Placed … at #n" was shown by its last pick.
+                return;
             }
 
             const prefetched = prefetchedRef.current;
@@ -331,7 +367,7 @@ export default function CompareView({
             });
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [laneKey, rootPath, tagKey, tagMode, endKing, placementActive, session],
+        [laneKey, rootPath, tagKey, tagMode, endKing, session],
     );
 
     // Starting a session from Browse: placement takes over (a king would
@@ -341,6 +377,8 @@ export default function CompareView({
         endKing();
         kingRef.current = null;
         setPlacement(null);
+        // Started from a file opened here: show the matches, not the file.
+        setInspectedFile(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session]);
 
@@ -530,7 +568,7 @@ export default function CompareView({
                         bounds: res.bounds,
                         recent: [opponent.id, ...st.recent].slice(0, 30),
                     });
-                    if (placed.comparison_count >= PLACEMENT_MATCHES) {
+                    if (placed.comparison_count >= st.target) {
                         const rank =
                             res.winner.id === placed.id
                                 ? res.winnerRank.after
@@ -741,7 +779,7 @@ export default function CompareView({
     // "Placing 3/10" on the file being placed (hidden while a king holds).
     const placingLabel = (f: DbFile): string | undefined =>
         placing && !king && placing.file.id === f.id
-            ? `Placing ${Math.min(placing.file.comparison_count + 1, PLACEMENT_MATCHES)}/${PLACEMENT_MATCHES}`
+            ? `Placing ${Math.min(placing.file.comparison_count - placing.startCount + 1, PLACEMENT_MATCHES)}/${PLACEMENT_MATCHES}`
             : undefined;
 
 
@@ -759,16 +797,24 @@ export default function CompareView({
             {session && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 z-40 flex justify-center">
                     <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-black/70 px-3 py-1 text-xs text-white/80 shadow">
-                        <span>
-                            Placing new files in{" "}
-                            <span className="text-white">{session.folder}</span>
-                            {placementLeft != null && ` · ${placementLeft} left`}
-                        </span>
+                        {session.kind === "folder" ? (
+                            <span>
+                                Placing new files in{" "}
+                                <span className="text-white">{session.folder}</span>
+                                {placementLeft != null && ` · ${placementLeft} left`}
+                            </span>
+                        ) : (
+                            <span>
+                                Placing{" "}
+                                <span className="text-white">{session.file.filename}</span>
+                            </span>
+                        )}
                         <button
                             onClick={() => {
+                                const back = session.returnTo;
                                 endSession();
                                 setPlacement(null);
-                                setView("browse");
+                                setView(back);
                             }}
                             className="rounded-full bg-white/10 px-2 py-0.5 text-white/80 hover:bg-white/20 hover:text-white transition-colors"
                         >

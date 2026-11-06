@@ -12,6 +12,7 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 import { toMediaUrl } from "@renderer/lib/media";
 import { SlotResolver } from "@renderer/hooks/useScrollSlots";
 import ScrollView from "./ScrollView";
+import { usePlacement } from "@renderer/contexts/PlacementContext";
 import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
 import { showInFolder } from "@renderer/lib/filesystem";
 
@@ -32,6 +33,7 @@ export default function DiscoverView({
     setView: (view: View) => void;
 }): JSX.Element {
     const { crown } = useKingOfHill();
+    const { startSession } = usePlacement();
     const [history, setHistory] = useState<DbFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [initialFile, setInitialFile] = useState<DbFile | null>(null);
@@ -277,6 +279,10 @@ export default function DiscoverView({
             onFileChange={(file) => setCurrentFile(file)}
             onCrown={(file) => {
                 crown(file);
+                setView("compare");
+            }}
+            onPlace={(file) => {
+                startSession({ kind: "file", file, returnTo: "scroll" });
                 setView("compare");
             }}
             allowRotate

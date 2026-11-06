@@ -12,6 +12,7 @@ import { CrownIcon } from "./icons/CrownIcon";
 import { TrashIcon } from "./icons/TrashIcon";
 import { RotateIcon } from "./icons/RotateIcon";
 import { useRotation } from "@renderer/hooks/useRotation";
+import { PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
 import { useLibraryRank, useRankedTotal } from "@renderer/contexts/RankContext";
 
 /** How close to the top of the media the mouse must be to show Rotate. */
@@ -29,6 +30,7 @@ export default function ScrollView({
     progress,
     onFileChange,
     onCrown,
+    onPlace,
     allowRotate = false,
 }: {
     initialFile: DbFile | null;
@@ -43,6 +45,8 @@ export default function ScrollView({
     onFileChange?: (file: DbFile) => void;
     /** Send the current file to Compare and keep it on screen there. */
     onCrown?: (file: DbFile) => void;
+    /** Give the current file its placement matches in Compare. */
+    onPlace?: (file: DbFile) => void;
     /** Show the rotate-left button (single file view). */
     allowRotate?: boolean;
 }): JSX.Element {
@@ -330,6 +334,26 @@ export default function ScrollView({
                                 onClick={() => onCrown(currentFile)}
                             >
                                 <CrownIcon className="h-4 w-4" />
+                            </button>
+                        )}
+                        {onPlace && (
+                            <button
+                                className="rounded p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
+                                title={`Place: ${PLACEMENT_MATCHES} matches against the library to set its rank`}
+                                onClick={() => onPlace(currentFile)}
+                            >
+                                <svg
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={1.6}
+                                    strokeLinejoin="round"
+                                    className="h-4 w-4"
+                                >
+                                    <path d="M7.5 16.5V5.5h5v11" />
+                                    <path d="M2.5 16.5v-6h5M12.5 16.5V8.5h5v8" />
+                                    <path d="M1.5 16.5h17" strokeLinecap="round" />
+                                </svg>
                             </button>
                         )}
                         <button
