@@ -1314,16 +1314,6 @@ export function deleteMissingFiles(): number {
         .run().changes;
 }
 
-export function pruneOldMissingFiles(olderThanDays = 30): void {
-    getDb()
-        .prepare(
-            `DELETE FROM files
-             WHERE status = 'missing'
-               AND missing_since < datetime('now', '-' || ? || ' days')`,
-        )
-        .run(olderThanDays);
-}
-
 export function reconcileMissingFiles(rootPath: string): void {
     const active = getDb()
         .prepare(`SELECT * FROM files WHERE status = 'active'`)
