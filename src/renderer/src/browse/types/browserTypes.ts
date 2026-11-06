@@ -3,4 +3,4 @@
 export const URL_RE = /^https?:\/\//i;
 
 export type ViewMode = "grid" | "rows";
-export type SortMode = "alphabetical" | "rank" | "fileSize";
+export type SortMode = "alphabetical" | "rank" | "fileSize" | "added" | "compared";

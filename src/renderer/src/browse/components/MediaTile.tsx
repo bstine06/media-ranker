@@ -81,7 +81,8 @@ export default function MediaTile({
                         {file.filename}
                     </p>
                     <p className="text-xs text-neutral-400">
-                        {Math.round(file.elo_score)} pts
+                        {Math.round(file.elo_score)} pts ·{" "}
+                        {file.comparison_count} compared
                     </p>
                     <div className="flex justify-between">
                         <button

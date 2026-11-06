@@ -1,4 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import type { SortMode, ViewMode } from "@renderer/browse/types/browserTypes";
+
+export type SortDirection = "up" | "down";
 
 interface Settings {
     hoverPreviewEnabled: boolean;
@@ -18,6 +21,13 @@ interface Settings {
     /** Compare: play both sides' audio, not just the focused side's. */
     compareBothAudio: boolean;
     toggleCompareBothAudio: () => void;
+    /** Browse's sort, direction and grid/rows choice, kept between sessions. */
+    browseSortMode: SortMode;
+    setBrowseSortMode: (mode: SortMode) => void;
+    browseSortDirection: SortDirection;
+    setBrowseSortDirection: (direction: SortDirection) => void;
+    browseViewMode: ViewMode;
+    setBrowseViewMode: (mode: ViewMode) => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -37,6 +47,12 @@ const SettingsContext = createContext<Settings>({
     toggleAlwaysShowUnsorted: () => {},
     compareBothAudio: false,
     toggleCompareBothAudio: () => {},
+    browseSortMode: "alphabetical",
+    setBrowseSortMode: () => {},
+    browseSortDirection: "down",
+    setBrowseSortDirection: () => {},
+    browseViewMode: "grid",
+    setBrowseViewMode: () => {},
 });
 
 // Saved settings (config.json), read once at startup. Anything missing or
@@ -53,6 +69,10 @@ const savedBool = (key: string, fallback: boolean): boolean =>
 const savedNum = (key: string, fallback: number, min: number, max: number): number => {
     const v = saved[key];
     return typeof v === "number" && v >= min && v <= max ? v : fallback;
+};
+const savedOneOf = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+    const v = saved[key];
+    return allowed.includes(v as T) ? (v as T) : fallback;
 };
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
@@ -108,6 +128,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setCompareBothAudio((b) => !b);
     }, []);
 
+    const [browseSortMode, setBrowseSortMode] = useState<SortMode>(() =>
+        savedOneOf("browseSortMode", ["alphabetical", "rank", "fileSize", "added", "compared"], "alphabetical"),
+    );
+    const [browseSortDirection, setBrowseSortDirection] = useState<SortDirection>(() =>
+        savedOneOf("browseSortDirection", ["up", "down"], "down"),
+    );
+    const [browseViewMode, setBrowseViewMode] = useState<ViewMode>(() =>
+        savedOneOf("browseViewMode", ["grid", "rows"], "grid"),
+    );
+
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
         setPauseWhenUnfocused((p) => !p);
@@ -156,6 +186,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     pauseWhenUnfocused,
                     alwaysShowUnsorted,
                     compareBothAudio,
+                    browseSortMode,
+                    browseSortDirection,
+                    browseViewMode,
                 })
                 .catch(() => {});
         }, 300);
@@ -169,6 +202,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         pauseWhenUnfocused,
         alwaysShowUnsorted,
         compareBothAudio,
+        browseSortMode,
+        browseSortDirection,
+        browseViewMode,
     ]);
 
     return (
@@ -190,6 +226,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 toggleAlwaysShowUnsorted,
                 compareBothAudio,
                 toggleCompareBothAudio,
+                browseSortMode,
+                setBrowseSortMode,
+                browseSortDirection,
+                setBrowseSortDirection,
+                browseViewMode,
+                setBrowseViewMode,
             }}
         >
             {children}
