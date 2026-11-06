@@ -1294,6 +1294,26 @@ export function getMissingFiles(): DbFile[] {
         .all() as DbFile[];
 }
 
+export function countMissingFiles(): number {
+    return (
+        getDb()
+            .prepare(`SELECT COUNT(*) AS n FROM files WHERE status = 'missing'`)
+            .get() as { n: number }
+    ).n;
+}
+
+/**
+ * Forgets files that are no longer in the library. Their tags and every
+ * comparison they were in go with them (ON DELETE CASCADE); the scores and
+ * counts of files still in the library are stored on those files and stay.
+ * A file put back afterwards is indexed as new.
+ */
+export function deleteMissingFiles(): number {
+    return getDb()
+        .prepare(`DELETE FROM files WHERE status = 'missing'`)
+        .run().changes;
+}
+
 export function pruneOldMissingFiles(olderThanDays = 30): void {
     getDb()
         .prepare(

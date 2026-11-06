@@ -207,6 +207,8 @@ declare global {
                 | { ok: false; conflict: DbTag & TagUsage }
             >;
             getTagUsage: (id: number) => Promise<TagUsage>;
+            countMissingFiles: () => Promise<number>;
+            deleteMissingFiles: () => Promise<number>;
             getPlacementCandidate: (
                 laneA: PoolFilter,
                 laneB: PoolFilter,

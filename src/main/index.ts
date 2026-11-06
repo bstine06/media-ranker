@@ -25,6 +25,8 @@ import {
     undoComparison,
     getFileByPath,
     getMissingFiles,
+    countMissingFiles,
+    deleteMissingFiles,
     reconcileMissingFiles,
     getAllActiveFiles,
     getFilesByPathPrefix,
@@ -774,6 +776,9 @@ function registerIpcHandlers(): void {
     );
 
     ipcMain.handle("get-tag-usage", (_event, id: number) => getTagUsage(id));
+
+    ipcMain.handle("count-missing-files", () => countMissingFiles());
+    ipcMain.handle("delete-missing-files", () => deleteMissingFiles());
 
     ipcMain.handle(
         "merge-tags",

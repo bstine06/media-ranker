@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DbFile, DbTag, FolderNode, View } from "../shared/types/types";
 import NavItem from "./NavItem";
+import ConfirmDialog from "./ConfirmDialog";
 import {
     useSettings,
     PLACEMENT_MIN,
@@ -612,7 +613,61 @@ function SettingsSection(): JSX.Element {
                         value={tileSize}
                         onChange={handleTileSizeChange}
                     />
+                    <MissingRecordsRow />
                 </div>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Deleted or moved-out files keep their record (rank, tags, history) so
+ * they're restored if they come back. This forgets them for good.
+ */
+function MissingRecordsRow(): JSX.Element {
+    const { setStatus } = useStatus();
+    const [count, setCount] = useState<number | null>(null);
+    const [confirming, setConfirming] = useState(false);
+
+    useEffect(() => {
+        window.api.countMissingFiles().then(setCount);
+    }, []);
+
+    const clear = async () => {
+        setConfirming(false);
+        const n = await window.api.deleteMissingFiles();
+        setCount(0);
+        setStatus(`Cleared ${n} missing file record${n === 1 ? "" : "s"}`);
+    };
+
+    const files = (n: number) => `${n} missing file${n === 1 ? "" : "s"}`;
+
+    return (
+        <div className="flex items-center justify-between py-2 border-t border-neutral-800">
+            <p
+                className="text-xs text-neutral-500"
+                title="Files deleted or moved out of the library keep their rank and tags, so they come back if the file is returned."
+            >
+                Missing file records
+                {count !== null && (
+                    <span className="ml-1 tabular-nums text-neutral-400">{count}</span>
+                )}
+            </p>
+            <button
+                onClick={() => setConfirming(true)}
+                disabled={!count}
+                className="text-[10px] rounded px-2 py-0.5 transition-colors font-medium bg-neutral-800 text-neutral-400 hover:bg-red-950 hover:text-red-300 disabled:opacity-40 disabled:hover:bg-neutral-800 disabled:hover:text-neutral-400"
+            >
+                clear
+            </button>
+            {confirming && count !== null && (
+                <ConfirmDialog
+                    title="Clear Missing File Records"
+                    message={`Delete the records for ${files(count)}? Their ranks, tags and comparison history will be erased. If any of them are put back in the library, they'll come back as new, unranked files. Files still in the library keep their scores, but their matches against these files are removed from their history.`}
+                    confirmText="Clear"
+                    onConfirm={clear}
+                    onCancel={() => setConfirming(false)}
+                />
             )}
         </div>
     );

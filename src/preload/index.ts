@@ -401,6 +401,10 @@ const api = {
         | { ok: false; conflict: DbTag & { files: number; folders: number } }
     > => ipcRenderer.invoke("update-tag", id, name, categoryId),
 
+    countMissingFiles: (): Promise<number> =>
+        ipcRenderer.invoke("count-missing-files"),
+    deleteMissingFiles: (): Promise<number> =>
+        ipcRenderer.invoke("delete-missing-files"),
     getTagUsage: (id: number): Promise<{ files: number; folders: number }> =>
         ipcRenderer.invoke("get-tag-usage", id),
 
