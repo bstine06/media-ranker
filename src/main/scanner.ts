@@ -398,35 +398,14 @@ export function getSubfolders(rootPath: string): string[] {
     });
 }
 
+// The library's folders (collections): top-level only. Subfolders are just
+// storage inside a folder; their files belong to the top-level folder.
 export function getFolderTree(rootPath: string): FolderNode[] {
-    function walk(dirPath: string): FolderNode[] {
-        let entries: string[];
-        try {
-            entries = readdirSync(dirPath);
-        } catch {
-            return [];
-        }
-
-        const nodes: FolderNode[] = [];
-        for (const entry of entries) {
-            if (entry.startsWith(".") || INTERNAL_NAMES.has(entry)) continue;
-            const absPath = join(dirPath, entry);
-            try {
-                if (statSync(absPath).isDirectory()) {
-                    nodes.push({
-                        name: entry,
-                        relativePath: relative(rootPath, absPath),
-                        children: walk(absPath),
-                    });
-                }
-            } catch {
-                continue;
-            }
-        }
-        return nodes;
-    }
-
-    return walk(rootPath);
+    return getSubfolders(rootPath).map((name) => ({
+        name,
+        relativePath: name,
+        children: [],
+    }));
 }
 
 export function getThumbnailPath(rootPath: string, hash: string): string {

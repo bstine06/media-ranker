@@ -191,6 +191,10 @@ export function initDb(rootPath: string): Database.Database {
         const backup = join(rootPath, "_media_index.pre-folder-tags.db");
         db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
     }
+    // Only top-level folders are collections. Older versions of the watcher
+    // also made rows for subfolders; nothing could tag or edit those, so
+    // they're dropped (their files belong to the top-level folder).
+    db.exec(`DELETE FROM folders WHERE instr(path, '/') > 0`);
     // Both idempotent and cheap, so they also run on every open to repair
     // anything that drifted (e.g. a subfolder moved in Finder).
     normalizeFolderIds();

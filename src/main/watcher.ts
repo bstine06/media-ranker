@@ -18,6 +18,8 @@ import {
     upsertFolder,
     renameFolderPath,
     updateFileFolderAndPath,
+    normalizeFolderIds,
+    dropDirectTagsCoveredByFolder,
     type DbFile,
 } from "./db";
 import {
@@ -32,6 +34,10 @@ import { unlink } from "fs/promises";
 import { pendingAppRenames } from "./index";
 
 const RENAME_WINDOW_MS = 2000;
+
+// "cats" is a library folder (a collection); "cats/kittens" is storage in it.
+const isTopLevel = (relativeDir: string): boolean =>
+    !/[\\/]/.test(relativeDir);
 const watchers = new Map<string, FSWatcher>();
 
 export const ignoredPaths = new Set<string>();
@@ -166,7 +172,24 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
     ): void {
         const affected = getFilesByPathPrefix(oldRelativeDir); // fetch before rewriting
         renameFolderPaths(oldRelativeDir, newRelativeDir); // single atomic UPDATE
-        renameFolderPath(oldRelativeDir, newRelativeDir);
+
+        // Only top-level folders are collections (with a row, tags, etc.).
+        const wasTop = isTopLevel(oldRelativeDir);
+        const isTop = isTopLevel(newRelativeDir);
+        if (wasTop && isTop) {
+            renameFolderPath(oldRelativeDir, newRelativeDir);
+        } else if (isTop) {
+            // A subfolder moved up to the top: a new collection. Reuses a
+            // leftover row if a folder by that name existed before.
+            upsertFolder(newRelativeDir, basename(newRelativeDir));
+        }
+        // (A collection moved into another folder keeps its row at the old
+        // path, like a deleted folder: move it back out and it has its tags.)
+
+        // Files now belong to (and inherit tags from) their new top folder.
+        normalizeFolderIds();
+        dropDirectTagsCoveredByFolder();
+
         for (const record of affected) {
             const newRelativePath =
                 newRelativeDir + record.path.slice(oldRelativeDir.length);
@@ -177,10 +200,21 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                 mediaType: record.media_type,
             });
         }
-        getActiveWindow()?.webContents.send("folder:renamed", {
-            oldRelativePath: oldRelativeDir,
-            relativePath: newRelativeDir,
-        });
+        const win = getActiveWindow();
+        if (wasTop && isTop) {
+            win?.webContents.send("folder:renamed", {
+                oldRelativePath: oldRelativeDir,
+                relativePath: newRelativeDir,
+            });
+        } else if (wasTop) {
+            win?.webContents.send("folder:removed", {
+                relativePath: oldRelativeDir,
+            });
+        } else if (isTop) {
+            win?.webContents.send("folder:added", {
+                relativePath: newRelativeDir,
+            });
+        }
     }
 
     const watcher = chokidar.watch(rootPath, {
@@ -478,6 +512,8 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
         const timer = setTimeout(() => {
             try {
                 pendingDirAdds.delete(dirName);
+                // A new subfolder is just storage: no row, nothing to show.
+                if (!isTopLevel(newRelativeDir)) return;
                 upsertFolder(newRelativeDir, dirName);
                 getActiveWindow()?.webContents.send("folder:added", {
                     relativePath: newRelativeDir,

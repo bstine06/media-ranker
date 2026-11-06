@@ -257,6 +257,72 @@ export default function CompareView({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadPair]);
 
+    // Files deleted or moved from another view (or in Finder). The handlers
+    // are subscribed once, so they reach loadPair through a ref.
+    const loadPairRef = useRef(loadPair);
+    loadPairRef.current = loadPair;
+    useEffect(() => {
+        const offRemoved = window.api.onMediaRemoved(({ relativePath }) => {
+            const gone = (f: DbFile) => f.path === relativePath;
+            const pre = prefetchedRef.current;
+            if (pre && pre.pair.some(gone)) prefetchedRef.current = null;
+            // Undoing would bring the deleted file back on screen.
+            undoStackRef.current = undoStackRef.current.filter(
+                (e) => !e.pair.some(gone),
+            );
+            setInspectedFile((f) => (f && gone(f) ? null : f));
+
+            const current = pairRef.current;
+            if (!current?.some(gone)) return;
+            let k = kingRef.current;
+            if (k && gone(k.file)) {
+                endKing();
+                k = null;
+                kingRef.current = null;
+            }
+            // Refit keeps the side that's still there and replaces the other.
+            loadPairRef.current(k, current);
+        });
+
+        const offRenamed = window.api.onMediaRenamed(
+            ({ oldRelativePath, relativePath }) => {
+                const move = (f: DbFile): DbFile =>
+                    f.path === oldRelativePath
+                        ? {
+                              ...f,
+                              path: relativePath,
+                              filename:
+                                  relativePath.split("/").pop() ?? f.filename,
+                          }
+                        : f;
+                const movePair = (p: [DbFile, DbFile]): [DbFile, DbFile] => [
+                    move(p[0]),
+                    move(p[1]),
+                ];
+                setPair((p) => (p ? movePair(p) : p));
+                setInspectedFile((f) => (f ? move(f) : f));
+                const pre = prefetchedRef.current;
+                if (pre) pre.pair = movePair(pre.pair);
+                undoStackRef.current = undoStackRef.current.map((e) => ({
+                    ...e,
+                    pair: movePair(e.pair),
+                    king: e.king ? { ...e.king, file: move(e.king.file) } : e.king,
+                }));
+                const k = kingRef.current;
+                if (k && k.file.path === oldRelativePath) {
+                    const next = { ...k, file: move(k.file) };
+                    kingRef.current = next;
+                    setKing(next);
+                }
+            },
+        );
+
+        return () => {
+            offRemoved();
+            offRenamed();
+        };
+    }, [endKing, setKing]);
+
     // A king crowned from elsewhere (Browse / Discover) isn't on screen yet,
     // so pull up a matchup for it. Crowning a card that's already showing,
     // or a challenger taking the hill, keeps the current pair.

@@ -84,7 +84,13 @@ import { replaceTrackedFile } from "./replaceFile";
 import { rotateTrackedFile } from "./rotate";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
-import { loadSavedRootPath, saveRootPath, loadSettings, saveSettings } from "./config";
+import {
+    loadSavedRootPath,
+    saveRootPath,
+    loadSettings,
+    saveSettings,
+    INTERNAL_NAMES,
+} from "./config";
 
 let rootPath: string | null = null;
 
@@ -118,6 +124,19 @@ async function moveAcrossVolumes(src: string, dest: string): Promise<void> {
         await fs.copyFile(src, dest, fs.constants.COPYFILE_EXCL);
         await fs.unlink(src);
     }
+}
+
+// Why a name can't be used for a library folder, or null if it can. Folders
+// are top-level only, so no path separators.
+function folderNameError(name: string): string | null {
+    if (!name) return "Enter a folder name.";
+    if (/[/\\:]/.test(name) || name === "." || name === "..") {
+        return "Folder names can't contain / \\ or :";
+    }
+    if (name.startsWith(".") || INTERNAL_NAMES.has(name)) {
+        return "That name is reserved.";
+    }
+    return null;
 }
 
 function registerIpcHandlers(): void {
@@ -278,6 +297,10 @@ function registerIpcHandlers(): void {
         async (_event, oldRelPath: string, newName: string) => {
             if (!rootPath) return { ok: false, error: "No library open" };
             const win = BrowserWindow.getAllWindows()[0];
+
+            newName = newName.trim();
+            const invalid = folderNameError(newName);
+            if (invalid) return { ok: false, error: invalid };
 
             const parentDir = path.dirname(oldRelPath);
             const newRelPath =
@@ -559,13 +582,8 @@ function registerIpcHandlers(): void {
         ): Promise<{ relativePath: string } | { error: string }> => {
             if (!rootPath) return { error: "No library open." };
             const trimmed = name.trim();
-            if (!trimmed) return { error: "Enter a folder name." };
-            if (/[/\\:]/.test(trimmed) || trimmed === "." || trimmed === "..") {
-                return { error: "Folder names can't contain / \\ or :" };
-            }
-            if (trimmed.startsWith(".") || trimmed === "_thumbnails") {
-                return { error: "That name is reserved." };
-            }
+            const invalid = folderNameError(trimmed);
+            if (invalid) return { error: invalid };
             const absolutePath = join(rootPath, trimmed);
             try {
                 await fs.mkdir(absolutePath);

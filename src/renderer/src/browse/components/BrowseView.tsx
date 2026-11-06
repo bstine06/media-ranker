@@ -438,19 +438,30 @@ export default function BrowseView({
     };
 
     useEffect(() => {
-        const handleAdded = window.api.onMediaAdded(
-            ({ relativePath, hash, mediaType }) => {
-                // only matters if it belongs to the active folder (or we're in all-files view)
-                const folderPath = relativePath
-                    .split("/")
-                    .slice(0, -1)
-                    .join("/");
-                if (activeFolder && folderPath !== activeFolder) return;
-                if (showUnsorted && folderPath !== "") return;
-                if (rootPath)
-                    getFilesForFolder(activeFolder, activeTags, tagMode, showUnsorted); // still reload for adds — need full DbFile
-            },
-        );
+        // Whether a file at this path belongs in the current view (by
+        // location; tag filters are applied by reloading). A folder includes
+        // its subfolders.
+        const inView = (path: string): boolean =>
+            activeFolder
+                ? path.startsWith(activeFolder + "/")
+                : showUnsorted
+                  ? !path.includes("/")
+                  : true;
+        // Coalesced: a folder rename sends one event per file.
+        let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+        const reload = () => {
+            if (!rootPath) return;
+            if (reloadTimer) clearTimeout(reloadTimer);
+            reloadTimer = setTimeout(() => {
+                reloadTimer = null;
+                getFilesForFolder(activeFolder, activeTags, tagMode, showUnsorted);
+            }, 100);
+        };
+
+        const handleAdded = window.api.onMediaAdded(({ relativePath }) => {
+            // Reload rather than insert: we need the full DbFile.
+            if (inView(relativePath)) reload();
+        });
 
         const handleRemoved = window.api.onMediaRemoved(({ relativePath }) => {
             // always remove from state regardless of which folder is active
@@ -459,12 +470,18 @@ export default function BrowseView({
 
         const handleRenamed = window.api.onMediaRenamed(
             ({ oldRelativePath, relativePath }) => {
-                // Moved out of the folder being viewed: drop it from the grid.
-                const newFolder = relativePath.split("/").slice(0, -1).join("/");
+                // A move can change a file's inherited folder tags, so with a
+                // tag filter on, just reload. Same for a file moving into view
+                // from elsewhere (it isn't in the list to update).
                 if (
-                    (activeFolder && newFolder !== activeFolder) ||
-                    (showUnsorted && newFolder !== "")
+                    (activeTags.size > 0 || !inView(oldRelativePath)) &&
+                    inView(relativePath)
                 ) {
+                    reload();
+                    return;
+                }
+                // Moved out of the view: drop it from the grid.
+                if (!inView(relativePath)) {
                     setFiles((prev) =>
                         prev.filter((f) => f.path !== oldRelativePath),
                     );
@@ -498,8 +515,9 @@ export default function BrowseView({
             handleRemoved();
             handleRenamed();
             handleUpdated();
+            if (reloadTimer) clearTimeout(reloadTimer);
         };
-    }, [rootPath, activeFolder, setActiveFolder, showUnsorted]);
+    }, [rootPath, activeFolder, showUnsorted, activeTags, tagMode, getFilesForFolder]);
 
     const resolver: SlotResolver = useCallback(
         async (dir, cursor) => {
