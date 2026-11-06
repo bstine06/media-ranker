@@ -52,6 +52,23 @@ const api = {
     onLibraryInvalid: (callback: () => void) =>
         ipcRenderer.on("library:invalid", () => callback()),
 
+    // Background catch-up scan at launch (see get-root-path).
+    onLibraryScanStarted: (callback: () => void) => {
+        const handler = () => callback();
+        ipcRenderer.on("library:scan-started", handler);
+        return () => ipcRenderer.removeListener("library:scan-started", handler);
+    },
+    onLibraryScanned: (
+        callback: (result: { scanned: number; added: number } | null) => void,
+    ) => {
+        const handler = (
+            _event: unknown,
+            result: { scanned: number; added: number } | null,
+        ) => callback(result);
+        ipcRenderer.on("library:scanned", handler);
+        return () => ipcRenderer.removeListener("library:scanned", handler);
+    },
+
     // ── Folders & files ────────────────────────────────────────────────────
     getSubfolders: (): Promise<FolderNode[]> =>
         ipcRenderer.invoke("get-subfolders"),
@@ -115,9 +132,6 @@ const api = {
         name: string,
     ): Promise<{ relativePath: string } | { error: string }> =>
         ipcRenderer.invoke("create-folder", name),
-
-    moveFilesTo: (filePaths: string[], targetDir: string) =>
-        ipcRenderer.invoke("move-files-to", filePaths, targetDir),
 
     moveIntoFolder: (
         absPaths: string[],

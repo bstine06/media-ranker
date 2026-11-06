@@ -50,6 +50,34 @@ export default function App(): JSX.Element {
         });
     }, []);
 
+    // Catch-up scan at launch (files changed while the app was closed). Runs
+    // in the background; the library is usable meanwhile.
+    useEffect(() => {
+        const unsubs = [
+            window.api.onLibraryScanStarted(() => {
+                setStatus("Checking library for changes…");
+            }),
+            window.api.onLibraryScanned((result) => {
+                if (!result) {
+                    setStatus("Couldn't check the library for changes.");
+                    return;
+                }
+                setScanResult({ scanned: result.scanned, added: result.added });
+                refreshFolders();
+                if (result.added > 0) {
+                    setStatus(
+                        `Found ${result.added} new file${result.added === 1 ? "" : "s"}`,
+                    );
+                    setTimeout(resetStatus, 3000);
+                } else {
+                    resetStatus();
+                }
+            }),
+        ];
+        return () => unsubs.forEach((u) => u());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     useEffect(() => {
         const cleanup = window.api.onFullscreenChange((isFullscreen) => {
             console.log("Fullscreen changed:", isFullscreen);

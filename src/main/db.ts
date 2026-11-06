@@ -840,15 +840,12 @@ export function backfillFolderIds(): void {
     const folders = db.prepare(`SELECT * FROM folders`).all() as DbFolder[];
 
     const updateFile = db.prepare(
-        `UPDATE files SET folder_id = ? WHERE path LIKE ? AND folder_id IS NULL`,
+        `UPDATE files SET folder_id = ? WHERE path LIKE ? ESCAPE '\\' AND folder_id IS NULL`,
     );
 
     db.transaction(() => {
         for (const folder of folders) {
-            const escaped = folder.path
-                .replace(/%/g, "\\%")
-                .replace(/_/g, "\\_");
-            updateFile.run(folder.id, `${escaped}/%`);
+            updateFile.run(folder.id, folderLikePattern(folder.path));
         }
     })();
 }
@@ -1025,13 +1022,12 @@ export function getFilesByFolder(folderRelPath: string): DbFile[] {
 }
 
 export function getFilesByPathPrefix(prefix: string): DbFile[] {
-    const escaped = prefix.replace(/%/g, "\\%").replace(/_/g, "\\_");
     return getDb()
         .prepare(
             `SELECT * FROM files
              WHERE (path = ? OR path LIKE ? ESCAPE '\\') AND status = 'active'`,
         )
-        .all(prefix, `${escaped}/%`) as DbFile[];
+        .all(prefix, folderLikePattern(prefix)) as DbFile[];
 }
 
 export function getUnindexedCount(): number {
@@ -1050,12 +1046,12 @@ export function renameFolderPaths(oldPrefix: string, newPrefix: string): void {
         db.prepare(
             `UPDATE files
              SET path = ? || substr(path, ?)
-             WHERE path = ? OR path LIKE ?`,
+             WHERE path = ? OR path LIKE ? ESCAPE '\\'`,
         ).run(
             newPrefix,
             oldPrefix.length + 1,
             oldPrefix,
-            `${oldPrefix.replace(/%/g, "\\%").replace(/_/g, "\\_")}/%`,
+            folderLikePattern(oldPrefix),
         );
     })();
 }

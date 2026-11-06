@@ -237,6 +237,14 @@ export default function CompareView({
         });
     }, [setKing]);
 
+    // After the launch catch-up scan the queued pair may include files that
+    // turned out to be gone; fetch a fresh one when it's needed.
+    useEffect(() => {
+        return window.api.onLibraryScanned(() => {
+            prefetchedRef.current = null;
+        });
+    }, []);
+
     const pairRef = useRef(pair);
     pairRef.current = pair;
     const loadedRootRef = useRef(rootPath);

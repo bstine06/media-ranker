@@ -596,6 +596,7 @@ export default function Sidebar({
             window.api.onMediaAdded(refresh),
             window.api.onMediaRemoved(refresh),
             window.api.onMediaRenamed(refresh),
+            window.api.onLibraryScanned(refresh),
         ];
         return () => {
             if (timer) clearTimeout(timer);

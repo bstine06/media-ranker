@@ -29,6 +29,12 @@ declare global {
             }>;
             getRootPath: () => Promise<string | null>;
             onLibraryInvalid: (callback: () => void) => void;
+            onLibraryScanStarted: (callback: () => void) => () => void;
+            onLibraryScanned: (
+                callback: (
+                    result: { scanned: number; added: number } | null,
+                ) => void,
+            ) => () => void;
             getSubfolders: () => Promise<FolderNode[]>;
             getAllFiles: () => Promise<import("./types").DbFile[]>;
             getAllActiveFiles: () => Promise<import("./types").DbFile[]>;
@@ -169,10 +175,6 @@ declare global {
             createFolder: (
                 name: string,
             ) => Promise<{ relativePath: string } | { error: string }>;
-            moveFilesTo: (
-                filePaths: string[],
-                targetDir: string,
-            ) => Promise<void>;
             moveIntoFolder: (
                 absPaths: string[],
                 targetFolder: string,

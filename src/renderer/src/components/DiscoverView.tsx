@@ -124,6 +124,13 @@ export default function DiscoverView({
         });
     }, [rootPath]);
 
+    // ...and after the launch catch-up scan (it may have been removed).
+    useEffect(() => {
+        return window.api.onLibraryScanned(() => {
+            prefetchRef.current = null;
+        });
+    }, []);
+
     // Bust prefetch on filter changes
     useEffect(() => {
         prefetchRef.current = null;

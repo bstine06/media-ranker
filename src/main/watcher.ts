@@ -168,6 +168,8 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                 debounceTimers.delete(filePath);
                 try {
                     await waitUntilFileStable(filePath);
+                    // Library closed / switched while we waited.
+                    if (watchers.get(rootPath) !== watcher) return;
 
                     const stat = statSync(filePath);
                     const relativePath = relative(rootPath, filePath);
@@ -465,5 +467,11 @@ export async function unwatchAll(): Promise<void> {
     for (const [path, w] of watchers) {
         await w.close();
         watchers.delete(path);
+    }
+    // Drop rename-detection timers still pending from the old library, so
+    // they don't fire against whatever library is opened next.
+    for (const pending of [pendingUnlinks, pendingAdds, pendingDirUnlinks, pendingDirAdds]) {
+        for (const { timer } of pending.values()) clearTimeout(timer);
+        pending.clear();
     }
 }

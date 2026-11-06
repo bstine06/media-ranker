@@ -60,7 +60,7 @@ import {
     countRootFiles,
 } from "./db";
 import type { DbFile } from "./db";
-import { scanFolder, getThumbnailPath, getFolderTree } from "./scanner";
+import { scanFolder, getThumbnailPath, getFolderTree, type ScanResult } from "./scanner";
 import { getMimeType, isBrowserNative, SUPPORTED_EXTENSIONS } from "./formats";
 import { getDisplayCopy } from "./displayCopy";
 import {
@@ -94,6 +94,34 @@ const renameAsync = promisify(rename);
 
 export const pendingAppRenames = new Set<string>();
 
+// Bring the index in line with the disk: mark files that vanished, index new
+// ones, pick up moves. Shared by launch and Rescan so two scans of the same
+// library never run at once (a second caller just waits for the first).
+let scanInFlight: { root: string; promise: Promise<ScanResult> } | null = null;
+function scanLibrary(root: string, win: BrowserWindow): Promise<ScanResult> {
+    if (scanInFlight?.root === root) return scanInFlight.promise;
+    const promise = (async () => {
+        reconcileMissingFiles(root);
+        return scanFolder(root, win);
+    })().finally(() => {
+        if (scanInFlight?.promise === promise) scanInFlight = null;
+    });
+    scanInFlight = { root, promise };
+    return promise;
+}
+
+// rename() can't cross drives (EXDEV), e.g. a file dropped in from a USB
+// stick. Fall back to copy-then-delete; COPYFILE_EXCL so it never overwrites.
+async function moveAcrossVolumes(src: string, dest: string): Promise<void> {
+    try {
+        await fs.rename(src, dest);
+    } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+        await fs.copyFile(src, dest, fs.constants.COPYFILE_EXCL);
+        await fs.unlink(src);
+    }
+}
+
 function registerIpcHandlers(): void {
     // ── Utility ──────────────────────────────────────────────────────────────
     ipcMain.handle("ping", () => "pong");
@@ -112,11 +140,14 @@ function registerIpcHandlers(): void {
     ipcMain.handle("open-library", async (_event, folderPath: string) => {
         const win = BrowserWindow.getAllWindows()[0];
 
+        // Switching libraries: stop watching the old one first, or its events
+        // would be written into the new library's database.
+        if (rootPath && rootPath !== folderPath) await unwatchAll();
+
         rootPath = folderPath;
         saveRootPath(folderPath);
         initDb(folderPath);
-        reconcileMissingFiles(folderPath);
-        const result = await scanFolder(folderPath, win);
+        const result = await scanLibrary(folderPath, win);
 
         // Tell renderer about any missing files (trashed, moved externally, etc.)
         const missing = getMissingFiles();
@@ -136,9 +167,27 @@ function registerIpcHandlers(): void {
         if (!rootPath) {
             rootPath = loadSavedRootPath();
             if (rootPath) {
-                initDb(rootPath); // ← add this
+                const root = rootPath;
+                initDb(root);
                 const win = BrowserWindow.getAllWindows()[0];
-                if (win) watchFolder(rootPath, win);
+                if (win) {
+                    watchFolder(root, win);
+                    // The watcher only sees changes from now on. Catch up on
+                    // anything that changed while the app was closed, in the
+                    // background so the library opens right away.
+                    win.webContents.send("library:scan-started");
+                    scanLibrary(root, win)
+                        .then((result) => {
+                            if (rootPath !== root || win.isDestroyed()) return;
+                            win.webContents.send("library:scanned", result);
+                        })
+                        .catch((err) => {
+                            console.error("Startup scan failed:", err);
+                            if (!win.isDestroyed()) {
+                                win.webContents.send("library:scanned", null);
+                            }
+                        });
+                }
             }
         }
         return rootPath;
@@ -295,17 +344,6 @@ function registerIpcHandlers(): void {
         shell.showItemInFolder(absolutePath);
     });
 
-    ipcMain.handle(
-        "move-files-to",
-        async (_event, filePaths: string[], targetDir: string) => {
-            await Promise.all(
-                filePaths.map((src) =>
-                    fs.rename(src, path.join(targetDir, path.basename(src))),
-                ),
-            );
-        },
-    );
-
     // App settings (persisted in config.json). Read synchronously at preload
     // time so the UI starts with saved values instead of flashing defaults.
     ipcMain.on("settings:get-sync", (event) => {
@@ -364,7 +402,7 @@ function registerIpcHandlers(): void {
 
                     if (!record) {
                         // Untracked / external file: plain move, watcher indexes it.
-                        await fs.rename(src, dest);
+                        await moveAcrossVolumes(src, dest);
                         moved++;
                         continue;
                     }
@@ -908,7 +946,9 @@ app.whenReady().then(() => {
     });
 });
 
+// On macOS the app outlives its window (reopened from the Dock), so the
+// database stays open until the app actually quits.
 app.on("window-all-closed", () => {
-    closeDb();
     if (process.platform !== "darwin") app.quit();
 });
+app.on("will-quit", () => closeDb());

@@ -204,7 +204,7 @@ export async function scanFolder(
 
     let i = 0;
     for (const file of files) {
-        win.webContents.send("process:message-sent", {
+        if (!win.isDestroyed()) win.webContents.send("process:message-sent", {
             message: `${file.relativePath}`,
             progress: [++i, files.length],
         });

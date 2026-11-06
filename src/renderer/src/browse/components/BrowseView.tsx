@@ -96,6 +96,15 @@ export default function BrowseView({
         setBrowseScrollIndex(null);
     }, [rootPath, activeFolder, activeTags, tagMode, showUnsorted]);
 
+    // The launch-time catch-up scan can add, move or drop files in bulk
+    // without per-file events: reload the list once it's done.
+    useEffect(() => {
+        return window.api.onLibraryScanned((result) => {
+            if (result)
+                getFilesForFolder(activeFolder, activeTags, tagMode, showUnsorted);
+        });
+    }, [activeFolder, activeTags, tagMode, showUnsorted]);
+
     const handleDelete = async () => {
         if (!deletingFile) return;
         try {
@@ -206,18 +215,23 @@ export default function BrowseView({
         const paths = Array.from(e.dataTransfer.files).map((f) =>
             window.api.getPathForFile(f),
         );
-        if (activeFolder) {
-            await window.api.moveIntoFolder(paths, activeFolder);
-        } else {
-            // "All collections" has no target folder. Ignore files that are
-            // already in the library (e.g. a tile dragged and dropped back
-            // onto the grid) instead of moving them to the library root.
-            const external = paths.filter(
-                (p) => !(rootPath && p.startsWith(rootPath + "/")),
-            );
-            if (external.length > 0) {
-                await window.api.moveFilesTo(external, rootPath!);
-            }
+        // "All Files" has no target folder: new files land in the library
+        // root (Unsorted). Files already in the library (e.g. a tile dropped
+        // back onto the grid) are left where they are.
+        const toMove = activeFolder
+            ? paths
+            : paths.filter((p) => !(rootPath && p.startsWith(rootPath + "/")));
+        if (toMove.length === 0) {
+            resetStatus();
+            return;
+        }
+        const { errors } = await window.api.moveIntoFolder(
+            toMove,
+            activeFolder ?? "",
+        );
+        if (errors.length > 0) {
+            setStatus(errors.join(" · "));
+            return;
         }
         await new Promise((r) => setTimeout(r, 1000));
         resetStatus();
@@ -256,9 +270,21 @@ export default function BrowseView({
             return;
         }
 
-        // Save each field to DB
-        await Promise.all(
-            updatedFields.map((f) =>
+        // A field needs a name to be stored.
+        updatedFields = updatedFields
+            .map((f) => ({ ...f, key: f.key.trim() }))
+            .filter((f) => f.key);
+
+        // Fields removed (or renamed) while editing are deleted, or they'd
+        // come back on the next load.
+        const keptKeys = new Set(updatedFields.map((f) => f.key));
+        await Promise.all([
+            ...fields
+                .filter((f) => !keptKeys.has(f.key))
+                .map((f) =>
+                    window.api.deleteFolderMetadataField(activeFolder, f.key),
+                ),
+            ...updatedFields.map((f) =>
                 window.api.setFolderMetadataField(
                     activeFolder,
                     f.key,
@@ -266,7 +292,7 @@ export default function BrowseView({
                     f.type,
                 ),
             ),
-        );
+        ]);
 
         // Save profile image
         await window.api.setFolderProfileImage(
