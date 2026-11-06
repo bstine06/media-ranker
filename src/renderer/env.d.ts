@@ -188,7 +188,7 @@ declare global {
             ) => Promise<DbFile>;
             /** Rotates a file left by quarter turns, in place; resolves to its fresh record. */
             rotateFile: (relPath: string, quarterTurns: number) => Promise<DbFile>;
-            openFile: (extensions: string[]) => Promise<string | null>;
+            openFile: () => Promise<string | null>;
             deleteFile: (fileId: number) => Promise<void>;
             copyFileToClipboard: (filePath: string) => Promise<boolean>;
             dragFileOut: (file: DbFile) => void;

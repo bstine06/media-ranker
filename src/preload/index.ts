@@ -142,8 +142,7 @@ const api = {
     rotateFile: (relPath: string, quarterTurns: number): Promise<DbFile> =>
         ipcRenderer.invoke("file:rotate", relPath, quarterTurns),
 
-    openFile: (extensions: string[]) =>
-        ipcRenderer.invoke("dialog:open-file", extensions),
+    openFile: () => ipcRenderer.invoke("dialog:open-file"),
 
     deleteFile: (fileId: number): Promise<void> =>
         ipcRenderer.invoke("delete-file-by-id", fileId),

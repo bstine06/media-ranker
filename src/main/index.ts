@@ -61,6 +61,8 @@ import {
 } from "./db";
 import type { DbFile } from "./db";
 import { scanFolder, getThumbnailPath, getFolderTree } from "./scanner";
+import { getMimeType, isBrowserNative, SUPPORTED_EXTENSIONS } from "./formats";
+import { getDisplayCopy } from "./displayCopy";
 import {
     readFileSync,
     writeFileSync,
@@ -439,10 +441,10 @@ function registerIpcHandlers(): void {
         },
     );
 
-    ipcMain.handle("dialog:open-file", async (_event, extensions: string[]) => {
+    ipcMain.handle("dialog:open-file", async () => {
         const result = await dialog.showOpenDialog({
             properties: ["openFile"],
-            filters: [{ name: "Media", extensions }],
+            filters: [{ name: "Media", extensions: SUPPORTED_EXTENSIONS }],
         });
         return result.canceled ? null : result.filePaths[0];
     });
@@ -852,22 +854,15 @@ app.whenReady().then(() => {
         // Drop any ?query: it only versions the URL (so a rotated file isn't
         // served from cache), it isn't part of the path.
         const url = request.url.replace("media://local", "").split("?")[0];
-        const filePath = decodeURIComponent(url);
-
-        const ext = path.extname(filePath).toLowerCase();
-        const contentType =
-            {
-                ".mp4": "video/mp4",
-                ".mov": "video/quicktime",
-                ".qt": "video/quicktime",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".png": "image/png",
-                ".gif": "image/gif",
-                ".webp": "image/webp", // ← add this
-            }[ext] ?? "application/octet-stream";
+        let filePath = decodeURIComponent(url);
+        let contentType = getMimeType(path.extname(filePath));
 
         try {
+            // Formats Chromium can't decode are served as a JPEG copy.
+            if (!isBrowserNative(path.extname(filePath))) {
+                filePath = await getDisplayCopy(filePath);
+                contentType = "image/jpeg";
+            }
             const stat = statSync(filePath);
             const fileSize = stat.size;
             const rangeHeader = request.headers.get("range");
@@ -894,7 +889,7 @@ app.whenReady().then(() => {
                     status: 200,
                     headers: {
                         "Content-Length": String(fileSize),
-                        "Content-Type": contentType, // ← was hardcoded "video/mp4"
+                        "Content-Type": contentType,
                         "Accept-Ranges": "bytes",
                     },
                 });

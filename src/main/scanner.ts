@@ -26,17 +26,15 @@ import {
     applyFolderTagsToFile,
     updateFileFolderAndPath,
 } from "./db";
-import ffmpegPath from "ffmpeg-static";
+import { getMediaType, type MediaType } from "./formats";
+import { ffmpegBin, imageToJpeg } from "./imageConvert";
 import { INTERNAL_NAMES } from "./config";
 import { BrowserWindow } from "electron";
 
 const execFileAsync = promisify(execFile);
 
-const PHOTO_EXTS = new Set([".jpg", ".jpeg", ".png", ".heic", ".webp"]);
-const GIF_EXTS = new Set([".gif"]);
-const VIDEO_EXTS = new Set([".mp4", ".mov", ".m4v"]);
-
-export type MediaType = "photo" | "gif" | "video";
+export { getMediaType } from "./formats";
+export type { MediaType } from "./formats";
 
 export interface ScannedFile {
     absolutePath: string;
@@ -63,14 +61,6 @@ export interface FolderNode {
 
 export interface FolderMetadata {
     description: string;
-}
-
-export function getMediaType(ext: string): MediaType | null {
-    const e = ext.toLowerCase();
-    if (PHOTO_EXTS.has(e)) return "photo";
-    if (GIF_EXTS.has(e)) return "gif";
-    if (VIDEO_EXTS.has(e)) return "video";
-    return null;
 }
 
 export function hashFile(filePath: string): Promise<string> {
@@ -114,39 +104,22 @@ export async function generateSizedImage(
     mediaType: MediaType,
 ): Promise<void> {
     if (existsSync(outPath)) return;
-    // In a packaged app ffmpeg-static points inside app.asar, but the binary
-    // is unpacked (see asarUnpack) and must be executed from there.
-    const bin = ffmpegPath!.replace(/app\.asar(?!\.unpacked)/, "app.asar.unpacked");
+    if (mediaType !== "video") return imageToJpeg(filePath, outPath, width);
 
-    if (mediaType === "video") {
-        await execFileAsync(bin, [
-            "-ss",
-            "00:00:01",
-            "-i",
-            filePath,
-            "-vframes",
-            "1",
-            "-vf",
-            `scale=${width}:-2`,
-            "-q:v",
-            "3",
-            "-y",
-            outPath,
-        ]);
-    } else {
-        await execFileAsync(bin, [
-            "-i",
-            filePath,
-            "-vf",
-            `scale=${width}:-2`,
-            "-vframes",
-            "1",
-            "-q:v",
-            "3",
-            "-y",
-            outPath,
-        ]);
-    }
+    await execFileAsync(ffmpegBin(), [
+        "-ss",
+        "00:00:01",
+        "-i",
+        filePath,
+        "-vframes",
+        "1",
+        "-vf",
+        `scale=${width}:-2`,
+        "-q:v",
+        "3",
+        "-y",
+        outPath,
+    ]);
 }
 
 function walkDir(dirPath: string, rootPath: string): ScannedFile[] {

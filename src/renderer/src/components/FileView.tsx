@@ -23,15 +23,7 @@ function FileReplacer({
     );
 
     async function handleReplace() {
-        const newPath = await window.api.openFile([
-            "jpg",
-            "jpeg",
-            "png",
-            "gif",
-            "mp4",
-            "mov",
-            "m4v",
-        ]);
+        const newPath = await window.api.openFile();
         if (!newPath) return;
         setStatus("busy");
         try {

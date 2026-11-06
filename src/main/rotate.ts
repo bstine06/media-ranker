@@ -10,17 +10,12 @@ import { promisify } from "util";
 import { join, extname } from "path";
 import { unlink } from "fs/promises";
 import sharp from "sharp";
-import ffmpegPath from "ffmpeg-static";
 import { getDb, getFileByPath } from "./db";
 import { ensureDir } from "./scanner";
 import { replaceTrackedFile } from "./replaceFile";
+import { ffmpegBin, needsSips } from "./imageConvert";
 
 const execFileAsync = promisify(execFile);
-
-function ffmpegBin(): string {
-    // Packaged builds run ffmpeg from app.asar.unpacked (see asarUnpack).
-    return ffmpegPath!.replace(/app\.asar(?!\.unpacked)/, "app.asar.unpacked");
-}
 
 // The rotation already set on a video, counter-clockwise degrees ("displaymatrix:
 // rotation of -90.00 degrees" in ffmpeg's stream info). 0 when there is none.
@@ -69,6 +64,15 @@ export async function rotateTrackedFile(
                 "-c", "copy",
                 "-y", tmp,
             ]);
+        } else if (ext === ".svg") {
+            throw new Error("SVG files can't be rotated");
+        } else if (needsSips(ext) || ext === ".bmp") {
+            // sharp can't write these (or read HEIC); macOS's sips can.
+            // sips also turns clockwise.
+            if (process.platform !== "darwin") {
+                throw new Error(`Rotating ${ext} files is only supported on macOS`);
+            }
+            await execFileAsync("sips", ["-r", String(360 - 90 * turns), src, "--out", tmp]);
         } else {
             // sharp turns clockwise; left by `turns` = clockwise by 360 - 90·turns.
             const clockwise = 360 - 90 * turns;
@@ -82,10 +86,12 @@ export async function rotateTrackedFile(
                     : src;
             let img = sharp(upright, { animated }).rotate(clockwise);
             if (upright === src) img = img.withMetadata();
-            if (ext === ".jpg" || ext === ".jpeg") img = img.jpeg({ quality: 95 });
-            else if (ext === ".png") img = img.png();
+            if ([".jpg", ".jpeg", ".jpe", ".jfif"].includes(ext)) img = img.jpeg({ quality: 95 });
+            else if (ext === ".png" || ext === ".apng") img = img.png();
             else if (ext === ".webp") img = img.webp({ quality: 95 });
             else if (ext === ".gif") img = img.gif();
+            else if (ext === ".avif") img = img.avif({ quality: 80 });
+            else if (ext === ".tif" || ext === ".tiff") img = img.tiff();
             await img.toFile(tmp);
         }
 
