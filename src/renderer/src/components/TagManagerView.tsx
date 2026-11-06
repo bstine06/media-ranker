@@ -460,6 +460,7 @@ function TagEditor({
                             : `"${mergeTarget.name}" has no category.`)
                     }
                     confirmText="Merge"
+                    danger={false}
                     onConfirm={handleMerge}
                     onCancel={() => setMergeTarget(null)}
                 />

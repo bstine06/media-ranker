@@ -10,6 +10,7 @@ import { showInFolder } from "@renderer/lib/filesystem";
 import { MediaSlide } from "./MediaSlide";
 import ConfirmDialog from "./ConfirmDialog";
 import { CrownIcon } from "./icons/CrownIcon";
+import { TrashIcon } from "./icons/TrashIcon";
 
 export default function ScrollView({
     initialFile,
@@ -196,13 +197,24 @@ export default function ScrollView({
         }
     };
 
+    // The copy button shows a check for a moment after copying.
+    const [copied, setCopied] = useState(false);
+    useEffect(() => {
+        if (!copied) return;
+        const t = setTimeout(() => setCopied(false), 1200);
+        return () => clearTimeout(t);
+    }, [copied]);
+    useEffect(() => {
+        setCopied(false);
+    }, [currentFile?.id]);
+
     const handleCopyFileToClipboard = async () =>{
         if (!currentFile) return;
         try {
             await window.api.copyFileToClipboard(`${rootPath}/${currentFile.path}`);
+            setCopied(true);
         } catch (error) {
             console.error("Failed to copy file:", error);
-            // Optionally: show error toast
         }
     };
 
@@ -345,9 +357,10 @@ export default function ScrollView({
                                 {`${Math.round(currentFile.elo_score)} pts`}
                             </span>
                         </div>
+                        <div className="flex items-center gap-0.5">
                         {onCrown && (
                             <button
-                                className="px-2 py-1 rounded text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
+                                className="rounded p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
                                 title="Keep on screen in Compare"
                                 onClick={() => onCrown(currentFile)}
                             >
@@ -356,7 +369,7 @@ export default function ScrollView({
                         )}
                         {allowRotate && (
                             <button
-                                className="px-2 py-1 rounded text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
+                                className="rounded p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
                                 title="Rotate left"
                                 onClick={rotateLeft}
                             >
@@ -375,17 +388,44 @@ export default function ScrollView({
                             </button>
                         )}
                         <button
-                            className="px-3 py-1 bg-neutral-300 text-neutral-800 rounded text-xs"
+                            className="rounded p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
+                            title={copied ? "Copied" : "Copy file to clipboard"}
                             onClick={() => handleCopyFileToClipboard()}
                         >
-                            copy
+                            {copied ? (
+                                <svg
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={1.8}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="h-4 w-4 text-emerald-400"
+                                >
+                                    <path d="M4.5 10.5l3.5 3.5 7.5-8" />
+                                </svg>
+                            ) : (
+                                <svg
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={1.6}
+                                    strokeLinejoin="round"
+                                    className="h-4 w-4"
+                                >
+                                    <rect x="7" y="7" width="9.5" height="9.5" rx="1.5" />
+                                    <path d="M13 7V4.75A1.25 1.25 0 0 0 11.75 3.5h-7A1.25 1.25 0 0 0 3.5 4.75v7A1.25 1.25 0 0 0 4.75 13H7" />
+                                </svg>
+                            )}
                         </button>
                         <button
                             onClick={() => setShowConfirm(true)}
-                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                            title="Move to trash"
+                            className="rounded p-1.5 text-neutral-400 hover:text-red-300 hover:bg-red-950 transition-colors"
                         >
-                            Delete
+                            <TrashIcon className="h-4 w-4" />
                         </button>
+                        </div>
                     </div>
                 </div>
                 <TagPanel file={currentFile} />

@@ -554,7 +554,7 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
 
                 <SettingsGroup title="Display">
                     <ToggleRow
-                        label="Hover preview (Z)"
+                        label="Hover preview"
                         on={hoverPreviewEnabled}
                         onToggle={toggleHoverPreview}
                     />
