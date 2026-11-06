@@ -1,14 +1,13 @@
 // main/watcher.ts
 import chokidar, { FSWatcher } from "chokidar";
-import { join, relative, extname, basename, dirname } from "path";
-import { statSync } from "fs";
+import { join, relative, extname, basename } from "path";
+import { statSync, existsSync } from "fs";
 import { BrowserWindow } from "electron";
 import {
     upsertFile,
     getFileByPath,
     getFileByHash,
     deleteFileByPath,
-    updateFilePath,
     getFilesByPathPrefix,
     renameFolderPaths,
     markFileMissing,
@@ -20,12 +19,15 @@ import {
     deleteFolderByPath,
     renameFolderPath,
     applyFolderTagsToFile,
+    updateFileFolderAndPath,
+    type DbFile,
 } from "./db";
 import {
     generateSizedImage,
     getMediaType,
     ensureDir,
     hashFile,
+    type MediaType,
 } from "./scanner";
 import { saveRootPath, INTERNAL_NAMES } from "./config";
 import { unlink } from "fs/promises";
@@ -115,6 +117,52 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
 
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+    // Folders are top-level, as in the scanner and in-app moves: a file
+    // anywhere under "cats/" belongs to "cats". null = library root.
+    function topFolderId(relativePath: string): number | null {
+        const parts = relativePath.split(/[\\/]/);
+        if (parts.length < 2) return null;
+        const top = parts[0];
+        return (getFolderByPath(top) ?? upsertFolder(top, top)).id;
+    }
+
+    // A tracked file moved on disk (Finder, another app): point the record at
+    // the new path, file it under the folder it's in now, and give it that
+    // folder's tags, the same as moving it inside the app.
+    function commitFileMove(
+        record: DbFile,
+        relativePath: string,
+        mtime: number,
+    ): void {
+        const folderId = topFolderId(relativePath);
+        updateFileFolderAndPath(
+            record.content_hash,
+            relativePath,
+            basename(relativePath),
+            mtime,
+            folderId,
+        );
+        if (folderId != null && folderId !== record.folder_id) {
+            applyFolderTagsToFile(record.id, folderId);
+        }
+    }
+
+    // A file's thumbnail is deleted when it goes missing, so one coming back
+    // (restored from the Trash, moved back in) needs it rebuilt. No-op when
+    // the thumbnail is still there.
+    async function ensureThumbnail(
+        filePath: string,
+        hash: string,
+        mediaType: MediaType,
+    ): Promise<void> {
+        await generateSizedImage(
+            filePath,
+            join(thumbDir, `${hash}.jpg`),
+            400,
+            mediaType,
+        ).catch((err) => console.warn("Thumbnail failed for", filePath, err));
+    }
+
     // Rewrites all DB records under oldRelativeDir to newRelativeDir and
     // emits media:renamed for each affected file.
     function commitFolderRename(
@@ -180,12 +228,8 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                     if (pendingUnlink) {
                         clearTimeout(pendingUnlink.timer);
                         pendingUnlinks.delete(hash);
-                        updateFilePath(
-                            hash,
-                            relativePath,
-                            basename(filePath),
-                            stat.mtimeMs,
-                        );
+                        const moved = getFileByHashAny(hash);
+                        if (moved) commitFileMove(moved, relativePath, stat.mtimeMs);
                         getActiveWindow()?.webContents.send("media:renamed", {
                             oldRelativePath: pendingUnlink.relativePath,
                             relativePath,
@@ -202,6 +246,7 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                         existingRecord?.status === "missing" &&
                         existingRecord.path === relativePath
                     ) {
+                        await ensureThumbnail(filePath, hash, mediaType);
                         setFileStatus(hash, "active");
                         getActiveWindow()?.webContents.send("media:added", {
                             relativePath,
@@ -217,15 +262,21 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                         existingRecord &&
                         existingRecord.path !== relativePath
                     ) {
-                        const timer = setTimeout(() => {
+                        const timer = setTimeout(async () => {
+                          try {
                             pendingAdds.delete(hash);
-                            updateFilePath(
-                                hash,
-                                relativePath,
-                                basename(filePath),
-                                stat.mtimeMs,
-                            );
+                            // No unlink arrived and the original is still
+                            // there: this is a copy (e.g. Finder's Duplicate),
+                            // not a move. Leave the record on the original.
+                            if (
+                                existingRecord.status === "active" &&
+                                existsSync(join(rootPath, existingRecord.path))
+                            ) {
+                                return;
+                            }
+                            commitFileMove(existingRecord, relativePath, stat.mtimeMs);
                             if (existingRecord.status === "missing") {
+                                await ensureThumbnail(filePath, hash, mediaType);
                                 setFileStatus(hash, "active");
                                 getActiveWindow()?.webContents.send("media:added", {
                                     relativePath,
@@ -240,6 +291,9 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                                     mediaType,
                                 });
                             }
+                          } catch (err) {
+                            console.error("Watcher failed to process:", filePath, err);
+                          }
                         }, RENAME_WINDOW_MS);
 
                         pendingAdds.set(hash, {
@@ -261,8 +315,6 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                         mediaType,
                     ).catch(() => {});
 
-                    const dirRelPath = relative(rootPath, dirname(filePath)) || null;
-                    const folder = dirRelPath ? getFolderByPath(dirRelPath) : null;
                     const inserted = upsertFile({
                         content_hash: hash,
                         path: relativePath,
@@ -272,7 +324,7 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                         size: stat.size,
                         status: "active",
                         missing_since: null,
-                        folder_id: folder?.id ?? null,
+                        folder_id: topFolderId(relativePath),
                     });
                     if (inserted.folder_id != null) {
                         applyFolderTagsToFile(inserted.id, inserted.folder_id);
@@ -303,12 +355,7 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
         if (pendingAdd) {
             clearTimeout(pendingAdd.timer);
             pendingAdds.delete(record.content_hash);
-            updateFilePath(
-                record.content_hash,
-                pendingAdd.relativePath,
-                pendingAdd.filename,
-                pendingAdd.mtime,
-            );
+            commitFileMove(record, pendingAdd.relativePath, pendingAdd.mtime);
             getActiveWindow()?.webContents.send("media:renamed", {
                 oldRelativePath: relativePath,
                 relativePath: pendingAdd.relativePath,
