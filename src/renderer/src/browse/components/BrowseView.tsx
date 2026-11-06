@@ -120,7 +120,9 @@ export default function BrowseView({
     const [selectMode, setSelectMode] = useState(false);
 
     const [showTagPanel, setShowTagPanel] = useState<boolean>(false);
-    const [deletingFile, setDeletingFile] = useState<DbFile | null>(null);
+    // Files waiting on the delete confirm: one from a tile's trash button,
+    // or the whole selection.
+    const [deleting, setDeleting] = useState<DbFile[] | null>(null);
 
     const { crown } = useKingOfHill();
     const { startSession, version: placementVersion } = usePlacement();
@@ -185,12 +187,24 @@ export default function BrowseView({
     }, [activeFolder, activeTags, tagMode, showUnsorted]);
 
     const handleDelete = async () => {
-        if (!deletingFile) return;
-        try {
-            await window.api.deleteFile(deletingFile.id);
-            setDeletingFile(null);
-        } catch (error) {
-            console.error("Failed to delete file:", error);
+        if (!deleting) return;
+        const files = deleting;
+        setDeleting(null);
+        const failed: string[] = [];
+        for (const file of files) {
+            try {
+                await window.api.deleteFile(file.id);
+            } catch (error) {
+                console.error("Failed to delete file:", error);
+                failed.push(file.filename);
+            }
+        }
+        if (failed.length > 0) {
+            setStatus(
+                `Couldn't move to trash: ${failed.slice(0, 3).join(", ")}${
+                    failed.length > 3 ? ` and ${failed.length - 3} more` : ""
+                }`,
+            );
         }
     };
 
@@ -488,6 +502,14 @@ export default function BrowseView({
                 e.preventDefault();
                 setSelectedIds(new Set(sortedFiles.map((f) => f.id)));
             } else if (
+                (e.metaKey || e.ctrlKey) &&
+                e.key === "Backspace" &&
+                selectedFiles.length > 0
+            ) {
+                // Finder's shortcut for Move to Trash.
+                e.preventDefault();
+                setDeleting(selectedFiles);
+            } else if (
                 e.key === "Escape" &&
                 (selectedIds.size > 0 || selectMode)
             ) {
@@ -496,7 +518,7 @@ export default function BrowseView({
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [active, browseScrollIndex, sortedFiles, selectedIds, selectMode, clearSelection]);
+    }, [active, browseScrollIndex, sortedFiles, selectedIds, selectedFiles, selectMode, clearSelection]);
 
     // Dragging a selected file drags the whole selection; dragging any other
     // file drags just that one (like Finder).
@@ -702,6 +724,14 @@ export default function BrowseView({
                             Tag
                         </button>
                         <button
+                            onClick={() => setDeleting(selectedFiles)}
+                            disabled={selectedFiles.length === 0}
+                            title="Move the selection to the trash (⌘⌫)"
+                            className="rounded px-2 py-1 text-neutral-500 hover:bg-red-950 hover:text-red-300 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-500 transition-colors"
+                        >
+                            Delete
+                        </button>
+                        <button
                             onClick={clearSelection}
                             className="rounded px-2 py-1 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
                         >
@@ -900,7 +930,7 @@ export default function BrowseView({
                                     <MediaTile
                                         file={file}
                                         rootPath={rootPath!}
-                                        onClickTrash={() => setDeletingFile(file)}
+                                        onClickTrash={() => setDeleting([file])}
                                         onClickCrown={() => crownAndCompare(file)}
                                         onDragOut={() => handleDragOut(file)}
                                     />
@@ -957,13 +987,17 @@ export default function BrowseView({
                     />
                 </div>
             )}
-            {deletingFile && (
+            {deleting && (
                 <ConfirmDialog
-                    title="Delete File"
-                    message={`Are you sure you want to delete "${deletingFile.filename}"? It will be moved to trash.`}
+                    title={deleting.length === 1 ? "Delete File" : `Delete ${deleting.length} Files`}
+                    message={
+                        deleting.length === 1
+                            ? `Are you sure you want to delete "${deleting[0].filename}"? It will be moved to trash.`
+                            : `Are you sure you want to delete these ${deleting.length} files? They will be moved to trash.`
+                    }
                     confirmText="Delete"
                     onConfirm={handleDelete}
-                    onCancel={() => setDeletingFile(null)}
+                    onCancel={() => setDeleting(null)}
                 />
             )}
         </div>
