@@ -31,6 +31,12 @@ interface Settings {
     setBrowseSortDirection: (direction: SortDirection) => void;
     browseViewMode: ViewMode;
     setBrowseViewMode: (mode: ViewMode) => void;
+    /** The quick tag bar over Scroll, Discover and Compare (T toggles). */
+    quickTagsEnabled: boolean;
+    toggleQuickTags: () => void;
+    /** The bar's category; stays until the user switches it. */
+    quickTagCategoryId: number | null;
+    setQuickTagCategoryId: (id: number | null) => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -58,6 +64,10 @@ const SettingsContext = createContext<Settings>({
     setBrowseSortDirection: () => {},
     browseViewMode: "grid",
     setBrowseViewMode: () => {},
+    quickTagsEnabled: false,
+    toggleQuickTags: () => {},
+    quickTagCategoryId: null,
+    setQuickTagCategoryId: () => {},
 });
 
 // Saved settings (config.json), read once at startup. Anything missing or
@@ -145,6 +155,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         savedOneOf("browseViewMode", ["grid", "rows"], "grid"),
     );
 
+    const [quickTagsEnabled, setQuickTagsEnabled] = useState(() => savedBool("quickTagsEnabled", false));
+    const toggleQuickTags = useCallback(() => setQuickTagsEnabled((q) => !q), []);
+    const [quickTagCategoryId, setQuickTagCategoryId] = useState<number | null>(() =>
+        typeof saved.quickTagCategoryId === "number" ? saved.quickTagCategoryId : null,
+    );
+
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
         setPauseWhenUnfocused((p) => !p);
@@ -197,6 +213,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     browseSortMode,
                     browseSortDirection,
                     browseViewMode,
+                    quickTagsEnabled,
+                    quickTagCategoryId,
                 })
                 .catch(() => {});
         }, 300);
@@ -214,6 +232,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         browseSortMode,
         browseSortDirection,
         browseViewMode,
+        quickTagsEnabled,
+        quickTagCategoryId,
     ]);
 
     return (
@@ -243,6 +263,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 setBrowseSortDirection,
                 browseViewMode,
                 setBrowseViewMode,
+                quickTagsEnabled,
+                toggleQuickTags,
+                quickTagCategoryId,
+                setQuickTagCategoryId,
             }}
         >
             {children}

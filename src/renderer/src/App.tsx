@@ -20,7 +20,7 @@ export default function App(): JSX.Element {
         scanned: number;
         added: number;
     } | null>(null);
-    const { toggleHoverPreview } = useSettings();
+    const { toggleHoverPreview, toggleQuickTags } = useSettings();
 
     const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -91,6 +91,7 @@ export default function App(): JSX.Element {
     }, []);
 
     useKeyboardShortcut({ key: "z", onKeyPressed: toggleHoverzoom });
+    useKeyboardShortcut({ key: "t", onKeyPressed: toggleQuickTags });
 
     const openLibrary = useCallback(
         async (path: string, activeFolder: string | null = null) => {

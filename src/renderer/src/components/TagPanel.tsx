@@ -18,9 +18,10 @@ import { TagPill } from "./TagPill";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import CategoryGroup from "./CategoryGroup";
 import { useClipboard } from "@renderer/contexts/ClipboardContext";
+import { useFileTags } from "@renderer/hooks/useFileTags";
 
 export function TagPanel({ file }: { file: DbFile }): JSX.Element {
-    const [tags, setTags] = useState<DbTag[]>([]);
+    const { tags, setTags } = useFileTags(file.id);
     const [input, setInput] = useState("");
     const [focused, setFocused] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -45,13 +46,6 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
         () => getTagsWithCategory(tags),
         [tags, getTagsWithCategory],
     );
-
-    useEffect(() => {
-        (async () => {
-            const fileTags = await window.api.getTags(file.id);
-            setTags(getTagsWithCategory(fileTags));
-        })();
-    }, [file.id]);
 
     useEffect(() => {
         Promise.all([
@@ -131,7 +125,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             setTags(updated);
             setInput("");
         },
-        [file.id, tags, refreshTags],
+        [file.id, tags, refreshTags, setTags],
     );
 
     const addTag = useCallback(
@@ -144,7 +138,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             setTags(updated);
             setInput("");
         },
-        [file.id, tags, refreshTags],
+        [file.id, tags, refreshTags, setTags],
     );
 
     const removeTag = useCallback(
@@ -152,7 +146,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             const updated = await window.api.removeTag(file.id, tag.name);
             setTags(updated);
         },
-        [file.id],
+        [file.id, setTags],
     );
 
     const groupByCategory = useCallback((tags: DbTagWithCategory[]) => {

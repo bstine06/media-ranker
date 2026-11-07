@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
+import { QuickTagBar } from "./QuickTagBar";
+import { isTyping } from "@renderer/lib/keys";
 import { FolderIcon } from "./icons/FolderIcon";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { formatFileSize } from "@renderer/lib/media";
@@ -124,6 +126,19 @@ export default function ScrollView({
         if (currentFile) onFileChange?.(currentFile);
     }, [currentFile]);
 
+    // R: send the file on screen to Compare (the rest of the keys: lib/keys.ts).
+    useEffect(() => {
+        if (!active || !onCrown || !currentFile) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.code !== "KeyR" || e.repeat) return;
+            if (e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
+            e.preventDefault();
+            onCrown(currentFile);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [active, onCrown, currentFile]);
+
     const handleDelete = async () => {
         if (!currentFile) return;
         try {
@@ -239,6 +254,10 @@ export default function ScrollView({
                     ))}
                 </div>
 
+                <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center">
+                    <QuickTagBar file={currentFile} active={active} />
+                </div>
+
                 <div
                     className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group"
                     onKeyDown={(e) => {
@@ -330,7 +349,7 @@ export default function ScrollView({
                         {onCrown && (
                             <button
                                 className="rounded p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
-                                title="Keep on screen in Compare"
+                                title="Keep on screen in Compare (R)"
                                 onClick={() => onCrown(currentFile)}
                             >
                                 <CrownIcon className="h-4 w-4" />

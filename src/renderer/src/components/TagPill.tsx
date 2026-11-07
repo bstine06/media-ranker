@@ -10,12 +10,15 @@ interface TagPillProps {
   onRemove?: () => void;   // renders × button when present
   applied: boolean;
   onAdd?: () => void;      // renders + prefix when present
-  /** Comes from the file's folder: dimmed, and can't be removed here. */
+  /** Inherited (from the folder, or implied by another tag): dimmed, and
+   *  can't be removed here. */
   inherited?: boolean;
+  /** With `inherited`: the tag implying it. Absent: from the folder. */
+  inheritedVia?: string;
   className?: string;
 }
 
-export function TagPill({ tag, onRemove, applied, onAdd, inherited, className }: TagPillProps) {
+export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia, className }: TagPillProps) {
   const color = tag.category?.color ?? "#888";
   const icon = tag.category?.icon ?? "●";
 
@@ -124,7 +127,13 @@ export function TagPill({ tag, onRemove, applied, onAdd, inherited, className }:
         className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs group ${
           applied ? "border border-neutral-500" : ""
         } ${inherited ? "opacity-50" : ""} ${className}`}
-        title={inherited ? "From the folder's tags. Remove it there to take it off." : undefined}
+        title={
+          !inherited
+            ? undefined
+            : inheritedVia
+              ? `Comes with "${inheritedVia}". Remove "${inheritedVia}" to take it off.`
+              : "From the folder's tags. Remove it there to take it off."
+        }
         onContextMenu={handleContextMenu}
       >
         {tag.category && !showTagCategoryNames && (

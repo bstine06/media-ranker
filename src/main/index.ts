@@ -61,6 +61,11 @@ import {
     countRootFiles,
     getTagUsage,
     mergeTags,
+    getTagImplications,
+    reorderTags,
+    previewTagImplication,
+    addTagImplication,
+    removeTagImplication,
 } from "./db";
 import type { DbFile } from "./db";
 import { scanFolder, getThumbnailPath, getFolderTree, type ScanResult } from "./scanner";
@@ -800,8 +805,34 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "merge-tags",
         (_event, sourceId: number, targetId: number) => {
-            mergeTags(sourceId, targetId);
+            return mergeTags(sourceId, targetId);
         },
+    );
+
+    ipcMain.handle(
+        "reorder-tags",
+        (_event, categoryId: number | null, tagIds: number[]) =>
+            reorderTags(categoryId, tagIds),
+    );
+
+    ipcMain.handle("get-tag-implications", () => getTagImplications());
+
+    ipcMain.handle(
+        "preview-tag-implication",
+        (_event, tagId: number, impliesId: number, action: "add" | "remove") =>
+            previewTagImplication(tagId, impliesId, action),
+    );
+
+    ipcMain.handle(
+        "add-tag-implication",
+        (_event, tagId: number, impliesId: number) =>
+            addTagImplication(tagId, impliesId),
+    );
+
+    ipcMain.handle(
+        "remove-tag-implication",
+        (_event, tagId: number, impliesId: number) =>
+            removeTagImplication(tagId, impliesId),
     );
 
     ipcMain.handle(
@@ -836,6 +867,7 @@ function registerIpcHandlers(): void {
                 color?: string | null;
                 icon?: string | null;
                 order_index?: number;
+                quick_tags?: number;
             },
         ) => {
             updateTagCategory(id, updates);

@@ -20,6 +20,9 @@ export function useKeyboardShortcut({
         (document.activeElement as HTMLElement)?.isContentEditable
       ) return;
 
+      // Leave ⌘/Ctrl/Alt combos (⌘T, ⌘Z) to the system and other handlers.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
       if (e.key === key) {
         e.preventDefault();
         onKeyPressed();

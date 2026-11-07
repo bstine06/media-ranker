@@ -413,6 +413,8 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
         toggleCompareBothAudio,
         showLibraryRank,
         toggleShowLibraryRank,
+        quickTagsEnabled,
+        toggleQuickTags,
     } = useSettings();
     // A confirm opened from inside handles its own Escape.
     const confirmOpen = useRef(false);
@@ -467,6 +469,11 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         label="Show Unsorted when empty"
                         on={alwaysShowUnsorted}
                         onToggle={toggleAlwaysShowUnsorted}
+                    />
+                    <ToggleRow
+                        label="Quick tag bar (T)"
+                        on={quickTagsEnabled}
+                        onToggle={toggleQuickTags}
                     />
                     <SliderInput
                         name="tile size"

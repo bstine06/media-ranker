@@ -1,3 +1,4 @@
+import { isTyping, claimSpaceAndTab } from "@renderer/lib/keys";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DbFile } from "@renderer/shared/types/types";
 import { useSettings } from "@renderer/contexts/SettingsContext";
@@ -114,12 +115,23 @@ export function useScrollSlots({
     // Keyboard
     useEffect(() => {
         if (!active) return;
+        // Space / ↓ next, W / ↑ previous (the scheme is in lib/keys.ts).
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "ArrowDown") navigate("down");
-            if (e.key === "ArrowUp") navigate("up");
+            if (e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
+            if (e.code === "ArrowDown" || e.code === "Space") {
+                e.preventDefault();
+                navigate("down");
+            } else if (e.code === "ArrowUp" || e.code === "KeyW") {
+                e.preventDefault();
+                navigate("up");
+            }
         };
         window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
+        const releaseSpaceAndTab = claimSpaceAndTab();
+        return () => {
+            window.removeEventListener("keydown", onKey);
+            releaseSpaceAndTab();
+        };
     }, [active, navigate]);
 
     // Play/pause on active

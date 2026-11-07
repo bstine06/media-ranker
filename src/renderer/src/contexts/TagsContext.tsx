@@ -2,6 +2,7 @@ import {
     DbTag,
     DbTagCategory,
     DbTagWithCategory,
+    TagImplication,
     TagUsage,
 } from "@renderer/shared/types/types";
 import { missingCategory } from "@renderer/lib/tagFilters";
@@ -18,6 +19,8 @@ interface Tags {
     // Data
     allTags: DbTagWithCategory[];
     allCategories: DbTagCategory[];
+    /** Tag links: "kitten" (tag_id) implies "cat" (implies_id). */
+    implications: TagImplication[];
 
     // Filtering state (unchanged)
     activeTags: Set<number>;
@@ -43,8 +46,19 @@ interface Tags {
         | { ok: true }
         | { ok: false; conflict: DbTag & TagUsage }
     >;
-    /** Source's files and folders get target instead; source is deleted. */
-    mergeTags: (sourceId: number, targetId: number) => Promise<void>;
+    /** Source's files and folders get target instead; source is deleted.
+     *  Refused when the tags' links would then go round in a circle. */
+    mergeTags: (
+        sourceId: number,
+        targetId: number,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
+
+    // Tag links
+    addImplication: (
+        tagId: number,
+        impliesId: number,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
+    removeImplication: (tagId: number, impliesId: number) => Promise<void>;
     deleteTag: (id: number) => Promise<void>;
 
     // Category CRUD
@@ -55,9 +69,12 @@ interface Tags {
     ) => Promise<void>;
     updateCategory: (
         id: number,
-        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index">>,
+        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "quick_tags">>,
     ) => Promise<void>;
     deleteCategory: (id: number) => Promise<void>;
+    /** Puts these tags first in the category, in this order (moving any
+     *  from other categories into it). */
+    reorderTags: (categoryId: number | null, tagIds: number[]) => Promise<void>;
 
     // upgrade tags
     getTagsWithCategory: (tags: DbTag[]) => DbTagWithCategory[];
@@ -67,6 +84,7 @@ interface Tags {
 const TagsContext = createContext<Tags>({
     allTags: [],
     allCategories: [],
+    implications: [],
     activeTags: new Set(),
     tagMode: "or",
     toggleTag: () => {},
@@ -76,11 +94,14 @@ const TagsContext = createContext<Tags>({
     refreshTags: async () => {},
     createTag: async () => {},
     updateTag: async () => ({ ok: true }),
-    mergeTags: async () => {},
+    mergeTags: async () => ({ ok: true }),
+    addImplication: async () => ({ ok: true }),
+    removeImplication: async () => {},
     deleteTag: async () => {},
     createCategory: async () => {},
     updateCategory: async () => {},
     deleteCategory: async () => {},
+    reorderTags: async () => {},
     getTagsWithCategory: () => [],
     tagMap: new Map(),
 });
@@ -88,16 +109,19 @@ const TagsContext = createContext<Tags>({
 export function TagsProvider({ children }: { children: React.ReactNode }) {
     const [allTags, setAllTags] = useState<DbTag[]>([]);
     const [allCategories, setAllCategories] = useState<DbTagCategory[]>([]);
+    const [implications, setImplications] = useState<TagImplication[]>([]);
     const [activeTags, setActiveTags] = useState<Set<number>>(new Set());
     const [tagMode, setTagMode] = useState<"and" | "or">("or");
 
     const refreshTags = useCallback(async () => {
-        const [tags, categories] = await Promise.all([
+        const [tags, categories, links] = await Promise.all([
             window.api.getAllTags(),
             window.api.getAllTagCategories(),
+            window.api.getTagImplications(),
         ]);
         setAllTags(tags);
         setAllCategories(categories);
+        setImplications(links);
     }, []);
 
     // Join tags with their categories in one memo — components never have to do this themselves
@@ -121,8 +145,11 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
         return tags
             .map((t) => {
                 const full = tagMap.get(t.id);
-                // Keep a file tag's `inherited` flag (the map's copy has none).
-                return full && t.inherited ? { ...full, inherited: true } : full;
+                // Keep a file tag's `inherited` flag and its source (the
+                // map's copy has neither).
+                return full && t.inherited
+                    ? { ...full, inherited: true, inheritedVia: t.inheritedVia }
+                    : full;
             })
             .filter((t): t is DbTagWithCategory => t != null);
     },
@@ -144,6 +171,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     const resetTags = useCallback(() => {
         setAllTags([]);
         setAllCategories([]);
+        setImplications([]);
         setActiveTags(new Set());
         setTagMode("or");
     }, []);
@@ -173,7 +201,8 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
 
     const mergeTags = useCallback(
         async (sourceId: number, targetId: number) => {
-            await window.api.mergeTags(sourceId, targetId);
+            const result = await window.api.mergeTags(sourceId, targetId);
+            if (!result.ok) return result;
             await refreshTags();
             // A filter on the merged-away tag now means the target.
             setActiveTags((prev) => {
@@ -183,19 +212,61 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
                 next.add(targetId);
                 return next;
             });
+            return result;
         },
         [refreshTags],
+    );
+
+    // --- Tag links ---
+
+    const addImplication = useCallback(
+        async (tagId: number, impliesId: number) => {
+            const result = await window.api.addTagImplication(tagId, impliesId);
+            setImplications(await window.api.getTagImplications());
+            return result;
+        },
+        [],
+    );
+
+    const removeImplication = useCallback(
+        async (tagId: number, impliesId: number) => {
+            await window.api.removeTagImplication(tagId, impliesId);
+            setImplications(await window.api.getTagImplications());
+        },
+        [],
     );
 
     const deleteTag = useCallback(async (id: number) => {
         await window.api.deleteTag(id);
         setAllTags((prev) => prev.filter((t) => t.id !== id));
+        setImplications((prev) =>
+            prev.filter((l) => l.tag_id !== id && l.implies_id !== id),
+        );
         setActiveTags((prev) => {
             const next = new Set(prev);
             next.delete(id);
             return next;
         });
     }, []);
+
+    const reorderTags = useCallback(
+        async (categoryId: number | null, tagIds: number[]) => {
+            // Optimistic, so a dragged tag doesn't jump back for a moment.
+            const position = new Map(tagIds.map((id, i) => [id, i]));
+            setAllTags((prev) =>
+                prev.map((t) =>
+                    position.has(t.id)
+                        ? { ...t, category_id: categoryId, order_index: position.get(t.id)! }
+                        : t.category_id === categoryId
+                          ? { ...t, order_index: t.order_index + tagIds.length }
+                          : t,
+                ),
+            );
+            await window.api.reorderTags(categoryId, tagIds);
+            await refreshTags();
+        },
+        [refreshTags],
+    );
 
     // --- Category CRUD ---
 
@@ -211,7 +282,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     const updateCategory = useCallback(
     async (
         id: number,
-        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index">>,
+        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "quick_tags">>,
     ) => {
         await window.api.updateTagCategory(id, updates);
         // Optimistic update
@@ -246,6 +317,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
             value={{
                 allTags: allTagsWithCategory,
                 allCategories,
+                implications,
                 activeTags,
                 tagMode,
                 toggleTag,
@@ -256,10 +328,13 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
                 createTag,
                 updateTag,
                 mergeTags,
+                addImplication,
+                removeImplication,
                 deleteTag,
                 createCategory,
                 updateCategory,
                 deleteCategory,
+                reorderTags,
                 getTagsWithCategory,
                 tagMap
             }}

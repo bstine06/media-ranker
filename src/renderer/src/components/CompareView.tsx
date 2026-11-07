@@ -15,6 +15,8 @@ import type {
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
 import { MediaPlayer, type MediaControls } from "./MediaPlayer";
+import { QuickTagBar } from "./QuickTagBar";
+import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { showInFolder } from "@renderer/lib/filesystem";
@@ -87,7 +89,7 @@ export default function CompareView({
     const [pair, setPair] = useState<[DbFile, DbFile] | null>(null);
     const [loading, setLoading] = useState(true);
     const [comparing, setComparing] = useState(false);
-    // Always one side focused: it has sound and gets Space / Q / E.
+    // Always one side focused: it has sound and gets V / Q / E (Tab switches).
     // Starts on the left, then follows whichever side won the last round.
     const [focus, setFocus] = useState<Side>("a");
     const [inspectedFile, setInspectedFile] = useState<DbFile | null>(null);
@@ -651,7 +653,7 @@ export default function CompareView({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [comparing, setKing, bump]);
 
-    // S: the focused side wins.
+    // Space / ↓: the focused side wins.
     const submit = useCallback(() => {
         if (comparing || !pair) return;
         if (performance.now() - pairShownAtRef.current < PICK_LOCKOUT_MS)
@@ -667,33 +669,27 @@ export default function CompareView({
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             // Leave keys alone only while typing. A focused checkbox (the
             // sidebar's L / R boxes) or button shouldn't swallow hotkeys.
-            const el = document.activeElement as HTMLElement | null;
-            const typing =
-                (el instanceof HTMLInputElement &&
-                    !["checkbox", "radio", "range", "button", "submit"].includes(
-                        el.type,
-                    )) ||
-                el?.tagName === "TEXTAREA" ||
-                el?.tagName === "SELECT" ||
-                el?.isContentEditable;
-            if (typing) return;
+            if (isTyping()) return;
 
             const controls =
                 focus === "a" ? controlsA.current : controlsB.current;
 
-            // Physical keys, so it's WASD-shaped on any keyboard layout.
+            // Physical keys, so the left-hand layout holds on any keyboard
+            // layout. The scheme is in lib/keys.ts.
             switch (e.code) {
-                case "KeyA":
-                case "KeyD":
+                case "Tab":
                     e.preventDefault();
-                    setFocus(e.code === "KeyA" ? "a" : "b");
+                    if (e.repeat) return;
+                    setFocus((f) => (f === "a" ? "b" : "a"));
                     break;
-                case "KeyS":
+                case "Space":
+                case "ArrowDown":
                     e.preventDefault();
                     if (e.repeat) return;
                     submit();
                     break;
                 case "KeyW":
+                case "ArrowUp":
                     e.preventDefault();
                     if (e.repeat) return;
                     handleUndo();
@@ -720,10 +716,14 @@ export default function CompareView({
                 }
                 case "KeyQ":
                 case "KeyE":
+                case "ArrowLeft":
+                case "ArrowRight":
                     e.preventDefault();
-                    controls?.step(e.code === "KeyQ" ? -1 : 1);
+                    controls?.step(
+                        e.code === "KeyQ" || e.code === "ArrowLeft" ? -1 : 1,
+                    );
                     break;
-                case "Space":
+                case "KeyV":
                     e.preventDefault();
                     if (e.repeat) return;
                     controls?.togglePlay();
@@ -731,7 +731,11 @@ export default function CompareView({
             }
         };
         window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
+        const releaseSpaceAndTab = claimSpaceAndTab();
+        return () => {
+            window.removeEventListener("keydown", onKey);
+            releaseSpaceAndTab();
+        };
     }, [
         keysEnabled,
         focus,
@@ -830,6 +834,7 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "a"}
+                        quickTagsActive={keysEnabled}
                         audible={compareBothAudio || focus === "a"}
                         controlsRef={controlsA}
                         onFocus={() => setFocus("a")}
@@ -856,6 +861,7 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "b"}
+                        quickTagsActive={keysEnabled}
                         audible={compareBothAudio || focus === "b"}
                         controlsRef={controlsB}
                         onFocus={() => setFocus("b")}
@@ -886,6 +892,7 @@ function CompareCard({
     rootPath,
     disabled,
     focused,
+    quickTagsActive,
     audible,
     controlsRef,
     onFocus,
@@ -904,6 +911,8 @@ function CompareCard({
     rootPath: string;
     disabled: boolean;
     focused: boolean;
+    /** The quick tag bar's keys work (it shows on the focused side). */
+    quickTagsActive: boolean;
     audible: boolean;
     controlsRef: React.MutableRefObject<MediaControls | null>;
     onFocus: () => void;
@@ -1015,6 +1024,14 @@ function CompareCard({
                     );
                 })}
             </div>
+
+            {/* Quick tag bar: on the focused side, over the bottom of the media
+                (high enough to clear the placement pill in the middle). */}
+            {focused && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-11 z-30 flex justify-center">
+                    <QuickTagBar file={file} active={quickTagsActive && !disabled} />
+                </div>
+            )}
 
             {/* Focus marker: a thin line across the top of the focused side. */}
             <div

@@ -33,6 +33,8 @@ export interface DbTag {
     id: number;
     name: string;
     category_id: number | null;
+    /** Position within its category (Tag Manager, quick tags). */
+    order_index: number;
 }
 
 export interface DbTagCategory {
@@ -41,6 +43,8 @@ export interface DbTagCategory {
     color: string;
     icon: string;
     order_index: number;
+    /** 1: its first tags are offered in the quick tag bar. */
+    quick_tags: number;
 }
 
 export interface DbMetadataField {
@@ -162,6 +166,24 @@ export function initDb(rootPath: string): Database.Database {
             PRIMARY KEY (file_id, tag_id)
         );
 
+        -- "kitten" implies "cat": every file or folder tagged kitten also
+        -- has cat (inherited). Never cyclic (checked when a link is added).
+        CREATE TABLE IF NOT EXISTS tag_implications (
+            tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            implies_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (tag_id, implies_id),
+            CHECK (tag_id != implies_id)
+        );
+
+        -- Every tag each tag implies, through chains (kitten → cat → animal
+        -- gives kitten: cat, animal). Derived from tag_implications by
+        -- rebuildTagImplied(); never edited directly.
+        CREATE TABLE IF NOT EXISTS tag_implied (
+            tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            implied_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (tag_id, implied_id)
+        );
+
         CREATE TABLE IF NOT EXISTS comparisons (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             winner_id   INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
@@ -178,12 +200,17 @@ export function initDb(rootPath: string): Database.Database {
         CREATE INDEX IF NOT EXISTS idx_folder_tags_folder ON folder_tags(folder_id);
         CREATE INDEX IF NOT EXISTS idx_folder_tags_tag   ON folder_tags(tag_id);
         CREATE INDEX IF NOT EXISTS idx_tags_category     ON tags(category_id);
+        CREATE INDEX IF NOT EXISTS idx_tag_implications_implies ON tag_implications(implies_id);
+        CREATE INDEX IF NOT EXISTS idx_tag_implied_implied ON tag_implied(implied_id);
     `);
 
     // ── Migrations (safe to run on every startup) ──────────────────────────
 
     runMigrations(db);
     createViews(db);
+    // Cheap, and repairs a stale table (an older version may have deleted a
+    // tag in the middle of a chain).
+    rebuildTagImplied();
 
     // Data migrations (see SCHEMA_VERSION). They delete rows, so the first
     // time they run the database is backed up first. If the backup can't be
@@ -210,7 +237,7 @@ export function initDb(rootPath: string): Database.Database {
     if (migrate) {
         // Version 2: tags differing only by case/spaces become one tag.
         if (version < 2) mergeCaseDuplicateTags(db);
-        dropDirectTagsCoveredByFolder();
+        dropTagsCoveredByInheritance();
         if (version < SCHEMA_VERSION) db.pragma(`user_version = ${SCHEMA_VERSION}`);
     }
 
@@ -235,18 +262,27 @@ function backupDb(db: Database.Database, rootPath: string, label: string): boole
     }
 }
 
-// A file's tags are its own (file_tags) plus its folder's (folder_tags,
-// through files.folder_id), combined at query time. A tag never comes from
-// both: when a folder has a tag, files in it don't keep their own copy.
-// `inherited` is 1 for tags that come from the folder.
+// A file's tags are its own (file_tags), its folder's (folder_tags, through
+// files.folder_id), and every tag those imply (tag_implied), combined at
+// query time. A tag is never both the file's own and inherited: an own copy
+// of an inherited tag is dropped (dropTagsCoveredByInheritance).
+// `source`: 0 own, 1 from the folder, 2 implied by another tag. `inherited`
+// is 1 for both kinds of inherited tag. A tag can appear more than once.
 function createViews(db: Database.Database): void {
     db.exec(`
         DROP VIEW IF EXISTS file_effective_tags;
         CREATE VIEW file_effective_tags AS
-            SELECT file_id, tag_id, 0 AS inherited FROM file_tags
+            SELECT file_id, tag_id, 0 AS source, 0 AS inherited FROM file_tags
             UNION ALL
-            SELECT f.id, ft.tag_id, 1 FROM files f
-            JOIN folder_tags ft ON ft.folder_id = f.folder_id;
+            SELECT f.id, ft.tag_id, 1, 1 FROM files f
+            JOIN folder_tags ft ON ft.folder_id = f.folder_id
+            UNION ALL
+            SELECT ft.file_id, ti.implied_id, 2, 1 FROM file_tags ft
+            JOIN tag_implied ti ON ti.tag_id = ft.tag_id
+            UNION ALL
+            SELECT f.id, ti.implied_id, 2, 1 FROM files f
+            JOIN folder_tags fo ON fo.folder_id = f.folder_id
+            JOIN tag_implied ti ON ti.tag_id = fo.tag_id;
     `);
 }
 
@@ -267,20 +303,59 @@ export function normalizeFolderIds(): void {
         .run();
 }
 
-// Deletes a file's own copy of any tag its folder already gives it. Pass a
-// file id to only check that file.
-export function dropDirectTagsCoveredByFolder(fileId?: number): void {
-    getDb()
-        .prepare(
+// The inheritance rule: a tag a file inherits (from its folder, or implied
+// by another of its tags) is never also the file's own, so any own copy is
+// deleted. Likewise a folder doesn't keep a tag its other tags imply.
+// Pass a file or folder to only check that one (a folder: its files too).
+export function dropTagsCoveredByInheritance(
+    scope: { fileId?: number; folderId?: number } = {},
+): void {
+    const db = getDb();
+    const fileScope =
+        scope.fileId != null
+            ? { sql: "AND file_tags.file_id = ?", params: [scope.fileId] }
+            : scope.folderId != null
+              ? {
+                    sql: "AND file_tags.file_id IN (SELECT id FROM files WHERE folder_id = ?)",
+                    params: [scope.folderId],
+                }
+              : { sql: "", params: [] };
+    db.transaction(() => {
+        db.prepare(
             `DELETE FROM file_tags
-             WHERE EXISTS (
-                 SELECT 1 FROM files f
-                 JOIN folder_tags ft ON ft.folder_id = f.folder_id
-                 WHERE f.id = file_tags.file_id AND ft.tag_id = file_tags.tag_id
-             )
-             ${fileId != null ? "AND file_tags.file_id = ?" : ""}`,
-        )
-        .run(...(fileId != null ? [fileId] : []));
+             WHERE (
+                 EXISTS (
+                     SELECT 1 FROM files f
+                     JOIN folder_tags fo ON fo.folder_id = f.folder_id
+                     WHERE f.id = file_tags.file_id AND fo.tag_id = file_tags.tag_id
+                 )
+                 OR EXISTS (
+                     SELECT 1 FROM tag_implied ti
+                     JOIN file_tags b ON b.tag_id = ti.tag_id
+                     WHERE ti.implied_id = file_tags.tag_id
+                       AND b.file_id = file_tags.file_id
+                 )
+                 OR EXISTS (
+                     SELECT 1 FROM tag_implied ti
+                     JOIN folder_tags fo ON fo.tag_id = ti.tag_id
+                     JOIN files f ON f.folder_id = fo.folder_id
+                     WHERE ti.implied_id = file_tags.tag_id
+                       AND f.id = file_tags.file_id
+                 )
+             ) ${fileScope.sql}`,
+        ).run(...fileScope.params);
+        if (scope.fileId == null) {
+            db.prepare(
+                `DELETE FROM folder_tags
+                 WHERE EXISTS (
+                     SELECT 1 FROM tag_implied ti
+                     JOIN folder_tags b ON b.tag_id = ti.tag_id
+                     WHERE ti.implied_id = folder_tags.tag_id
+                       AND b.folder_id = folder_tags.folder_id
+                 ) ${scope.folderId != null ? "AND folder_tags.folder_id = ?" : ""}`,
+            ).run(...(scope.folderId != null ? [scope.folderId] : []));
+        }
+    })();
 }
 
 function runMigrations(db: Database.Database): void {
@@ -453,6 +528,40 @@ function runMigrations(db: Database.Database): void {
         );
     }
 
+    // Migration 6b: quick tags. Categories can be left out of the quick tag
+    // bar, and tags get an order within their category (the bar's hotkeys
+    // follow it). Existing tags start alphabetical, the order they showed in.
+    const categoryCols3 = new Set(
+        (
+            db.prepare(`PRAGMA table_info(tag_categories)`).all() as {
+                name: string;
+            }[]
+        ).map((c) => c.name),
+    );
+    if (!categoryCols3.has("quick_tags")) {
+        db.exec(
+            `ALTER TABLE tag_categories ADD COLUMN quick_tags INTEGER NOT NULL DEFAULT 1`,
+        );
+    }
+    const tagCols2 = new Set(
+        (
+            db.prepare(`PRAGMA table_info(tags)`).all() as { name: string }[]
+        ).map((c) => c.name),
+    );
+    if (!tagCols2.has("order_index")) {
+        db.transaction(() => {
+            db.exec(
+                `ALTER TABLE tags ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0`,
+            );
+            db.exec(
+                `UPDATE tags SET order_index = (
+                    SELECT COUNT(*) FROM tags t2
+                    WHERE t2.category_id IS tags.category_id AND t2.name < tags.name
+                )`,
+            );
+        })();
+    }
+
     // Migration 7: remember each file's score before a comparison, so the
     // comparison can be undone. Older rows leave these NULL (not undoable).
     const comparisonCols = new Set(
@@ -535,27 +644,49 @@ export function renameFolderPath(oldPath: string, newPath: string): void {
 
 // ── Folder tag queries ───────────────────────────────────────────────────────
 
-export function getTagsForFolder(folderId: number): DbTag[] {
-    return getDb()
+// A folder's tags: its own, then the ones they imply (`inherited`, with
+// `inheritedVia` naming an own tag that implies it).
+export function getTagsForFolder(folderId: number): FileTag[] {
+    const db = getDb();
+    const own = db
         .prepare(
             `SELECT t.* FROM tags t
              JOIN folder_tags ft ON ft.tag_id = t.id
              WHERE ft.folder_id = ?`,
         )
         .all(folderId) as DbTag[];
+    const implied = db
+        .prepare(
+            `SELECT t.*, MIN(via.name) AS inheritedVia FROM folder_tags fo
+             JOIN tag_implied ti ON ti.tag_id = fo.tag_id
+             JOIN tags t ON t.id = ti.implied_id
+             JOIN tags via ON via.id = fo.tag_id
+             WHERE fo.folder_id = ?
+               AND ti.implied_id NOT IN (SELECT tag_id FROM folder_tags WHERE folder_id = ?)
+             GROUP BY t.id`,
+        )
+        .all(folderId, folderId) as (DbTag & { inheritedVia: string })[];
+    return [
+        ...own.map((t) => ({ ...t, inherited: false })),
+        ...implied.map((t) => ({ ...t, inherited: true })),
+    ];
 }
 
-// Files in the folder now inherit the tag, so their own copies go.
+// No-op when the folder's other tags already imply it. Files in the folder
+// now inherit the tag (and whatever it implies), so their own copies go.
 export function addTagToFolder(folderId: number, tagId: number): void {
     const db = getDb();
     db.transaction(() => {
         db.prepare(
-            `INSERT OR IGNORE INTO folder_tags (folder_id, tag_id) VALUES (?, ?)`,
-        ).run(folderId, tagId);
-        db.prepare(
-            `DELETE FROM file_tags
-             WHERE tag_id = ? AND file_id IN (SELECT id FROM files WHERE folder_id = ?)`,
-        ).run(tagId, folderId);
+            `INSERT OR IGNORE INTO folder_tags (folder_id, tag_id)
+             SELECT ?, ?
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM folder_tags fo
+                 JOIN tag_implied ti ON ti.tag_id = fo.tag_id
+                 WHERE fo.folder_id = ? AND ti.implied_id = ?
+             )`,
+        ).run(folderId, tagId, folderId, tagId);
+        dropTagsCoveredByInheritance({ folderId });
     })();
 }
 
@@ -582,6 +713,8 @@ export function removeTagFromFolderByPath(
     removeTagFromFolder(folder.id, tag.id);
 }
 
+// Counts only tags applied by hand (own or folder): implied ones would crowd
+// suggestions with tags that never need clicking.
 export function getMostUsedTags(folderId?: number): DbTag[] {
     const query =
         folderId != null
@@ -591,6 +724,7 @@ export function getMostUsedTags(folderId?: number): DbTag[] {
             JOIN file_effective_tags ft ON ft.tag_id = t.id
             JOIN files f ON f.id = ft.file_id
             WHERE f.status = 'active'
+              AND ft.source < 2
               AND f.folder_id = ?
             GROUP BY t.id
             ORDER BY usage_count DESC
@@ -601,6 +735,7 @@ export function getMostUsedTags(folderId?: number): DbTag[] {
             JOIN file_effective_tags ft ON ft.tag_id = t.id
             JOIN files f ON f.id = ft.file_id
             WHERE f.status = 'active'
+              AND ft.source < 2
             GROUP BY t.id
             ORDER BY usage_count DESC
           `;
@@ -624,7 +759,7 @@ export function moveFileRecord(
             `UPDATE files SET path = ?, filename = ?, folder_id = ? WHERE id = ?`,
         )
         .run(newRelativePath, newFilename, folderId, fileId);
-    dropDirectTagsCoveredByFolder(fileId);
+    dropTagsCoveredByInheritance({ fileId });
 }
 
 // ── Folder metadata queries ──────────────────────────────────────────────────
@@ -745,27 +880,26 @@ export function normalizeTagName(name: string): string {
     return name.trim().toLowerCase();
 }
 
+// The order_index that puts a tag last in category `?`.
+const nextTagOrder = `(SELECT COALESCE(MAX(order_index), -1) + 1 FROM tags WHERE category_id IS ?)`;
+
 export function upsertTag(name: string, categoryId?: number | null): DbTag {
     const db = getDb();
     name = normalizeTagName(name);
 
-    if (categoryId === undefined) {
-        db.prepare(
-            `
-            INSERT INTO tags (name)
-            VALUES (?)
-            ON CONFLICT(name) DO NOTHING
-        `,
-        ).run(name);
+    const existing = db
+        .prepare(`SELECT * FROM tags WHERE name = ?`)
+        .get(name) as DbTag | undefined;
+    if (existing) {
+        if (categoryId !== undefined && categoryId !== existing.category_id) {
+            setTagCategory(existing.id, categoryId);
+        }
     } else {
+        // New tags go last in their category.
         db.prepare(
-            `
-            INSERT INTO tags (name, category_id)
-            VALUES (?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                category_id = excluded.category_id
-        `,
-        ).run(name, categoryId);
+            `INSERT INTO tags (name, category_id, order_index)
+             VALUES (?, ?, ${nextTagOrder})`,
+        ).run(name, categoryId ?? null, categoryId ?? null);
     }
 
     return db.prepare(`SELECT * FROM tags WHERE name = ?`).get(name) as DbTag;
@@ -789,11 +923,9 @@ export function updateTag(
         .get(name, id) as DbTag | undefined;
     if (other) return { ok: false, conflict: { ...other, ...getTagUsage(other.id) } };
 
-    const tag = db
-        .prepare(
-            `UPDATE tags SET name = ?, category_id = ? WHERE id = ? RETURNING *`,
-        )
-        .get(name, categoryId, id) as DbTag;
+    db.prepare(`UPDATE tags SET name = ? WHERE id = ?`).run(name, id);
+    setTagCategory(id, categoryId);
+    const tag = db.prepare(`SELECT * FROM tags WHERE id = ?`).get(id) as DbTag;
     return { ok: true, tag };
 }
 
@@ -823,12 +955,48 @@ export function getTagUsage(tagId: number): TagUsage {
     return { files, folders };
 }
 
+export type MergeTagsResult = { ok: true } | { ok: false; error: string };
+
 // Every file and folder tagged `sourceId` gets `targetId` instead, and the
-// source tag is deleted. The target keeps its name and category.
-export function mergeTags(sourceId: number, targetId: number): void {
-    if (sourceId === targetId) return;
+// source tag is deleted. The target keeps its name and category, and takes
+// over the source's links. Refused (nothing changes) when the links would
+// then go round in a circle.
+export function mergeTags(sourceId: number, targetId: number): MergeTagsResult {
+    if (sourceId === targetId) return { ok: true };
     const db = getDb();
+    // A chain between the two through some other tag (source → x → target)
+    // would become target → x → target. A direct link just disappears.
+    const between = db
+        .prepare(
+            `SELECT t.name FROM tag_implied a
+             JOIN tag_implied b ON b.tag_id = a.implied_id
+             JOIN tags t ON t.id = a.implied_id
+             WHERE (a.tag_id = ? AND b.implied_id = ?)
+                OR (a.tag_id = ? AND b.implied_id = ?)
+             LIMIT 1`,
+        )
+        .get(sourceId, targetId, targetId, sourceId) as
+        | { name: string }
+        | undefined;
+    if (between) {
+        return {
+            ok: false,
+            error:
+                `They're linked through "${between.name}", so merging them ` +
+                `would make a tag imply itself. Remove one of those links first.`,
+        };
+    }
     db.transaction(() => {
+        db.prepare(
+            `INSERT OR IGNORE INTO tag_implications (tag_id, implies_id)
+             SELECT ?, implies_id FROM tag_implications
+             WHERE tag_id = ? AND implies_id != ?`,
+        ).run(targetId, sourceId, targetId);
+        db.prepare(
+            `INSERT OR IGNORE INTO tag_implications (tag_id, implies_id)
+             SELECT tag_id, ? FROM tag_implications
+             WHERE implies_id = ? AND tag_id != ?`,
+        ).run(targetId, sourceId, targetId);
         db.prepare(
             `INSERT OR IGNORE INTO file_tags (file_id, tag_id)
              SELECT file_id, ? FROM file_tags WHERE tag_id = ?`,
@@ -838,9 +1006,11 @@ export function mergeTags(sourceId: number, targetId: number): void {
              SELECT folder_id, ? FROM folder_tags WHERE tag_id = ?`,
         ).run(targetId, sourceId);
         db.prepare(`DELETE FROM tags WHERE id = ?`).run(sourceId); // cascades
-        // A file may now have the target both directly and from its folder.
-        dropDirectTagsCoveredByFolder();
+        rebuildTagImplied();
+        // A file may now have the target both as its own and inherited.
+        dropTagsCoveredByInheritance();
     })();
+    return { ok: true };
 }
 
 // Older versions could create tags differing only by case or spaces ("Cat",
@@ -883,14 +1053,221 @@ export function getAllTags(): DbTag[] {
     return getDb().prepare(`SELECT * FROM tags ORDER BY name`).all() as DbTag[];
 }
 
+// Moving to another category puts the tag last there.
 export function setTagCategory(tagId: number, categoryId: number | null): void {
     getDb()
-        .prepare(`UPDATE tags SET category_id = ? WHERE id = ?`)
-        .run(categoryId, tagId);
+        .prepare(
+            `UPDATE tags SET category_id = @categoryId,
+                order_index = ${nextTagOrder.replace("?", "@categoryId")}
+             WHERE id = @tagId AND category_id IS NOT @categoryId`,
+        )
+        .run({ categoryId, tagId });
+}
+
+// Puts a category's tags in this order (any tags not listed keep their
+// place after them). Tags listed from another category move into it.
+export function reorderTags(categoryId: number | null, tagIds: number[]): void {
+    const db = getDb();
+    db.transaction(() => {
+        const set = db.prepare(
+            `UPDATE tags SET category_id = ?, order_index = ? WHERE id = ?`,
+        );
+        tagIds.forEach((id, i) => set.run(categoryId, i, id));
+        const rest = db
+            .prepare(
+                `SELECT id FROM tags WHERE category_id IS ?
+                 ORDER BY order_index, name`,
+            )
+            .all(categoryId) as { id: number }[];
+        const listed = new Set(tagIds);
+        let i = tagIds.length;
+        for (const { id } of rest) {
+            if (!listed.has(id)) set.run(categoryId, i++, id);
+        }
+    })();
 }
 
 export function deleteTag(tagId: number): void {
-    getDb().prepare(`DELETE FROM tags WHERE id = ?`).run(tagId);
+    const db = getDb();
+    db.transaction(() => {
+        db.prepare(`DELETE FROM tags WHERE id = ?`).run(tagId);
+        // Chains through it (kitten → it → animal) are broken now.
+        rebuildTagImplied();
+    })();
+}
+
+// ── Tag implication queries ──────────────────────────────────────────────────
+// "kitten" implies "cat": anything tagged kitten inherits cat (see
+// file_effective_tags and dropTagsCoveredByInheritance).
+
+export interface TagImplication {
+    tag_id: number;
+    implies_id: number;
+}
+
+export function getTagImplications(): TagImplication[] {
+    return getDb()
+        .prepare(`SELECT tag_id, implies_id FROM tag_implications`)
+        .all() as TagImplication[];
+}
+
+// Refills tag_implied from tag_implications. Links that go round in a
+// circle can't be added, but if one ever exists its links are dropped
+// rather than let every tag in it inherit (and so delete) the others.
+export function rebuildTagImplied(): void {
+    const db = getDb();
+    const links = getTagImplications();
+    const next = new Map<number, number[]>();
+    for (const { tag_id, implies_id } of links) {
+        next.set(tag_id, [...(next.get(tag_id) ?? []), implies_id]);
+    }
+    const reach = (from: number): Set<number> => {
+        const seen = new Set<number>();
+        const stack = [...(next.get(from) ?? [])];
+        while (stack.length > 0) {
+            const id = stack.pop()!;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            stack.push(...(next.get(id) ?? []));
+        }
+        return seen;
+    };
+    db.transaction(() => {
+        const inCycle = links.filter((l) => reach(l.implies_id).has(l.tag_id));
+        if (inCycle.length > 0) {
+            console.error("Dropping tag links that form a cycle:", inCycle);
+            const del = db.prepare(
+                `DELETE FROM tag_implications WHERE tag_id = ? AND implies_id = ?`,
+            );
+            for (const l of inCycle) {
+                del.run(l.tag_id, l.implies_id);
+                next.set(
+                    l.tag_id,
+                    (next.get(l.tag_id) ?? []).filter((id) => id !== l.implies_id),
+                );
+            }
+        }
+        db.prepare(`DELETE FROM tag_implied`).run();
+        const insert = db.prepare(
+            `INSERT INTO tag_implied (tag_id, implied_id) VALUES (?, ?)`,
+        );
+        for (const tagId of next.keys()) {
+            for (const implied of reach(tagId)) insert.run(tagId, implied);
+        }
+    })();
+}
+
+export type TagImplicationResult = { ok: true } | { ok: false; error: string };
+
+function tagName(id: number): string | undefined {
+    return (
+        getDb().prepare(`SELECT name FROM tags WHERE id = ?`).get(id) as
+            | { name: string }
+            | undefined
+    )?.name;
+}
+
+// Why `tagId` can't imply `impliesId`, or null if it can.
+function implicationError(tagId: number, impliesId: number): string | null {
+    const tag = tagName(tagId);
+    const implies = tagName(impliesId);
+    if (tag === undefined || implies === undefined) return "That tag no longer exists.";
+    if (tagId === impliesId) return "A tag can't imply itself.";
+    const circular = getDb()
+        .prepare(`SELECT 1 FROM tag_implied WHERE tag_id = ? AND implied_id = ?`)
+        .get(impliesId, tagId);
+    if (circular) {
+        return `"${implies}" already implies "${tag}", so "${tag}" can't imply "${implies}".`;
+    }
+    return null;
+}
+
+function linkTags(tagId: number, impliesId: number): void {
+    getDb()
+        .prepare(
+            `INSERT OR IGNORE INTO tag_implications (tag_id, implies_id) VALUES (?, ?)`,
+        )
+        .run(tagId, impliesId);
+    rebuildTagImplied();
+    dropTagsCoveredByInheritance();
+}
+
+function unlinkTags(tagId: number, impliesId: number): void {
+    getDb()
+        .prepare(`DELETE FROM tag_implications WHERE tag_id = ? AND implies_id = ?`)
+        .run(tagId, impliesId);
+    rebuildTagImplied();
+}
+
+export function addTagImplication(
+    tagId: number,
+    impliesId: number,
+): TagImplicationResult {
+    const error = implicationError(tagId, impliesId);
+    if (error) return { ok: false, error };
+    const db = getDb();
+    db.transaction(() => linkTags(tagId, impliesId))();
+    return { ok: true };
+}
+
+export function removeTagImplication(tagId: number, impliesId: number): void {
+    const db = getDb();
+    db.transaction(() => unlinkTags(tagId, impliesId))();
+}
+
+// What adding (or removing) a link would do, for the confirm dialog. Found
+// by making the change and rolling it back, so it can't disagree with what
+// actually happens.
+export interface TagImplicationPreview {
+    /** Active files that gain the implied tag (negative: lose it). */
+    files: number;
+    /** Active files whose own copy becomes inherited (adding only). */
+    convertedFiles: number;
+    /** Folders whose own copy becomes inherited (adding only). */
+    convertedFolders: number;
+}
+
+export function previewTagImplication(
+    tagId: number,
+    impliesId: number,
+    action: "add" | "remove",
+): TagImplicationPreview | { error: string } {
+    if (action === "add") {
+        const error = implicationError(tagId, impliesId);
+        if (error) return { error };
+    }
+    const db = getDb();
+    const count = (sql: string): number =>
+        (db.prepare(sql).get(impliesId) as { n: number }).n;
+    const measure = () => ({
+        files: count(
+            `SELECT COUNT(DISTINCT e.file_id) AS n FROM file_effective_tags e
+             JOIN files f ON f.id = e.file_id
+             WHERE e.tag_id = ? AND f.status = 'active'`,
+        ),
+        ownFiles: count(
+            `SELECT COUNT(*) AS n FROM file_tags ft
+             JOIN files f ON f.id = ft.file_id
+             WHERE ft.tag_id = ? AND f.status = 'active'`,
+        ),
+        ownFolders: count(`SELECT COUNT(*) AS n FROM folder_tags WHERE tag_id = ?`),
+    });
+    const before = measure();
+    let after = before;
+    db.exec("SAVEPOINT preview_tag_implication");
+    try {
+        if (action === "add") linkTags(tagId, impliesId);
+        else unlinkTags(tagId, impliesId);
+        after = measure();
+    } finally {
+        db.exec("ROLLBACK TO preview_tag_implication");
+        db.exec("RELEASE preview_tag_implication");
+    }
+    return {
+        files: after.files - before.files,
+        convertedFiles: before.ownFiles - after.ownFiles,
+        convertedFolders: before.ownFolders - after.ownFolders,
+    };
 }
 
 // ── Tag category queries ─────────────────────────────────────────────────────
@@ -934,10 +1311,16 @@ export function updateTagCategory(
         name?: string;
         color?: string | null;
         icon?: string | null;
-        order_index?: number; // Add this
+        order_index?: number;
+        quick_tags?: number;
     },
 ): DbTagCategory {
     const db = getDb();
+    // Only known columns (the keys become SQL).
+    const allowed = new Set(["name", "color", "icon", "order_index", "quick_tags"]);
+    updates = Object.fromEntries(
+        Object.entries(updates).filter(([k]) => allowed.has(k)),
+    );
 
     const fields = Object.entries(updates)
         .filter(([_, v]) => v !== undefined)
@@ -965,35 +1348,73 @@ export function updateTagCategory(
 
 // ── File tag queries ─────────────────────────────────────────────────────────
 
-// A file's tags, own and inherited. `inherited`: it comes from the file's
-// folder (shown dimmed; removed from the folder, not the file).
-export function getTagsForFile(
-    fileId: number,
-): (DbTag & { inherited: boolean })[] {
-    const rows = getDb()
+// A tag on a file's (or folder's) tag list. `inherited`: it comes from the
+// folder or is implied by another tag, so it's shown dimmed and can only be
+// removed at its source. `inheritedVia`: the tag implying it, when it isn't
+// from the folder.
+export type FileTag = DbTag & { inherited: boolean; inheritedVia?: string };
+
+export function getTagsForFile(fileId: number): FileTag[] {
+    const db = getDb();
+    const rows = db
         .prepare(
-            `SELECT t.*, MAX(ft.inherited) AS inherited FROM tags t
+            `SELECT t.*, MAX(ft.inherited) AS inherited,
+                    MIN(CASE WHEN ft.source > 0 THEN ft.source END) AS source
+             FROM tags t
              JOIN file_effective_tags ft ON ft.tag_id = t.id
              WHERE ft.file_id = ?
              GROUP BY t.id`,
         )
-        .all(fileId) as (DbTag & { inherited: number })[];
-    return rows.map((r) => ({ ...r, inherited: r.inherited === 1 }));
+        .all(fileId) as (DbTag & { inherited: number; source: number | null })[];
+    // For implied tags: the file's own or folder tag that implies it.
+    const via = new Map(
+        (
+            db
+                .prepare(
+                    `SELECT ti.implied_id AS id, MIN(t.name) AS name
+                     FROM tag_implied ti
+                     JOIN tags t ON t.id = ti.tag_id
+                     WHERE ti.tag_id IN (
+                         SELECT tag_id FROM file_tags WHERE file_id = ?
+                         UNION
+                         SELECT fo.tag_id FROM files f
+                         JOIN folder_tags fo ON fo.folder_id = f.folder_id
+                         WHERE f.id = ?
+                     )
+                     GROUP BY ti.implied_id`,
+                )
+                .all(fileId, fileId) as { id: number; name: string }[]
+        ).map((r) => [r.id, r.name]),
+    );
+    return rows.map(({ source, ...r }) => ({
+        ...r,
+        inherited: r.inherited === 1,
+        ...(source === 2 && via.has(r.id) ? { inheritedVia: via.get(r.id) } : {}),
+    }));
 }
 
-// No-op when the file's folder already gives it the tag.
+// No-op when the file already inherits the tag. Tags the new one implies
+// become inherited, so the file's own copies of them go.
 export function addTagToFile(fileId: number, tagId: number): void {
-    getDb()
-        .prepare(
+    const db = getDb();
+    db.transaction(() => {
+        db.prepare(
             `INSERT OR IGNORE INTO file_tags (file_id, tag_id)
-             SELECT ?, ?
+             SELECT @fileId, @tagId
              WHERE NOT EXISTS (
                  SELECT 1 FROM files f
-                 JOIN folder_tags ft ON ft.folder_id = f.folder_id
-                 WHERE f.id = ? AND ft.tag_id = ?
+                 JOIN folder_tags fo ON fo.folder_id = f.folder_id
+                 LEFT JOIN tag_implied ti ON ti.tag_id = fo.tag_id
+                 WHERE f.id = @fileId AND @tagId IN (fo.tag_id, ti.implied_id)
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM file_tags b
+                 JOIN tag_implied ti ON ti.tag_id = b.tag_id
+                 WHERE b.file_id = @fileId AND ti.implied_id = @tagId
              )`,
-        )
-        .run(fileId, tagId, fileId, tagId);
+        ).run({ fileId, tagId });
+        dropTagsCoveredByInheritance({ fileId });
+    })();
 }
 
 export function removeTagFromFile(fileId: number, tagId: number): void {
@@ -1055,7 +1476,7 @@ export function upsertFile(
         }
 
         // It may have moved into a folder that now gives it some tags.
-        dropDirectTagsCoveredByFolder(existing.id);
+        dropTagsCoveredByInheritance({ fileId: existing.id });
 
         return { ...existing, ...file };
     }
@@ -1231,7 +1652,7 @@ export function updateFileFolderAndPath(
         )
         .run(newRelativePath, newFilename, mtime, folderId, hash);
     const moved = getFileByHashAny(hash);
-    if (moved) dropDirectTagsCoveredByFolder(moved.id);
+    if (moved) dropTagsCoveredByInheritance({ fileId: moved.id });
 }
 
 export function getActiveFilesByTags(

@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, TagUsage, PlacementBounds } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, TagUsage, PlacementBounds, TagImplication, TagImplicationPreview } from "./src/shared/types/types";
 
 export {};
 
@@ -242,13 +242,30 @@ declare global {
                 matches: number,
                 bounds: PlacementBounds,
             ) => Promise<(ComparisonResult & { bounds: PlacementBounds }) | null>;
-            mergeTags: (sourceId: number, targetId: number) => Promise<void>;
+            mergeTags: (
+                sourceId: number,
+                targetId: number,
+            ) => Promise<{ ok: true } | { ok: false; error: string }>;
+
+            // Tag links ("kitten" implies "cat")
+            getTagImplications: () => Promise<TagImplication[]>;
+            previewTagImplication: (
+                tagId: number,
+                impliesId: number,
+                action: "add" | "remove",
+            ) => Promise<TagImplicationPreview | { error: string }>;
+            addTagImplication: (
+                tagId: number,
+                impliesId: number,
+            ) => Promise<{ ok: true } | { ok: false; error: string }>;
+            removeTagImplication: (tagId: number, impliesId: number) => Promise<void>;
             deleteTag: (id: number) => Promise<void>;
 
             // Category CRUD
             getAllTagCategories: () => Promise<DbTagCategory[]>;
             createTagCategory: (name: string, color: string, icon: string) => Promise<DbTagCategory>;
-            updateTagCategory: (id: number, updates: { name?: string; color?: string | null; icon?: string | null, order_index?: number }) => Promise<void>;
+            updateTagCategory: (id: number, updates: { name?: string; color?: string | null; icon?: string | null, order_index?: number, quick_tags?: number }) => Promise<void>;
+            reorderTags: (categoryId: number | null, tagIds: number[]) => Promise<void>;
             deleteTagCategory: (id: number) => Promise<void>;
 
             // file drag out

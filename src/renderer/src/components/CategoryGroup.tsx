@@ -27,9 +27,10 @@ const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag }: Ca
     };
 
     const activeTagIds = new Set(activeTags.map(t => t.id));
-    // Tags the file gets from its folder: shown, but removed from the folder.
-    const inheritedTagIds = new Set(
-        activeTags.filter(t => t.inherited).map(t => t.id),
+    // Inherited tags (from the folder, or implied by another tag): shown,
+    // but removed at their source. Value: the implying tag, if any.
+    const inheritedTags = new Map(
+        activeTags.filter(t => t.inherited).map(t => [t.id, t.inheritedVia]),
     );
 
     useEffect(() => {
@@ -67,13 +68,14 @@ const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag }: Ca
                 >
                     {group.tags.map((tag) => {
                         const isActive = activeTagIds.has(tag.id);
-                        const isInherited = inheritedTagIds.has(tag.id);
+                        const isInherited = inheritedTags.has(tag.id);
                         return (
                             <TagPill
                                 key={tag.id}
                                 tag={tag}
                                 applied={isActive}
                                 inherited={isInherited}
+                                inheritedVia={inheritedTags.get(tag.id)}
                                 onRemove={isActive && !isInherited ? () => onRemoveTag(tag) : undefined}
                                 onAdd={!isActive ? () => onAddTag(tag.name) : undefined}
                             />

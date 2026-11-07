@@ -419,8 +419,30 @@ const api = {
     getTagUsage: (id: number): Promise<{ files: number; folders: number }> =>
         ipcRenderer.invoke("get-tag-usage", id),
 
-    mergeTags: (sourceId: number, targetId: number): Promise<void> =>
+    mergeTags: (
+        sourceId: number,
+        targetId: number,
+    ): Promise<{ ok: true } | { ok: false; error: string }> =>
         ipcRenderer.invoke("merge-tags", sourceId, targetId),
+
+    // Tag links ("kitten" implies "cat")
+    getTagImplications: (): Promise<{ tag_id: number; implies_id: number }[]> =>
+        ipcRenderer.invoke("get-tag-implications"),
+    previewTagImplication: (
+        tagId: number,
+        impliesId: number,
+        action: "add" | "remove",
+    ): Promise<
+        | { files: number; convertedFiles: number; convertedFolders: number }
+        | { error: string }
+    > => ipcRenderer.invoke("preview-tag-implication", tagId, impliesId, action),
+    addTagImplication: (
+        tagId: number,
+        impliesId: number,
+    ): Promise<{ ok: true } | { ok: false; error: string }> =>
+        ipcRenderer.invoke("add-tag-implication", tagId, impliesId),
+    removeTagImplication: (tagId: number, impliesId: number): Promise<void> =>
+        ipcRenderer.invoke("remove-tag-implication", tagId, impliesId),
 
     deleteTag: (
         id: number,
@@ -445,10 +467,14 @@ const api = {
             name?: string,
             color?: string | null,
             icon?: string | null,
-            order_index?: number
+            order_index?: number,
+            quick_tags?: number
         },
     ): Promise<void> =>
         ipcRenderer.invoke("update-tag-category", id, updates),
+
+    reorderTags: (categoryId: number | null, tagIds: number[]): Promise<void> =>
+        ipcRenderer.invoke("reorder-tags", categoryId, tagIds),
 
     deleteTagCategory: (
         id: number,

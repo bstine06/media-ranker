@@ -3,11 +3,14 @@ import {
     DbTag,
     DbTagCategory,
     DbTagWithCategory,
+    TagImplicationPreview,
     TagUsage,
 } from "@renderer/shared/types/types";
 import ConfirmDialog from "./ConfirmDialog";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
+import { TagPill } from "./TagPill";
+import { QUICK_TAG_SLOTS, byTagOrder } from "@renderer/lib/quickTags";
 
 type FocusTarget =
     | { kind: "tag"; item: DbTagWithCategory }
@@ -51,6 +54,10 @@ function CategoryEditor({
 
     const { allTags, allCategories, createCategory, updateCategory, deleteCategory } =
         useTags();
+    // Live copy: the toggle below saves straight away.
+    const liveCategory = category
+        ? allCategories.find((c) => c.id === category.id)
+        : undefined;
     const [confirmDelete, setConfirmDelete] = useState(false);
     const nameTaken = allCategories.some(
         (c) => c.name === name.trim() && c.id !== category?.id,
@@ -59,33 +66,40 @@ function CategoryEditor({
         ? allTags.filter((t) => t.category_id === category.id).length
         : 0;
 
+    // An existing category saves color and icon as they're picked; only a
+    // name change waits for Save (or Enter). A new one is made by Create.
+    const pickColor = (c: string) => {
+        setColor(c);
+        if (category) updateCategory(category.id, { color: c });
+    };
+    const pickIcon = (ic: string) => {
+        setIcon(ic);
+        if (category) updateCategory(category.id, { icon: ic });
+    };
+
     const handleCustomIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
         // Take the last typed character so the field always shows 1 char
         const char = val.slice(-1);
         if (char) {
-            setIcon(char);
+            pickIcon(char);
             setCustomIcon(char);
         }
     };
 
-    const handleSave = async () => {
-        const trimmedName = name.trim().toLowerCase();
-        if (!trimmedName || nameTaken) return;
+    const trimmedName = name.trim().toLowerCase();
+    const nameChanged =
+        liveCategory != null && trimmedName !== "" && trimmedName !== liveCategory.name;
 
-        if (category) {
-            const updates: Partial<
-                Pick<DbTagCategory, "name" | "color" | "icon">
-            > = {};
-            if (trimmedName !== category.name) updates.name = trimmedName;
-            if (color !== category.color) updates.color = color;
-            if (icon !== category.icon) updates.icon = icon;
-            if (Object.keys(updates).length > 0) {
-                await updateCategory(category.id, updates);
-            }
-        } else {
-            await createCategory(trimmedName, color, icon);
-        }
+    const saveName = async () => {
+        if (!category || !nameChanged || nameTaken) return;
+        await updateCategory(category.id, { name: trimmedName });
+        setName(trimmedName);
+    };
+
+    const handleCreate = async () => {
+        if (!trimmedName || nameTaken) return;
+        await createCategory(trimmedName, color, icon);
         onDone();
     };
 
@@ -130,7 +144,29 @@ function CategoryEditor({
                     value={name}
                     // Force lowercase as-typed, same as tag names.
                     onChange={(e) => setName(e.target.value.toLowerCase())}
+                    onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        if (category) saveName();
+                        else handleCreate();
+                    }}
                 />
+                {nameChanged && (
+                    <div className="flex gap-2 mt-1">
+                        <button
+                            onClick={saveName}
+                            disabled={nameTaken}
+                            className="px-3 py-1 text-xs bg-neutral-200 text-neutral-900 rounded-md hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            Save name
+                        </button>
+                        <button
+                            onClick={() => setName(liveCategory!.name)}
+                            className="px-3 py-1 text-xs text-neutral-400 border border-neutral-700 rounded-md hover:bg-neutral-800 transition-colors"
+                        >
+                            Undo
+                        </button>
+                    </div>
+                )}
                 {nameTaken && (
                     <p className="text-[11px] text-red-400">
                         A category named "{name.trim()}" already exists.
@@ -146,7 +182,7 @@ function CategoryEditor({
                     {PRESET_COLORS.map((c) => (
                         <button
                             key={c}
-                            onClick={() => setColor(c)}
+                            onClick={() => pickColor(c)}
                             className="w-6 h-6 rounded-full transition-transform hover:scale-110 focus:outline-none"
                             style={{
                                 background: c,
@@ -169,7 +205,7 @@ function CategoryEditor({
                         <button
                             key={ic}
                             onClick={() => {
-                                setIcon(ic);
+                                pickIcon(ic);
                                 setCustomIcon("");
                             }}
                             className={`w-8 h-8 rounded-md text-sm border transition-colors ${
@@ -198,20 +234,55 @@ function CategoryEditor({
                 </div>
             </div>
 
+            {liveCategory && (
+                <div className="flex items-start justify-between gap-4">
+                    <div className="flex flex-col gap-0.5">
+                        <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                            Quick tags
+                        </label>
+                        <p className="text-[11px] text-neutral-600">
+                            Offer this category in the quick tag bar. Its first{" "}
+                            {QUICK_TAG_SLOTS} tags get keys 1–{QUICK_TAG_SLOTS}; drag
+                            tags below or in the list to change which.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() =>
+                            updateCategory(liveCategory.id, {
+                                quick_tags: liveCategory.quick_tags ? 0 : 1,
+                            })
+                        }
+                        className={`shrink-0 text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
+                            liveCategory.quick_tags
+                                ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                                : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                        }`}
+                    >
+                        {liveCategory.quick_tags ? "on" : "off"}
+                    </button>
+                </div>
+            )}
+
+            {liveCategory && <CategoryTagOrder category={liveCategory} />}
+
             <div className="flex gap-2">
-                <button
-                    onClick={onDone}
-                    className="px-3 py-1.5 text-xs text-neutral-400 border border-neutral-700 rounded-md hover:bg-neutral-800 transition-colors"
-                >
-                    Cancel
-                </button>
-                <button
-                    onClick={handleSave}
-                    disabled={!name.trim() || nameTaken}
-                    className="px-3 py-1.5 text-xs bg-neutral-200 text-neutral-900 rounded-md hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                    {category ? "Save changes" : "Create category"}
-                </button>
+                {!category && (
+                    <>
+                        <button
+                            onClick={onDone}
+                            className="px-3 py-1.5 text-xs text-neutral-400 border border-neutral-700 rounded-md hover:bg-neutral-800 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleCreate}
+                            disabled={!name.trim() || nameTaken}
+                            className="px-3 py-1.5 text-xs bg-neutral-200 text-neutral-900 rounded-md hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            Create category
+                        </button>
+                    </>
+                )}
 
                 {category && (
                     <button
@@ -238,6 +309,167 @@ function CategoryEditor({
                     onCancel={() => setConfirmDelete(false)}
                 />
             )}
+        </div>
+    );
+}
+
+// ─── CategoryTagOrder ─────────────────────────────────────────────────────────
+// The category's tags in order: the first few in the quick tag bar's key
+// slots, then the rest. Drag to reorder; a tag dragged in from the sidebar
+// list (any category) moves into this one where it's dropped.
+
+/** Drag data: a tag's id (Tag Manager's list and order view). */
+const TAG_DRAG_TYPE = "application/x-media-ranker-tag";
+
+function CategoryTagOrder({ category }: { category: DbTagCategory }) {
+    const { allTags, reorderTags } = useTags();
+    const tags = useMemo(
+        () => allTags.filter((t) => t.category_id === category.id).sort(byTagOrder),
+        [allTags, category.id],
+    );
+    // Where a drop would land: before tags[index] (tags.length: the end).
+    const [dropIndex, setDropIndex] = useState<number | null>(null);
+    const [dragging, setDragging] = useState<number | null>(null);
+
+    const accepts = (e: React.DragEvent) =>
+        e.dataTransfer.types.includes(TAG_DRAG_TYPE);
+
+    // "slot": the dropped tag takes position `index` (a key slot).
+    // "before": it goes in front of the tag now at `index`.
+    const target = (index: number, mode: "slot" | "before" = "before") => ({
+        onDragOver: (e: React.DragEvent) => {
+            if (!accepts(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (dropIndex !== index) setDropIndex(index);
+        },
+        onDrop: (e: React.DragEvent) => {
+            if (!accepts(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDropIndex(null);
+            setDragging(null);
+            const id = Number(e.dataTransfer.getData(TAG_DRAG_TYPE));
+            if (!id) return;
+            // Index among the others, so dropping a tag on itself is a no-op.
+            const ids = tags.map((t) => t.id);
+            const from = ids.indexOf(id);
+            let at = index;
+            if (from >= 0) {
+                ids.splice(from, 1);
+                if (mode === "before" && from < at) at -= 1;
+            }
+            ids.splice(Math.min(at, ids.length), 0, id);
+            reorderTags(category.id, ids);
+        },
+    });
+
+    const chip = (tag: DbTag, index: number) => (
+        <span
+            draggable
+            onDragStart={(e) => {
+                e.dataTransfer.setData(TAG_DRAG_TYPE, String(tag.id));
+                e.dataTransfer.effectAllowed = "move";
+                setDragging(tag.id);
+            }}
+            onDragEnd={() => {
+                setDragging(null);
+                setDropIndex(null);
+            }}
+            className={`flex max-w-full cursor-grab items-center gap-1.5 rounded-full bg-neutral-800 px-2.5 py-1 text-xs text-neutral-200 active:cursor-grabbing ${
+                dragging === tag.id ? "opacity-40" : ""
+            }`}
+            title={`Drag to reorder${index < QUICK_TAG_SLOTS ? "" : ` (position ${index + 1})`}`}
+        >
+            <span className="text-[10px] leading-none" style={{ color: category.color }}>
+                {category.icon}
+            </span>
+            <span className="truncate">{tag.name}</span>
+        </span>
+    );
+
+    const slots = Array.from({ length: QUICK_TAG_SLOTS }, (_, i) => tags[i] ?? null);
+    const rest = tags.slice(QUICK_TAG_SLOTS);
+    const off = !category.quick_tags;
+
+    return (
+        <div className="flex flex-col gap-3" onDragLeave={() => setDropIndex(null)}>
+            <div className="flex items-baseline justify-between">
+                <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                    Hotkeys
+                </label>
+                {off && (
+                    <span className="text-[11px] text-neutral-600">
+                        Quick tags is off for this category
+                    </span>
+                )}
+            </div>
+            <div className={`grid grid-cols-4 gap-2 ${off ? "opacity-50" : ""}`}>
+                {slots.map((tag, i) => (
+                    <div
+                        key={i}
+                        {...target(tag ? i : tags.length, "slot")}
+                        className={`relative flex h-16 min-w-0 items-center justify-center rounded-lg border px-2 pt-3 transition-colors ${
+                            dropIndex === (tag ? i : tags.length) && (tag || i === tags.length)
+                                ? "border-neutral-300 bg-neutral-800/60"
+                                : tag
+                                  ? "border-neutral-700 bg-neutral-900"
+                                  : "border-dashed border-neutral-800"
+                        }`}
+                    >
+                        <kbd className="absolute left-1.5 top-1 rounded bg-neutral-800 px-1.5 font-mono text-[10px] leading-4 text-neutral-400">
+                            {i + 1}
+                        </kbd>
+                        {tag ? (
+                            chip(tag, i)
+                        ) : (
+                            <span className="text-[11px] text-neutral-700">empty</span>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            {(rest.length > 0 || tags.length >= QUICK_TAG_SLOTS) && (
+                <>
+                    <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                        Other tags
+                    </label>
+                    <div
+                        {...target(tags.length)}
+                        className={`flex min-h-[2.5rem] flex-wrap items-center gap-1.5 rounded-lg border p-2 transition-colors ${
+                            dropIndex === tags.length && tags.length >= QUICK_TAG_SLOTS
+                                ? "border-neutral-500"
+                                : "border-neutral-800"
+                        }`}
+                    >
+                        {rest.map((tag, j) => {
+                            const index = QUICK_TAG_SLOTS + j;
+                            return (
+                                <div
+                                    key={tag.id}
+                                    {...target(index)}
+                                    className={`rounded-full pl-1 ${
+                                        dropIndex === index
+                                            ? "shadow-[inset_2px_0_0_0_#d4d4d4]"
+                                            : ""
+                                    }`}
+                                >
+                                    {chip(tag, index)}
+                                </div>
+                            );
+                        })}
+                        {rest.length === 0 && (
+                            <span className="text-[11px] text-neutral-700">
+                                Drop tags here to keep them off the hotkeys
+                            </span>
+                        )}
+                    </div>
+                </>
+            )}
+            <p className="text-[11px] text-neutral-600 -mt-1">
+                Drag tags between slots to change their keys. Tags dragged in from the
+                list on the left join this category.
+            </p>
         </div>
     );
 }
@@ -343,32 +575,48 @@ function TagEditor({
     const [categoryId, setCategoryId] = useState<number | null>(
         tag.category_id,
     );
-    const { allCategories, updateTag, mergeTags, deleteTag } = useTags();
+    const { allCategories, tagMap, updateTag, mergeTags, deleteTag } = useTags();
+    // The saved name (the input holds an unsaved edit).
+    const savedName = tagMap.get(tag.id)?.name ?? tag.name;
     // Renamed onto an existing tag: confirm before merging, since the user
     // may not know it exists, or it may mean something else.
     const [mergeTarget, setMergeTarget] = useState<
         (DbTag & TagUsage) | null
     >(null);
     const [deleteUsage, setDeleteUsage] = useState<TagUsage | null>(null);
+    const [mergeError, setMergeError] = useState<string | null>(null);
 
-    const handleSave = async () => {
-        // Same lowercase enforcement here: renaming a tag to mixed case would
-        // silently break the lowercase-based matching in TagPanel /
-        // FolderTagPanel just as badly as creating one with capitals would.
-        const trimmed = name.trim().toLowerCase();
-        if (!trimmed) return;
+    // Same lowercase enforcement here: renaming a tag to mixed case would
+    // silently break the lowercase-based matching in TagPanel /
+    // FolderTagPanel just as badly as creating one with capitals would.
+    const trimmed = name.trim().toLowerCase();
+    const nameChanged = trimmed !== "" && trimmed !== savedName;
+
+    // Only a name change waits for Save (or Enter); the category saves as
+    // it's picked.
+    const saveName = async () => {
+        if (!nameChanged) return;
         const result = await updateTag(tag.id, trimmed, categoryId);
         if (!result.ok) {
             setMergeTarget(result.conflict);
             return;
         }
-        onDone();
+        setName(trimmed);
+    };
+
+    const pickCategory = (id: number | null) => {
+        setCategoryId(id);
+        updateTag(tag.id, savedName, id);
     };
 
     const handleMerge = async () => {
         if (!mergeTarget) return;
-        await mergeTags(tag.id, mergeTarget.id);
+        const result = await mergeTags(tag.id, mergeTarget.id);
         setMergeTarget(null);
+        if (!result.ok) {
+            setMergeError(result.error);
+            return;
+        }
         onDone();
     };
 
@@ -392,11 +640,32 @@ function TagEditor({
                     className="bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
                     value={name}
                     onChange={(e) => setName(e.target.value.toLowerCase())}
-                    onKeyDown={(e) => e.key === "Enter" && handleSave()}
+                    onKeyDown={(e) => e.key === "Enter" && saveName()}
                 />
+                {nameChanged && (
+                    <div className="flex gap-2 mt-1">
+                        <button
+                            onClick={saveName}
+                            className="px-3 py-1 text-xs bg-neutral-200 text-neutral-900 rounded-md hover:bg-white transition-colors"
+                        >
+                            Save name
+                        </button>
+                        <button
+                            onClick={() => setName(savedName)}
+                            className="px-3 py-1 text-xs text-neutral-400 border border-neutral-700 rounded-md hover:bg-neutral-800 transition-colors"
+                        >
+                            Undo
+                        </button>
+                    </div>
+                )}
                 <p className="text-[11px] text-neutral-600">
                     Renaming it to another tag's name lets you merge the two.
                 </p>
+                {mergeError && (
+                    <p className="text-[11px] text-red-400">
+                        Couldn't merge: {mergeError}
+                    </p>
+                )}
             </div>
 
             <div className="flex flex-col gap-1">
@@ -407,7 +676,7 @@ function TagEditor({
                     className="bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
                     value={categoryId ?? ""}
                     onChange={(e) =>
-                        setCategoryId(
+                        pickCategory(
                             e.target.value === ""
                                 ? null
                                 : Number(e.target.value),
@@ -423,19 +692,9 @@ function TagEditor({
                 </select>
             </div>
 
+            <TagLinksEditor tag={tag} />
+
             <div className="flex gap-2">
-                <button
-                    onClick={onDone}
-                    className="px-3 py-1.5 text-xs text-neutral-400 border border-neutral-700 rounded-md hover:bg-neutral-800 transition-colors"
-                >
-                    Cancel
-                </button>
-                <button
-                    onClick={handleSave}
-                    className="px-3 py-1.5 text-xs bg-neutral-200 text-neutral-900 rounded-md hover:bg-white transition-colors"
-                >
-                    Save changes
-                </button>
                 <button
                     onClick={async () =>
                         setDeleteUsage(await window.api.getTagUsage(tag.id))
@@ -483,6 +742,258 @@ function TagEditor({
     );
 }
 
+// ─── TagLinksEditor ───────────────────────────────────────────────────────────
+// "kitten" implies "cat": anything tagged kitten also gets cat (inherited,
+// like a folder's tags). Links save straight away, after a confirm when
+// they change any files.
+
+function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
+    const { allTags, implications, tagMap, refreshTags, addImplication, removeImplication } =
+        useTags();
+    const [input, setInput] = useState("");
+    const [highlighted, setHighlighted] = useState(0);
+    const [error, setError] = useState<string | null>(null);
+    const [pending, setPending] = useState<{
+        action: "add" | "remove";
+        target: DbTagWithCategory;
+        preview: TagImplicationPreview;
+    } | null>(null);
+
+    const byId = (id: number) => tagMap.get(id);
+    const implies = implications
+        .filter((l) => l.tag_id === tag.id)
+        .map((l) => byId(l.implies_id))
+        .filter((t): t is DbTagWithCategory => t != null)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    const impliedBy = implications
+        .filter((l) => l.implies_id === tag.id)
+        .map((l) => byId(l.tag_id))
+        .filter((t): t is DbTagWithCategory => t != null)
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Tags it gets through chains (implies cat, cat implies animal).
+    const alsoGets = useMemo(() => {
+        const next = new Map<number, number[]>();
+        for (const l of implications) {
+            next.set(l.tag_id, [...(next.get(l.tag_id) ?? []), l.implies_id]);
+        }
+        const direct = new Set(next.get(tag.id) ?? []);
+        const seen = new Set<number>();
+        const stack = [...direct];
+        while (stack.length > 0) {
+            const id = stack.pop()!;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            stack.push(...(next.get(id) ?? []));
+        }
+        return [...seen]
+            .filter((id) => !direct.has(id) && id !== tag.id)
+            .map(byId)
+            .filter((t): t is DbTagWithCategory => t != null)
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [implications, tag.id, tagMap]);
+
+    const query = input.trim().toLowerCase();
+    const candidates = useMemo(() => {
+        if (!query) return [];
+        return allTags
+            .filter(
+                (t) =>
+                    t.id !== tag.id &&
+                    !implies.some((i) => i.id === t.id) &&
+                    t.name.includes(query),
+            )
+            .sort((a, b) => {
+                const aStart = a.name.startsWith(query);
+                const bStart = b.name.startsWith(query);
+                if (aStart !== bStart) return aStart ? -1 : 1;
+                return a.name.localeCompare(b.name);
+            })
+            .slice(0, 8);
+    }, [query, allTags, implies, tag.id]);
+
+    useEffect(() => setHighlighted(0), [query]);
+
+    const changesNothing = (p: TagImplicationPreview) =>
+        p.files === 0 && p.convertedFiles === 0 && p.convertedFolders === 0;
+
+    const link = async (target: DbTagWithCategory) => {
+        setError(null);
+        const preview = await window.api.previewTagImplication(tag.id, target.id, "add");
+        if ("error" in preview) {
+            setError(preview.error);
+            return;
+        }
+        setInput("");
+        if (changesNothing(preview)) {
+            await commit("add", target);
+        } else {
+            setPending({ action: "add", target, preview });
+        }
+    };
+
+    const unlink = async (target: DbTagWithCategory) => {
+        setError(null);
+        const preview = await window.api.previewTagImplication(tag.id, target.id, "remove");
+        if ("error" in preview) {
+            setError(preview.error);
+            return;
+        }
+        if (changesNothing(preview)) {
+            await commit("remove", target);
+        } else {
+            setPending({ action: "remove", target, preview });
+        }
+    };
+
+    const commit = async (action: "add" | "remove", target: DbTagWithCategory) => {
+        setPending(null);
+        if (action === "add") {
+            const result = await addImplication(tag.id, target.id);
+            if (!result.ok) setError(result.error);
+        } else {
+            await removeImplication(tag.id, target.id);
+        }
+    };
+
+    // Enter with no match makes the tag, then links it.
+    const createAndLink = async () => {
+        if (!query || query === tag.name) return;
+        const created = await window.api.createTag(query, null);
+        await refreshTags();
+        await link({ ...created, category: null });
+    };
+
+    const confirmMessage = (): string => {
+        if (!pending) return "";
+        const { action, target, preview } = pending;
+        if (action === "remove") {
+            return (
+                `"${tag.name}" will no longer bring "${target.name}" with it. ` +
+                `${count(-preview.files, "file")} will lose "${target.name}".`
+            );
+        }
+        let message = `Everything tagged "${tag.name}" will also get "${target.name}".`;
+        if (preview.files > 0) {
+            message += ` That adds "${target.name}" to ${count(preview.files, "file")}.`;
+        }
+        const converted = [
+            preview.convertedFiles > 0 ? count(preview.convertedFiles, "file") : null,
+            preview.convertedFolders > 0 ? count(preview.convertedFolders, "folder") : null,
+        ].filter(Boolean);
+        if (converted.length > 0) {
+            const one = preview.convertedFiles + preview.convertedFolders === 1;
+            message +=
+                ` ${converted.join(" and ")} already ${one ? "has" : "have"} ` +
+                `"${target.name}" and will get it from "${tag.name}" instead, ` +
+                `so ${one ? "it loses" : "they lose"} it if "${tag.name}" is ` +
+                `removed or this link is deleted.`;
+        }
+        return message;
+    };
+
+    return (
+        <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                Also tags as
+            </label>
+            <p className="text-[11px] text-neutral-600 -mt-1">
+                Anything tagged "{tag.name}" gets these too, like a folder's tags.
+            </p>
+
+            {implies.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                    {implies.map((t) => (
+                        <TagPill
+                            key={t.id}
+                            tag={t}
+                            applied={true}
+                            onRemove={() => unlink(t)}
+                        />
+                    ))}
+                </div>
+            )}
+            {alsoGets.length > 0 && (
+                <p className="text-[11px] text-neutral-500">
+                    Through those, also: {alsoGets.map((t) => t.name).join(", ")}
+                </p>
+            )}
+
+            <div className="relative">
+                <input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value.toLowerCase())}
+                    onKeyDown={(e) => {
+                        if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            setHighlighted((i) => Math.min(i + 1, candidates.length - 1));
+                        } else if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            setHighlighted((i) => Math.max(i - 1, 0));
+                        } else if (e.key === "Enter") {
+                            const exact = allTags.find((t) => t.name === query);
+                            if (candidates[highlighted]) link(candidates[highlighted]);
+                            else if (exact && exact.id !== tag.id) link(exact);
+                            else if (!exact) createAndLink();
+                        } else if (e.key === "Escape") {
+                            setInput("");
+                        }
+                    }}
+                    placeholder="Add a tag…"
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded-md px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-500"
+                />
+                {candidates.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-neutral-950 border border-neutral-700 rounded-md shadow-xl z-20 overflow-hidden">
+                        {candidates.map((t, i) => (
+                            <button
+                                key={t.id}
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    link(t);
+                                }}
+                                onMouseEnter={() => setHighlighted(i)}
+                                className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${
+                                    i === highlighted ? "bg-neutral-800" : "hover:bg-neutral-900"
+                                }`}
+                            >
+                                {t.category?.icon && (
+                                    <span style={{ color: t.category.color }}>
+                                        {t.category.icon}
+                                    </span>
+                                )}
+                                {t.name}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+            {error && <p className="text-[11px] text-red-400">{error}</p>}
+
+            {impliedBy.length > 0 && (
+                <p className="text-[11px] text-neutral-500">
+                    Comes with: {impliedBy.map((t) => t.name).join(", ")}
+                </p>
+            )}
+
+            {pending && (
+                <ConfirmDialog
+                    title={pending.action === "add" ? "Link tags?" : "Remove link?"}
+                    message={confirmMessage()}
+                    confirmText={pending.action === "add" ? "Link" : "Remove link"}
+                    danger={pending.action === "remove"}
+                    onConfirm={() => commit(pending.action, pending.target)}
+                    onCancel={() => setPending(null)}
+                />
+            )}
+        </div>
+    );
+}
+
+// "1 file", "3 files"
+function count(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 // "3 files and 1 folder"
 function usageText({ files, folders }: TagUsage): string {
     const n = (count: number, word: string) =>
@@ -494,8 +1005,10 @@ function usageText({ files, folders }: TagUsage): string {
 // ─── TagManagerView ───────────────────────────────────────────────────────────
 
 export default function TagManagerView(): JSX.Element {
-    const { allTags, allCategories, refreshTags, updateTag, updateCategory } =
+    const { allTags, allCategories, refreshTags, updateTag, updateCategory, reorderTags } =
         useTags();
+    // The tag a dragged tag would be dropped in front of.
+    const [dropBeforeId, setDropBeforeId] = useState<number | null>(null);
     const [focus, setFocus] = useState<FocusTarget>(null);
     const [collapsedCategories, setCollapsedCategories] = useState<Set<number>>(
         new Set(),
@@ -560,9 +1073,44 @@ export default function TagManagerView(): JSX.Element {
 
     const tagsByCategory = allCategories.map((cat) => ({
         category: cat,
-        tags: allTags.filter((t) => t.category_id === cat.id),
+        tags: allTags.filter((t) => t.category_id === cat.id).sort(byTagOrder),
     }));
-    const uncategorized = allTags.filter((t) => t.category_id === null);
+    const uncategorized = allTags
+        .filter((t) => t.category_id === null)
+        .sort(byTagOrder);
+
+    // Drag a tag onto another to put it in front of that one (in that
+    // tag's category).
+    const tagDropProps = (target: DbTag, list: DbTag[]) => ({
+        onDragOver: (e: React.DragEvent) => {
+            if (!draggedTag) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (dropBeforeId !== target.id) setDropBeforeId(target.id);
+        },
+        onDragLeave: () => setDropBeforeId(null),
+        onDrop: (e: React.DragEvent) => {
+            if (!draggedTag) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDropBeforeId(null);
+            if (draggedTag.id !== target.id) {
+                const ids = list.filter((t) => t.id !== draggedTag.id).map((t) => t.id);
+                ids.splice(ids.indexOf(target.id), 0, draggedTag.id);
+                reorderTags(target.category_id, ids);
+            }
+            setDraggedTag(null);
+        },
+    });
+    const dropLine = (tag: DbTag) =>
+        dropBeforeId === tag.id ? "shadow-[inset_0_2px_0_0_#a3a3a3]" : "";
+    // Key 1–4 for a quick tag category's first tags.
+    const slotBadge = (category: DbTagCategory | null, index: number) =>
+        category?.quick_tags && index < QUICK_TAG_SLOTS ? (
+            <span className="ml-auto text-[10px] text-neutral-600 tabular-nums">
+                {index + 1}
+            </span>
+        ) : null;
 
     const handleDone = () => setFocus(null);
 
@@ -575,8 +1123,18 @@ export default function TagManagerView(): JSX.Element {
         categoryId: number | null,
     ) => {
         if (!draggedTag) return;
-        updateTag(draggedTag.id, draggedTag.name, categoryId);
+        if (draggedTag.category_id === categoryId) {
+            // Onto its own category: to the end.
+            const ids = allTags
+                .filter((t) => t.category_id === categoryId && t.id !== draggedTag.id)
+                .sort(byTagOrder)
+                .map((t) => t.id);
+            reorderTags(categoryId, [...ids, draggedTag.id]);
+        } else {
+            updateTag(draggedTag.id, draggedTag.name, categoryId);
+        }
         setDraggedTag(null);
+        setDropBeforeId(null);
     };
 
     return (
@@ -690,13 +1248,19 @@ export default function TagManagerView(): JSX.Element {
                                         </button>
 
                                         {!isCollapsed &&
-                                            catTags.map((tag) => (
+                                            catTags.map((tag, index) => (
                                                 <button
                                                     key={tag.id}
                                                     draggable={!isQuickAdding}
-                                                    onDragStart={() =>
-                                                        setDraggedTag(tag)
-                                                    }
+                                                    onDragStart={(e) => {
+                                                        setDraggedTag(tag);
+                                                        e.dataTransfer.setData(TAG_DRAG_TYPE, String(tag.id));
+                                                    }}
+                                                    onDragEnd={() => {
+                                                        setDraggedTag(null);
+                                                        setDropBeforeId(null);
+                                                    }}
+                                                    {...tagDropProps(tag, catTags)}
                                                     onClick={() => {
                                                         if (
                                                             focus &&
@@ -722,7 +1286,7 @@ export default function TagManagerView(): JSX.Element {
                                                             });
                                                         }
                                                     }}
-                                                    className={`flex items-center gap-2 pl-10 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${
+                                                    className={`flex items-center gap-2 pl-10 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${dropLine(tag)} ${
                                                         focus?.kind === "tag" &&
                                                         focus.item.id === tag.id
                                                             ? "bg-neutral-700 text-neutral-100"
@@ -740,6 +1304,7 @@ export default function TagManagerView(): JSX.Element {
                                                         {category.icon ?? "●"}
                                                     </span>
                                                     {tag.name}
+                                                    {slotBadge(category, index)}
                                                 </button>
                                             ))}
                                     </div>
@@ -769,9 +1334,15 @@ export default function TagManagerView(): JSX.Element {
                                     uncategorized.map((tag) => (
                                         <button
                                             draggable={!isQuickAdding}
-                                            onDragStart={() =>
-                                                setDraggedTag(tag)
-                                            }
+                                            onDragStart={(e) => {
+                                                setDraggedTag(tag);
+                                                e.dataTransfer.setData(TAG_DRAG_TYPE, String(tag.id));
+                                            }}
+                                            onDragEnd={() => {
+                                                setDraggedTag(null);
+                                                setDropBeforeId(null);
+                                            }}
+                                            {...tagDropProps(tag, uncategorized)}
                                             key={tag.id}
                                             onClick={() => {
                                                 if (
@@ -792,7 +1363,7 @@ export default function TagManagerView(): JSX.Element {
                                                     });
                                                 }
                                             }}
-                                            className={`flex items-center gap-2 pl-6 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${
+                                            className={`flex items-center gap-2 pl-6 pr-2 py-0.5 rounded-md text-xs transition-colors text-left w-full ${dropLine(tag)} ${
                                                 focus?.kind === "tag" &&
                                                 focus.item.id === tag.id
                                                     ? "bg-neutral-700 text-neutral-100"

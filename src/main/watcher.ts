@@ -19,7 +19,7 @@ import {
     renameFolderPath,
     updateFileFolderAndPath,
     normalizeFolderIds,
-    dropDirectTagsCoveredByFolder,
+    dropTagsCoveredByInheritance,
     type DbFile,
 } from "./db";
 import {
@@ -188,7 +188,7 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
 
         // Files now belong to (and inherit tags from) their new top folder.
         normalizeFolderIds();
-        dropDirectTagsCoveredByFolder();
+        dropTagsCoveredByInheritance();
 
         for (const record of affected) {
             const newRelativePath =

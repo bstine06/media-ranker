@@ -20,9 +20,13 @@ export interface DbTag {
     id: number;
     name: string;
     category_id: number | null;
-    /** On a file's tag list: it comes from the file's folder, so it can only
-     *  be removed from the folder. */
+    /** Position within its category (Tag Manager, quick tags). */
+    order_index: number;
+    /** On a file's (or folder's) tag list: it comes from the file's folder
+     *  or is implied by another tag, so it can only be removed at its source. */
     inherited?: boolean;
+    /** With `inherited`: the tag that implies it. Absent: from the folder. */
+    inheritedVia?: string;
 }
 
 export interface DbTagCategory {
@@ -31,6 +35,8 @@ export interface DbTagCategory {
     color: string;
     icon: string;
     order_index: number;
+    /** 1: its first tags are offered in the quick tag bar. */
+    quick_tags: number;
 }
 
 export interface DbTagWithCategory extends DbTag {
@@ -104,6 +110,22 @@ export interface PlacementBounds {
 }
 
 /** How widely a tag is used (for confirm dialogs). */
+/** "kitten" (tag_id) implies "cat" (implies_id). */
+export interface TagImplication {
+    tag_id: number;
+    implies_id: number;
+}
+
+/** What adding or removing a tag link would do. */
+export interface TagImplicationPreview {
+    /** Active files that gain the implied tag (negative: lose it). */
+    files: number;
+    /** Active files whose own copy becomes inherited (adding only). */
+    convertedFiles: number;
+    /** Folders whose own copy becomes inherited (adding only). */
+    convertedFolders: number;
+}
+
 export interface TagUsage {
     /** Files that have it, their own or from their folder. */
     files: number;

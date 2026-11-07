@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
 import { useSettings } from "@renderer/contexts/SettingsContext";
+import { isTyping } from "@renderer/lib/keys";
 
 /** How far ahead of the old version a rotated video's new version starts,
  *  to cover the time its seek takes while the old one keeps playing. */
@@ -361,22 +362,17 @@ export function MediaPlayer({
             // For other views: work when hovered (which makes muted=false)
             if (disabled || (muted && !isHovered) || !isVideo) return;
 
-            // Ignore if typing in an input
-            if (
-                e.target instanceof HTMLInputElement ||
-                e.target instanceof HTMLTextAreaElement
-            ) {
-                return;
+            if (e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
+
+            // V play/pause, Q / ← rewind, E / → fast forward (lib/keys.ts).
+            if (e.code === "KeyV") {
+                e.preventDefault();
+                if (!e.repeat) togglePlay();
             }
 
-            if (e.key === " ") {
+            if (["KeyQ", "KeyE", "ArrowLeft", "ArrowRight"].includes(e.code)) {
                 e.preventDefault();
-                togglePlay();
-            }
-
-            if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                e.preventDefault();
-                step(e.key === "ArrowLeft" ? -1 : 1);
+                step(e.code === "KeyQ" || e.code === "ArrowLeft" ? -1 : 1);
             }
         };
         window.addEventListener("keydown", onKey);

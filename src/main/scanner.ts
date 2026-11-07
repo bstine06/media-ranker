@@ -25,7 +25,7 @@ import {
     upsertFolder,
     updateFileFolderAndPath,
     normalizeFolderIds,
-    dropDirectTagsCoveredByFolder,
+    dropTagsCoveredByInheritance,
 } from "./db";
 import { getMediaType, type MediaType } from "./formats";
 import { ffmpegBin, imageToJpeg } from "./imageConvert";
@@ -331,7 +331,7 @@ export async function scanFolder(
     // had; fix any that drifted (e.g. a subfolder moved between folders in
     // Finder), then apply the one-source rule for folder tags.
     normalizeFolderIds();
-    dropDirectTagsCoveredByFolder();
+    dropTagsCoveredByInheritance();
 
     // Mark missing and delete thumbnails for anything not seen on disk
     const allDbFiles = getAllFiles();
