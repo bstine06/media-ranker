@@ -23,6 +23,7 @@ export default function MetadataView({
     metadataFields,
     onEditStart,
     onSave,
+    onDelete,
 }: {
     folderName: string;
     files: DbFile[];
@@ -36,6 +37,8 @@ export default function MetadataView({
     profileImage: string | null;
     metadataFields: string[]; // for autocomplete
     onEditStart: () => void;
+    /** Delete this folder (asks first). */
+    onDelete: () => void;
     onSave: (
         updatedFields: { key: string; value: string; type: string }[],
         newName: string,
@@ -271,12 +274,20 @@ export default function MetadataView({
                                 </button>
                             </>
                         ) : (
-                            <button
-                                onClick={() => onEditStart()}
-                                className="text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 rounded px-3 py-1 transition-colors"
-                            >
-                                Edit
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => onEditStart()}
+                                    className="text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 rounded px-3 py-1 transition-colors"
+                                >
+                                    Edit
+                                </button>
+                                <button
+                                    onClick={() => onDelete()}
+                                    className="text-xs text-neutral-600 hover:text-red-300 hover:bg-red-950/40 rounded px-3 py-1 transition-colors"
+                                >
+                                    Delete folder
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>

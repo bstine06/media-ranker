@@ -11,6 +11,7 @@ import { useFolders } from "./contexts/FolderContext";
 import ScrollView from "./components/ScrollView";
 import CompareView from "./components/CompareView";
 import DiscoverView from "./components/DiscoverView";
+import SweepView from "./components/SweepView";
 import TagManagerView from "./components/TagManagerView";
 
 export default function App(): JSX.Element {
@@ -24,6 +25,12 @@ export default function App(): JSX.Element {
 
     const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    // Sweep's full screen: just Sweep, no sidebar (the window goes full
+    // screen too). Ends with the window's full screen.
+    const [immersive, setImmersive] = useState(false);
+    useEffect(() => {
+        if (!isFullscreen) setImmersive(false);
+    }, [isFullscreen]);
 
     const { setStatus, resetStatus } = useStatus();
     const {
@@ -160,13 +167,15 @@ export default function App(): JSX.Element {
             )}
 
             <div className="flex flex-1 overflow-hidden">
-                <Sidebar
-                    view={view}
-                    setView={setView}
-                    onChangeLibrary={handleSelectFolder}
-                    onRescanLibrary={handleRescanLibrary}
-                    isFullscreen={isFullscreen}
-                />
+                {!immersive && (
+                    <Sidebar
+                        view={view}
+                        setView={setView}
+                        onChangeLibrary={handleSelectFolder}
+                        onRescanLibrary={handleRescanLibrary}
+                        isFullscreen={isFullscreen}
+                    />
+                )}
 
                 <main className="flex flex-1 flex-col overflow-hidden bg-neutral-950 min-w-0">
                     <div
@@ -203,6 +212,20 @@ export default function App(): JSX.Element {
                         <DiscoverView
                             active={view === "scroll"}
                             setView={setView}
+                        />
+                    </div>
+                    <div
+                        className={
+                            view === "sweep"
+                                ? "flex flex-1 flex-col overflow-hidden"
+                                : "hidden"
+                        }
+                    >
+                        <SweepView
+                            active={view === "sweep"}
+                            setView={setView}
+                            immersive={immersive}
+                            setImmersive={setImmersive}
                         />
                     </div>
                     <div

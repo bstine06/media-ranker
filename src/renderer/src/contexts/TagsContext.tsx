@@ -69,12 +69,16 @@ interface Tags {
     ) => Promise<void>;
     updateCategory: (
         id: number,
-        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "quick_tags">>,
+        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "quick_tags" | "sweep">>,
     ) => Promise<void>;
     deleteCategory: (id: number) => Promise<void>;
     /** Puts these tags first in the category, in this order (moving any
      *  from other categories into it). */
     reorderTags: (categoryId: number | null, tagIds: number[]) => Promise<void>;
+    /** Whether a tag is offered in Sweep. */
+    setTagSweep: (tagId: number, on: boolean) => Promise<void>;
+    /** Every tag in a category in or out of Sweep. */
+    setCategoryTagsSweep: (categoryId: number, on: boolean) => Promise<void>;
 
     // upgrade tags
     getTagsWithCategory: (tags: DbTag[]) => DbTagWithCategory[];
@@ -102,6 +106,8 @@ const TagsContext = createContext<Tags>({
     updateCategory: async () => {},
     deleteCategory: async () => {},
     reorderTags: async () => {},
+    setTagSweep: async () => {},
+    setCategoryTagsSweep: async () => {},
     getTagsWithCategory: () => [],
     tagMap: new Map(),
 });
@@ -268,6 +274,18 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
         [refreshTags],
     );
 
+    const setTagSweep = useCallback(async (tagId: number, on: boolean) => {
+        setAllTags((prev) => prev.map((t) => (t.id === tagId ? { ...t, sweep: on ? 1 : 0 } : t)));
+        await window.api.setTagSweep(tagId, on);
+    }, []);
+
+    const setCategoryTagsSweep = useCallback(async (categoryId: number, on: boolean) => {
+        setAllTags((prev) =>
+            prev.map((t) => (t.category_id === categoryId ? { ...t, sweep: on ? 1 : 0 } : t)),
+        );
+        await window.api.setCategoryTagsSweep(categoryId, on);
+    }, []);
+
     // --- Category CRUD ---
 
     const createCategory = useCallback(
@@ -282,7 +300,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     const updateCategory = useCallback(
     async (
         id: number,
-        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "quick_tags">>,
+        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "quick_tags" | "sweep">>,
     ) => {
         await window.api.updateTagCategory(id, updates);
         // Optimistic update
@@ -335,6 +353,8 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
                 updateCategory,
                 deleteCategory,
                 reorderTags,
+                setTagSweep,
+                setCategoryTagsSweep,
                 getTagsWithCategory,
                 tagMap
             }}

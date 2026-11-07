@@ -98,6 +98,9 @@ export default function CompareView({
     const pairShownAtRef = useRef(0);
     const controlsA = useRef<MediaControls | null>(null);
     const controlsB = useRef<MediaControls | null>(null);
+    // Each card's rotate-left, for R on the focused side.
+    const rotateA = useRef<(() => void) | null>(null);
+    const rotateB = useRef<(() => void) | null>(null);
 
     const { activeTags, tagMode } = useTags();
     const {
@@ -705,7 +708,13 @@ export default function CompareView({
                         2000,
                     );
                     break;
-                case "KeyR": {
+                case "KeyR":
+                    // Rotate the focused side left.
+                    e.preventDefault();
+                    if (e.repeat) return;
+                    (focus === "a" ? rotateA : rotateB).current?.();
+                    break;
+                case "KeyK": {
                     // Crown the focused side, or uncrown it if it's king.
                     e.preventDefault();
                     if (e.repeat || !pair) return;
@@ -837,6 +846,7 @@ export default function CompareView({
                         quickTagsActive={keysEnabled}
                         audible={compareBothAudio || focus === "a"}
                         controlsRef={controlsA}
+                        rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
                         onPick={() => handlePick("a")}
                         onInspectFile={() => {
@@ -864,6 +874,7 @@ export default function CompareView({
                         quickTagsActive={keysEnabled}
                         audible={compareBothAudio || focus === "b"}
                         controlsRef={controlsB}
+                        rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
                         onPick={() => handlePick("b")}
                         onInspectFile={() => {
@@ -895,6 +906,7 @@ function CompareCard({
     quickTagsActive,
     audible,
     controlsRef,
+    rotateRef,
     onFocus,
     onPick,
     onInspectFile,
@@ -915,6 +927,8 @@ function CompareCard({
     quickTagsActive: boolean;
     audible: boolean;
     controlsRef: React.MutableRefObject<MediaControls | null>;
+    /** Filled with this card's rotate-left (R on the focused side). */
+    rotateRef: React.MutableRefObject<(() => void) | null>;
     onFocus: () => void;
     onPick: () => void;
     onInspectFile: (file: DbFile) => void;
@@ -929,6 +943,7 @@ function CompareCard({
     onReplaceFile: (file: DbFile) => void;
 }): JSX.Element {
     const { turns: rotationOf, rotateLeft } = useRotation(file, rootPath, onReplaceFile);
+    rotateRef.current = rotateLeft;
     const libraryRank = useLibraryRank(file.id);
 
     // Only real mouse movement takes focus. The browser can fire mousemove
@@ -1086,7 +1101,7 @@ function CompareCard({
                                 ? "pointer-events-auto opacity-100 text-amber-300 hover:text-amber-200"
                                 : `${fade} text-white/60 hover:text-white`
                         }`}
-                        title={isKing ? "Stop keeping on screen" : "Keep on screen"}
+                        title={isKing ? "Stop keeping on screen (K)" : "Keep on screen (K)"}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (isKing) onUncrown();
@@ -1097,7 +1112,7 @@ function CompareCard({
                     </button>
                     <button
                         className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${fade}`}
-                        title="Rotate left"
+                        title="Rotate left (R)"
                         onClick={(e) => {
                             e.stopPropagation();
                             rotateLeft();

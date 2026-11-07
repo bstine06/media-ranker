@@ -1,4 +1,4 @@
-export type View = "browse" | "compare" | "file" | "scroll" | "tag-manager";
+export type View = "browse" | "compare" | "file" | "scroll" | "sweep" | "tag-manager";
 
 export interface DbFile {
     id: number;
@@ -22,6 +22,8 @@ export interface DbTag {
     category_id: number | null;
     /** Position within its category (Tag Manager, quick tags). */
     order_index: number;
+    /** 1: offered in Sweep (if its category is too). */
+    sweep: number;
     /** On a file's (or folder's) tag list: it comes from the file's folder
      *  or is implied by another tag, so it can only be removed at its source. */
     inherited?: boolean;
@@ -37,6 +39,8 @@ export interface DbTagCategory {
     order_index: number;
     /** 1: its first tags are offered in the quick tag bar. */
     quick_tags: number;
+    /** 1: its tags can be offered in Sweep (0 overrides theirs). */
+    sweep: number;
 }
 
 export interface DbTagWithCategory extends DbTag {

@@ -37,6 +37,24 @@ interface Settings {
     /** The bar's category; stays until the user switches it. */
     quickTagCategoryId: number | null;
     setQuickTagCategoryId: (id: number | null) => void;
+    /** Sweep: the tag being swept, whether it's picked at random, and how
+     *  often a random one is rerolled (seconds). */
+    sweepTagId: number | null;
+    setSweepTagId: (id: number | null) => void;
+    sweepRandom: boolean;
+    setSweepRandom: (on: boolean) => void;
+    sweepInterval: number;
+    setSweepInterval: (seconds: number) => void;
+    /** Strip scroll speed, px per second. */
+    sweepSpeed: number;
+    setSweepSpeed: (speed: number) => void;
+    /** Sweep's extra lanes run slightly faster / slower than the top one. */
+    sweepVarispeed: boolean;
+    toggleSweepVarispeed: () => void;
+    /** Sweep's 1 / 3 / 6 (and edge zones) move every lane, not just the
+     *  one under the cursor. */
+    sweepAllLanes: boolean;
+    toggleSweepAllLanes: () => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -68,6 +86,18 @@ const SettingsContext = createContext<Settings>({
     toggleQuickTags: () => {},
     quickTagCategoryId: null,
     setQuickTagCategoryId: () => {},
+    sweepTagId: null,
+    setSweepTagId: () => {},
+    sweepRandom: false,
+    setSweepRandom: () => {},
+    sweepInterval: 60,
+    setSweepInterval: () => {},
+    sweepSpeed: 90,
+    setSweepSpeed: () => {},
+    sweepVarispeed: false,
+    toggleSweepVarispeed: () => {},
+    sweepAllLanes: false,
+    toggleSweepAllLanes: () => {},
 });
 
 // Saved settings (config.json), read once at startup. Anything missing or
@@ -161,6 +191,17 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         typeof saved.quickTagCategoryId === "number" ? saved.quickTagCategoryId : null,
     );
 
+    const [sweepTagId, setSweepTagId] = useState<number | null>(() =>
+        typeof saved.sweepTagId === "number" ? saved.sweepTagId : null,
+    );
+    const [sweepRandom, setSweepRandom] = useState(() => savedBool("sweepRandom", false));
+    const [sweepInterval, setSweepInterval] = useState(() => savedNum("sweepInterval", 60, 5, 3600));
+    const [sweepSpeed, setSweepSpeed] = useState(() => savedNum("sweepSpeed", 90, 20, 1000));
+    const [sweepVarispeed, setSweepVarispeed] = useState(() => savedBool("sweepVarispeed", false));
+    const toggleSweepVarispeed = useCallback(() => setSweepVarispeed((v) => !v), []);
+    const [sweepAllLanes, setSweepAllLanes] = useState(() => savedBool("sweepAllLanes", false));
+    const toggleSweepAllLanes = useCallback(() => setSweepAllLanes((v) => !v), []);
+
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
         setPauseWhenUnfocused((p) => !p);
@@ -215,6 +256,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     browseViewMode,
                     quickTagsEnabled,
                     quickTagCategoryId,
+                    sweepTagId,
+                    sweepRandom,
+                    sweepInterval,
+                    sweepSpeed,
+                    sweepVarispeed,
+                    sweepAllLanes,
                 })
                 .catch(() => {});
         }, 300);
@@ -234,6 +281,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         browseViewMode,
         quickTagsEnabled,
         quickTagCategoryId,
+        sweepTagId,
+        sweepRandom,
+        sweepInterval,
+        sweepSpeed,
+        sweepVarispeed,
+        sweepAllLanes,
     ]);
 
     return (
@@ -267,6 +320,18 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 toggleQuickTags,
                 quickTagCategoryId,
                 setQuickTagCategoryId,
+                sweepTagId,
+                setSweepTagId,
+                sweepRandom,
+                setSweepRandom,
+                sweepInterval,
+                setSweepInterval,
+                sweepSpeed,
+                setSweepSpeed,
+                sweepVarispeed,
+                toggleSweepVarispeed,
+                sweepAllLanes,
+                toggleSweepAllLanes,
             }}
         >
             {children}

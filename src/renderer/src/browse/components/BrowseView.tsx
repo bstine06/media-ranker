@@ -100,6 +100,18 @@ export default function BrowseView({
     const [metadataFields, setMetadataFields] = useState<string[]>([]); // for autocomplete
     const [metadata, setMetadata] = useState<DbFolderMetadata | null>(null);
     const [editingMetadata, setEditingMetadata] = useState(false);
+    // Deleting the open folder: first what to do with its files, then a
+    // confirm listing everything it affects.
+    const [folderDelete, setFolderDelete] = useState<
+        | { step: "choose"; folder: string; files: number }
+        | {
+              step: "confirm";
+              folder: string;
+              mode: "trash" | "unsort";
+              preview: NonNullable<Awaited<ReturnType<typeof window.api.folderDeletePreview>>>;
+          }
+        | null
+    >(null);
     const [draftProfileImage, setDraftProfileImage] = useState<
         string | undefined
     >();
@@ -326,6 +338,32 @@ export default function BrowseView({
             return;
         }
         await new Promise((r) => setTimeout(r, 1000));
+        resetStatus();
+    };
+
+    // Step two: what deleting will do, from a fresh look at the folder.
+    const chooseFolderDelete = async (mode: "trash" | "unsort") => {
+        if (!folderDelete) return;
+        const preview = await window.api.folderDeletePreview(folderDelete.folder);
+        if (!preview) {
+            setFolderDelete(null);
+            return;
+        }
+        setFolderDelete({ step: "confirm", folder: folderDelete.folder, mode, preview });
+    };
+
+    const confirmFolderDelete = async () => {
+        if (folderDelete?.step !== "confirm") return;
+        const { folder, mode } = folderDelete;
+        setFolderDelete(null);
+        setStatus(mode === "unsort" ? "Moving files to Unsorted…" : "Deleting folder…");
+        const result = await window.api.deleteFolder(folder, mode);
+        if ("error" in result) {
+            setStatus(result.error);
+            return;
+        }
+        // The folder's gone from the sidebar and Browse moves off it (the
+        // folder:removed event); the moved files show up in Unsorted.
         resetStatus();
     };
 
@@ -895,6 +933,14 @@ export default function BrowseView({
                         renameError={renameError}
                         onDraftNameChange={setDraftName}
                         onEditStart={handleEditStart}
+                        onDelete={async () => {
+                            const preview = await window.api.folderDeletePreview(activeFolder);
+                            setFolderDelete({
+                                step: "choose",
+                                folder: activeFolder,
+                                files: preview?.files ?? files.length,
+                            });
+                        }}
                         onSave={handleMetadataSave}
                         onCancel={() => {
                             setEditingMetadata(false);
@@ -990,6 +1036,41 @@ export default function BrowseView({
                     />
                 </div>
             )}
+            {folderDelete?.step === "choose" && (
+                <ConfirmDialog
+                    title={`Delete the folder "${folderDelete.folder}"?`}
+                    message={
+                        folderDelete.files === 0
+                            ? "It has no media files in it."
+                            : `What should happen to the ${plural(folderDelete.files, "media file")} in it?`
+                    }
+                    confirmText={folderDelete.files === 0 ? "Delete folder" : "Delete the files"}
+                    secondary={
+                        folderDelete.files === 0
+                            ? undefined
+                            : { text: "Move them to Unsorted", onClick: () => chooseFolderDelete("unsort") }
+                    }
+                    onConfirm={() => chooseFolderDelete("trash")}
+                    onCancel={() => setFolderDelete(null)}
+                />
+            )}
+            {folderDelete?.step === "confirm" && (
+                <ConfirmDialog
+                    title={
+                        folderDelete.mode === "unsort"
+                            ? `Move the files to Unsorted and delete "${folderDelete.folder}"?`
+                            : `Delete "${folderDelete.folder}" and its files?`
+                    }
+                    message={<FolderDeleteEffects mode={folderDelete.mode} preview={folderDelete.preview} />}
+                    confirmText={
+                        folderDelete.mode === "unsort"
+                            ? "Move files and delete folder"
+                            : "Delete folder and files"
+                    }
+                    onConfirm={confirmFolderDelete}
+                    onCancel={() => setFolderDelete(null)}
+                />
+            )}
             {deleting && (
                 <ConfirmDialog
                     title={deleting.length === 1 ? "Delete File" : `Delete ${deleting.length} Files`}
@@ -1006,4 +1087,68 @@ export default function BrowseView({
         </div>
     </div>
 );
+}
+
+// "1 file", "3 files"
+function plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// Everything deleting a folder will do, for its confirm.
+function FolderDeleteEffects({
+    mode,
+    preview,
+}: {
+    mode: "trash" | "unsort";
+    preview: {
+        files: number;
+        otherFiles: number;
+        subfolders: number;
+        tags: string[];
+        metadata: number;
+        profileImage: boolean;
+    };
+}): JSX.Element {
+    const lines: string[] = [];
+    if (preview.files > 0) {
+        lines.push(
+            mode === "unsort"
+                ? `${plural(preview.files, "media file")} will move to Unsorted. They keep their scores, tags and comparison history.`
+                : `${plural(preview.files, "media file")} will go to the Trash, with their scores and tags. They can be restored from the Trash.`,
+        );
+    }
+    if (preview.tags.length > 0) {
+        lines.push(
+            `The folder's ${preview.tags.length === 1 ? "tag" : "tags"} (${preview.tags.join(", ")}) will be removed` +
+                (mode === "unsort" && preview.files > 0
+                    ? ": the moved files only had them through the folder, so they lose them."
+                    : "."),
+        );
+    }
+    if (preview.metadata > 0) {
+        lines.push(`Its ${plural(preview.metadata, "metadata field")} will be deleted.`);
+    }
+    if (preview.profileImage) lines.push("Its profile image will be removed.");
+    if (preview.otherFiles > 0 || preview.subfolders > 0) {
+        const parts = [
+            preview.otherFiles > 0 ? `${plural(preview.otherFiles, "other file")} (not media)` : null,
+            preview.subfolders > 0 ? plural(preview.subfolders, "subfolder") : null,
+        ].filter(Boolean);
+        lines.push(`${parts.join(" and ")} in it will go to the Trash with the folder.`);
+    }
+    lines.push("The folder itself goes to the Trash.");
+    return (
+        <>
+            <ul className="list-disc space-y-1 pl-4">
+                {lines.map((l) => (
+                    <li key={l}>{l}</li>
+                ))}
+            </ul>
+            {(preview.tags.length > 0 || preview.metadata > 0 || preview.profileImage) && (
+                <p className="mt-2 text-neutral-500">
+                    The folder's tags, metadata and profile image can't be brought back.
+                </p>
+            )}
+        </>
+    );
 }

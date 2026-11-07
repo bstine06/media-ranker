@@ -35,6 +35,8 @@ export interface DbTag {
     category_id: number | null;
     /** Position within its category (Tag Manager, quick tags). */
     order_index: number;
+    /** 1: offered in Sweep (if its category is too). */
+    sweep: number;
 }
 
 export interface DbTagCategory {
@@ -45,6 +47,8 @@ export interface DbTagCategory {
     order_index: number;
     /** 1: its first tags are offered in the quick tag bar. */
     quick_tags: number;
+    /** 1: its tags can be offered in Sweep (0 overrides theirs). */
+    sweep: number;
 }
 
 export interface DbMetadataField {
@@ -562,6 +566,19 @@ function runMigrations(db: Database.Database): void {
         })();
     }
 
+    // Migration 6c: tags and categories can be left out of Sweep (its random
+    // picks and tag list). Everything starts in.
+    if (!new Set(
+        (db.prepare(`PRAGMA table_info(tags)`).all() as { name: string }[]).map((c) => c.name),
+    ).has("sweep")) {
+        db.exec(`ALTER TABLE tags ADD COLUMN sweep INTEGER NOT NULL DEFAULT 1`);
+    }
+    if (!new Set(
+        (db.prepare(`PRAGMA table_info(tag_categories)`).all() as { name: string }[]).map((c) => c.name),
+    ).has("sweep")) {
+        db.exec(`ALTER TABLE tag_categories ADD COLUMN sweep INTEGER NOT NULL DEFAULT 1`);
+    }
+
     // Migration 7: remember each file's score before a comparison, so the
     // comparison can be undone. Older rows leave these NULL (not undoable).
     const comparisonCols = new Set(
@@ -622,6 +639,14 @@ export function setFolderProfileImage(
 
 export function deleteFolderByPath(path: string): void {
     getDb().prepare(`DELETE FROM folders WHERE path = ?`).run(path);
+}
+
+// A deleted folder's rows, and any left for its subfolders: its tags,
+// metadata and profile image go with them (cascade).
+export function deleteFolderTree(path: string): void {
+    getDb()
+        .prepare(`DELETE FROM folders WHERE path = ? OR path LIKE ? ESCAPE '\\'`)
+        .run(path, folderLikePattern(path));
 }
 
 export function renameFolderPath(oldPath: string, newPath: string): void {
@@ -696,7 +721,7 @@ export function removeTagFromFolder(folderId: number, tagId: number): void {
         .run(folderId, tagId);
 }
 
-export function getTagsForFolderByPath(folderPath: string): DbTag[] {
+export function getTagsForFolderByPath(folderPath: string): FileTag[] {
     const folder = getFolderByPath(folderPath);
     if (!folder) return [];
     return getTagsForFolder(folder.id);
@@ -1064,6 +1089,18 @@ export function setTagCategory(tagId: number, categoryId: number | null): void {
         .run({ categoryId, tagId });
 }
 
+// Whether a tag is offered in Sweep.
+export function setTagSweep(tagId: number, on: boolean): void {
+    getDb().prepare(`UPDATE tags SET sweep = ? WHERE id = ?`).run(on ? 1 : 0, tagId);
+}
+
+// Every tag in a category in or out of Sweep at once.
+export function setCategoryTagsSweep(categoryId: number, on: boolean): void {
+    getDb()
+        .prepare(`UPDATE tags SET sweep = ? WHERE category_id = ?`)
+        .run(on ? 1 : 0, categoryId);
+}
+
 // Puts a category's tags in this order (any tags not listed keep their
 // place after them). Tags listed from another category move into it.
 export function reorderTags(categoryId: number | null, tagIds: number[]): void {
@@ -1313,11 +1350,12 @@ export function updateTagCategory(
         icon?: string | null;
         order_index?: number;
         quick_tags?: number;
+        sweep?: number;
     },
 ): DbTagCategory {
     const db = getDb();
     // Only known columns (the keys become SQL).
-    const allowed = new Set(["name", "color", "icon", "order_index", "quick_tags"]);
+    const allowed = new Set(["name", "color", "icon", "order_index", "quick_tags", "sweep"]);
     updates = Object.fromEntries(
         Object.entries(updates).filter(([k]) => allowed.has(k)),
     );

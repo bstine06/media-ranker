@@ -27,6 +27,7 @@ const api = {
         return () => ipcRenderer.removeListener("process:message-sent", handler);
     },
 
+    setFullscreen: (on: boolean): Promise<void> => ipcRenderer.invoke("set-fullscreen", on),
     onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
         const listener = (_: any, isFullscreen: boolean) => callback(isFullscreen);
         ipcRenderer.on('fullscreen-status', listener);
@@ -242,6 +243,21 @@ const api = {
         return () => ipcRenderer.removeListener("folder:renamed", handler);
     },
 
+    folderDeletePreview: (
+        folderRelPath: string,
+    ): Promise<{
+        files: number;
+        otherFiles: number;
+        subfolders: number;
+        tags: string[];
+        metadata: number;
+        profileImage: boolean;
+    } | null> => ipcRenderer.invoke("folder:delete-preview", folderRelPath),
+    deleteFolder: (
+        folderRelPath: string,
+        mode: "trash" | "unsort",
+    ): Promise<{ ok: true } | { error: string }> =>
+        ipcRenderer.invoke("folder:delete", folderRelPath, mode),
     onFolderRemoved: (callback: (data: { relativePath: string }) => void) => {
         const handler = (_event: unknown, data: { relativePath: string }) =>
             callback(data);
@@ -292,6 +308,7 @@ const api = {
         tagList: number[] | null,
         tagMode: "and" | "or",
         excludeIds: number[] = [],
+        withoutTagId: number | null = null,
     ): Promise<unknown | null> =>
         ipcRenderer.invoke(
             "get-random-file",
@@ -299,6 +316,7 @@ const api = {
             tagList,
             tagMode,
             excludeIds,
+            withoutTagId,
         ),
 
     // ── Comparisons ────────────────────────────────────────────────────────
@@ -468,13 +486,18 @@ const api = {
             color?: string | null,
             icon?: string | null,
             order_index?: number,
-            quick_tags?: number
+            quick_tags?: number,
+            sweep?: number
         },
     ): Promise<void> =>
         ipcRenderer.invoke("update-tag-category", id, updates),
 
     reorderTags: (categoryId: number | null, tagIds: number[]): Promise<void> =>
         ipcRenderer.invoke("reorder-tags", categoryId, tagIds),
+    setTagSweep: (tagId: number, on: boolean): Promise<void> =>
+        ipcRenderer.invoke("set-tag-sweep", tagId, on),
+    setCategoryTagsSweep: (categoryId: number, on: boolean): Promise<void> =>
+        ipcRenderer.invoke("set-category-tags-sweep", categoryId, on),
 
     deleteTagCategory: (
         id: number,

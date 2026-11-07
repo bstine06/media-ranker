@@ -1,4 +1,4 @@
-import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
+import { stepVideo, toMediaUrl, toThumbnailUrl, volumeLevel } from "@renderer/lib/media";
 import { DbFile } from "@renderer/shared/types/types";
 import React, {
     useState,
@@ -205,7 +205,7 @@ export function MediaPlayer({
     // version mounts a fresh <video> at full volume.
     const { volume } = useSettings();
     useEffect(() => {
-        const level = Math.max(0, Math.min(1, volume / 100));
+        const level = volumeLevel(volume);
         if (videoRef.current) videoRef.current.volume = level;
         if (handoffElRef.current) handoffElRef.current.volume = level;
     }, [volume, fullUrl, handoff]);
@@ -327,21 +327,7 @@ export function MediaPlayer({
     // Frame-by-frame when paused, time-skip when playing
     const step = useCallback((direction: -1 | 1) => {
         const video = videoRef.current;
-        if (!video) return;
-        if (video.paused) {
-            const frameDuration = 1 / 30;
-            const newTime = video.currentTime + direction * frameDuration;
-            video.currentTime = Math.min(Math.max(newTime, 0), video.duration);
-        } else {
-            const newTime = video.currentTime + direction * 3;
-            if (newTime < 0 || newTime > video.duration + 2.6) {
-                video.currentTime = 0;
-            } else if (newTime > video.duration) {
-                video.currentTime = video.duration - 0.3;
-            } else {
-                video.currentTime = newTime;
-            }
-        }
+        if (video) stepVideo(video, direction);
     }, []);
 
     useEffect(() => {

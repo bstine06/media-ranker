@@ -1,11 +1,12 @@
-import { useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 /**
  * Centered confirm over the whole window, styled like the Settings modal.
  * Esc or clicking outside cancels; Cancel has focus so Enter is safe.
  * `danger` (the default) colors the confirm button red; turn it off for
- * actions that aren't destructive, like merging.
+ * actions that aren't destructive, like merging. `secondary` adds a second
+ * choice between Cancel and the confirm button.
  */
 function ConfirmDialog({
     title,
@@ -14,13 +15,15 @@ function ConfirmDialog({
     onConfirm,
     onCancel,
     danger = true,
+    secondary,
 }: {
     title: string;
-    message: string;
+    message: ReactNode;
     confirmText: string;
     onConfirm: () => void;
     onCancel?: () => void;
     danger?: boolean;
+    secondary?: { text: string; onClick: () => void; danger?: boolean };
 }): JSX.Element {
     const cancelRef = useRef<HTMLButtonElement>(null);
     const confirmRef = useRef<HTMLButtonElement>(null);
@@ -62,9 +65,9 @@ function ConfirmDialog({
                 >
                     {title}
                 </h2>
-                <p className="mt-2 text-xs leading-relaxed text-neutral-400">
+                <div className="mt-2 text-xs leading-relaxed text-neutral-400">
                     {message}
-                </p>
+                </div>
                 <div className="mt-5 flex justify-end gap-2">
                     {onCancel && (
                         <button
@@ -73,6 +76,18 @@ function ConfirmDialog({
                             className="rounded px-3 py-1.5 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-500 transition-colors"
                         >
                             Cancel
+                        </button>
+                    )}
+                    {secondary && (
+                        <button
+                            onClick={secondary.onClick}
+                            className={`rounded px-3 py-1.5 text-xs font-medium focus:outline-none focus-visible:ring-1 transition-colors ${
+                                secondary.danger
+                                    ? "bg-red-900/60 text-red-200 hover:bg-red-800 hover:text-white focus-visible:ring-red-500"
+                                    : "bg-neutral-700 text-neutral-200 hover:bg-neutral-600 focus-visible:ring-neutral-400"
+                            }`}
+                        >
+                            {secondary.text}
                         </button>
                     )}
                     <button

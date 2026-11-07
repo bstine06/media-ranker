@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { DbFile } from '@renderer/shared/types/types'
 import { useLibraryRank } from '@renderer/contexts/RankContext'
 import { useSettings } from '@renderer/contexts/SettingsContext'
+import { volumeLevel } from "@renderer/lib/media"
 
 export default function HoverPreview({
   file,
@@ -46,7 +47,7 @@ export default function HoverPreview({
 
   const { volume } = useSettings()
   useEffect(() => {
-    if (videoRef.current) videoRef.current.volume = Math.max(0, Math.min(1, volume / 100))
+    if (videoRef.current) videoRef.current.volume = volumeLevel(volume)
   }, [volume, fullUrl])
 
   const handleVideoReady = () => {

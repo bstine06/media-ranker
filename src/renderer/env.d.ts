@@ -15,6 +15,22 @@ declare global {
             onProcessMessageSent: (
                 callback: (data: { message: string, progress?: [number, number] }) => void,
             ) => () => void;
+            /** What deleting a folder would affect (for the confirm). */
+            folderDeletePreview: (folderRelPath: string) => Promise<{
+                files: number;
+                otherFiles: number;
+                subfolders: number;
+                tags: string[];
+                metadata: number;
+                profileImage: boolean;
+            } | null>;
+            /** Delete a folder: its media to Unsorted ("unsort") or the Trash. */
+            deleteFolder: (
+                folderRelPath: string,
+                mode: "trash" | "unsort",
+            ) => Promise<{ ok: true } | { error: string }>;
+            /** The window's own full screen (Sweep's F). */
+            setFullscreen: (on: boolean) => Promise<void>;
             onFullscreenChange: (
                 callback: (isFullscreen: boolean) => void,
             ) => () => void;
@@ -107,7 +123,9 @@ declare global {
                 folderPrefixes: string[] | null,
                 tagList: number[] | null,
                 tagMode: "and" | "or",
-                excludeIds: number[] = [],
+                excludeIds?: number[],
+                /** Only files without this tag (Sweep). */
+                withoutTagId?: number | null,
             ) => Promise<import("./types").DbFile | null>;
             getPair: (
                 folderPrefixes: string[] | null,
@@ -264,8 +282,10 @@ declare global {
             // Category CRUD
             getAllTagCategories: () => Promise<DbTagCategory[]>;
             createTagCategory: (name: string, color: string, icon: string) => Promise<DbTagCategory>;
-            updateTagCategory: (id: number, updates: { name?: string; color?: string | null; icon?: string | null, order_index?: number, quick_tags?: number }) => Promise<void>;
+            updateTagCategory: (id: number, updates: { name?: string; color?: string | null; icon?: string | null, order_index?: number, quick_tags?: number, sweep?: number }) => Promise<void>;
             reorderTags: (categoryId: number | null, tagIds: number[]) => Promise<void>;
+            setTagSweep: (tagId: number, on: boolean) => Promise<void>;
+            setCategoryTagsSweep: (categoryId: number, on: boolean) => Promise<void>;
             deleteTagCategory: (id: number) => Promise<void>;
 
             // file drag out

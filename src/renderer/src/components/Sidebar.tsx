@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DbFile, DbTag, FolderNode, View } from "../shared/types/types";
 import NavItem from "./NavItem";
+import { SweepIcon } from "./icons/SweepIcon";
 import ConfirmDialog from "./ConfirmDialog";
 import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
@@ -15,6 +16,7 @@ import { TagIcon } from "./icons/TagIcon";
 import {
     UNTAGGED,
     missingCategory,
+    missingCategoryId,
     filterLabel,
     isSpecialFilter,
 } from "@renderer/lib/tagFilters";
@@ -285,6 +287,30 @@ function TagFilterSection({
         : [];
     const untaggedOn = activeTags.has(UNTAGGED);
 
+    // A filter's category icon: the tag's category, or for "no <category>"
+    // that category. None for untagged or uncategorized tags.
+    const categoryOf = (id: number) => {
+        const catId = missingCategoryId(id);
+        if (catId != null) return allCategories.find((c) => c.id === catId) ?? null;
+        return allTags.find((t) => t.id === id)?.category ?? null;
+    };
+    const icon = (id: number, onLight = false) => {
+        const cat = categoryOf(id);
+        if (!cat) return null;
+        return (
+            <span
+                // On a light pill some category colors (white, yellow) vanish:
+                // a dark backing keeps them visible.
+                className={`text-[10px] leading-none ${
+                    onLight ? "rounded-full bg-neutral-900 px-1 py-0.5" : ""
+                }`}
+                style={{ color: cat.color }}
+            >
+                {cat.icon}
+            </span>
+        );
+    };
+
     return (
         <div className="px-2 mb-3 mt-1">
             <div className="flex items-center justify-between mb-1.5">
@@ -329,6 +355,7 @@ function TagFilterSection({
                                     isSpecialFilter(tagId) ? "italic" : ""
                                 }`}
                             >
+                                {icon(tagId, true)}
                                 {label}
                                 <span className="opacity-50 hover:opacity-100">
                                     ×
@@ -358,7 +385,7 @@ function TagFilterSection({
                                     toggleTag({ id: item.id });
                                     setSearch("");
                                 }}
-                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
                                     item.special ? "italic" : ""
                                 } ${
                                     activeTags.has(item.id)
@@ -366,6 +393,7 @@ function TagFilterSection({
                                         : "text-neutral-300 hover:bg-neutral-800"
                                 }`}
                             >
+                                <span className="w-3 text-center">{icon(item.id)}</span>
                                 {item.label}
                             </button>
                         ))}
@@ -373,6 +401,28 @@ function TagFilterSection({
                 )}
             </div>
         </div>
+    );
+}
+
+// A choice in the filing panel's list.
+function FilingRow({
+    selected,
+    onClick,
+    children,
+}: {
+    selected: boolean;
+    onClick: () => void;
+    children: React.ReactNode;
+}): JSX.Element {
+    return (
+        <button
+            onClick={onClick}
+            className={`flex w-full items-center gap-1 truncate rounded px-2 py-1.5 text-left text-xs transition-colors ${
+                selected ? "bg-neutral-200 text-neutral-900" : "text-neutral-300 hover:bg-neutral-800"
+            }`}
+        >
+            {children}
+        </button>
     );
 }
 
@@ -415,6 +465,10 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
         toggleShowLibraryRank,
         quickTagsEnabled,
         toggleQuickTags,
+        sweepVarispeed,
+        toggleSweepVarispeed,
+        sweepAllLanes,
+        toggleSweepAllLanes,
     } = useSettings();
     // A confirm opened from inside handles its own Escape.
     const confirmOpen = useRef(false);
@@ -474,6 +528,16 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         label="Quick tag bar (T)"
                         on={quickTagsEnabled}
                         onToggle={toggleQuickTags}
+                    />
+                    <ToggleRow
+                        label="Sweep: extra lanes vary in speed"
+                        on={sweepVarispeed}
+                        onToggle={toggleSweepVarispeed}
+                    />
+                    <ToggleRow
+                        label="Sweep: 1 / 3 / 6 move all lanes"
+                        on={sweepAllLanes}
+                        onToggle={toggleSweepAllLanes}
                     />
                     <SliderInput
                         name="tile size"
@@ -754,30 +818,162 @@ export default function Sidebar({
     const [newFolderName, setNewFolderName] = useState("");
     const [createFolderError, setCreateFolderError] = useState<string | null>(null);
 
+    const newFolderInputRef = useRef<HTMLInputElement>(null);
+
     const cancelCreateFolder = () => {
         setCreatingFolder(false);
         setNewFolderName("");
         setCreateFolderError(null);
     };
 
-    const submitCreateFolder = async () => {
-        if (!newFolderName.trim()) {
+    // Opening it puts the cursor in the name box (after the click that
+    // opened it has finished, so nothing takes focus back), and Esc leaves
+    // it from anywhere, not only from inside the box.
+    useEffect(() => {
+        if (!creatingFolder) return;
+        const raf = requestAnimationFrame(() => newFolderInputRef.current?.focus());
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            e.stopPropagation();
             cancelCreateFolder();
-            return;
-        }
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => {
+            cancelAnimationFrame(raf);
+            window.removeEventListener("keydown", onKey, true);
+        };
+    }, [creatingFolder]);
+
+    // Makes a folder (the + box, the search's "Create folder" row, filing
+    // dropped files). Returns its path, or the error.
+    const makeFolder = async (name: string): Promise<{ relativePath: string } | { error: string }> => {
         // If every folder was checked, keep it that way so the new folder
         // isn't silently filtered out of Compare etc.
         const paths = folders.map((n) => n.relativePath);
         const wasAllChecked = paths.every((p) => checkedFolders.has(p));
 
-        const result = await window.api.createFolder(newFolderName);
-        if ("error" in result) {
-            setCreateFolderError(result.error);
-            return;
-        }
+        const result = await window.api.createFolder(name);
+        if ("error" in result) return result;
         await refreshFolders();
         if (wasAllChecked) setAllChecked([...paths, result.relativePath]);
-        cancelCreateFolder();
+        return result;
+    };
+    // The same, with a failure shown under the search box.
+    const createFolderNamed = async (name: string): Promise<boolean> => {
+        const result = await makeFolder(name);
+        if ("error" in result) {
+            setCreateFolderError(result.error);
+            return false;
+        }
+        return true;
+    };
+
+    // ── Filing dropped files ─────────────────────────────────────────────
+    // Files dropped on the folder search start filing them: the rest of the
+    // app is covered (unusable) while you search for a folder, pick one (or
+    // Unsorted, or "Create folder" with the typed name) and confirm. Nothing
+    // moves, and no folder is made, until Confirm; Undo (or Esc) leaves the
+    // files where they were.
+    type FilingTarget =
+        | { kind: "folder"; path: string }
+        | { kind: "unsorted" }
+        | { kind: "new"; name: string };
+    const [filing, setFiling] = useState<string[] | null>(null);
+    const [filingQuery, setFilingQuery] = useState("");
+    const [filingTarget, setFilingTarget] = useState<FilingTarget | null>(null);
+    const [filingError, setFilingError] = useState<string | null>(null);
+    const [filingBusy, setFilingBusy] = useState(false);
+    const searchDrop = useFileDropTarget((paths) => {
+        setFiling(paths);
+        setFilingQuery(search);
+        setFilingTarget(null);
+        setFilingError(null);
+    });
+    const endFiling = () => {
+        setFiling(null);
+        setFilingQuery("");
+        setFilingTarget(null);
+        setFilingError(null);
+        setFilingBusy(false);
+    };
+
+    const filingQ = filingQuery.trim();
+    const filingFolders = folders
+        .filter((n) => n.name.toLowerCase().includes(filingQ.toLowerCase()))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    const filingOfferUnsorted = !filingQ || "unsorted".includes(filingQ.toLowerCase());
+    const filingOfferCreate =
+        filingQ !== "" && !folders.some((n) => n.name.toLowerCase() === filingQ.toLowerCase());
+    // Picking a different name (typing on after choosing "Create folder")
+    // keeps the choice in step with what's typed.
+    useEffect(() => {
+        setFilingTarget((t) => (t?.kind === "new" ? (filingOfferCreate ? { kind: "new", name: filingQ } : null) : t));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filingQ]);
+
+    const filingTargetLabel = (t: FilingTarget) =>
+        t.kind === "unsorted" ? "Unsorted" : t.kind === "new" ? `new folder "${t.name}"` : t.path;
+
+    const confirmFiling = async () => {
+        if (!filing || !filingTarget || filingBusy) return;
+        setFilingBusy(true);
+        setFilingError(null);
+        let target = "";
+        if (filingTarget.kind === "folder") target = filingTarget.path;
+        if (filingTarget.kind === "new") {
+            const made = await makeFolder(filingTarget.name);
+            if ("error" in made) {
+                setFilingError(made.error);
+                setFilingBusy(false);
+                return;
+            }
+            target = made.relativePath;
+        }
+        const { moved, errors } = await window.api.moveIntoFolder(filing, target);
+        const where = target || "Unsorted";
+        endFiling();
+        setSearch("");
+        if (errors.length > 0) {
+            setStatus(`Moved ${moved} of ${filing.length} to ${where} · ${errors.join(" · ")}`);
+        } else {
+            setStatus(`Moved ${moved} file${moved === 1 ? "" : "s"} to ${where}`);
+            setTimeout(resetStatus, 2500);
+        }
+    };
+
+    // While filing, keys belong to it: Esc undoes, Enter confirms (or picks
+    // the first result), and nothing reaches the views behind the cover.
+    // Typing still goes into the search box (only the event's travel is
+    // stopped, not the typing).
+    const filingKeys = useRef({ confirmFiling, endFiling, filingTarget, filingFolders, filingOfferUnsorted, filingOfferCreate, filingQ });
+    filingKeys.current = { confirmFiling, endFiling, filingTarget, filingFolders, filingOfferUnsorted, filingOfferCreate, filingQ };
+    useEffect(() => {
+        if (!filing) return;
+        const onKey = (e: KeyboardEvent) => {
+            e.stopPropagation();
+            const k = filingKeys.current;
+            if (e.key === "Escape") {
+                e.preventDefault();
+                k.endFiling();
+            } else if (e.key === "Enter") {
+                e.preventDefault();
+                if (k.filingTarget) k.confirmFiling();
+                else if (k.filingFolders[0]) setFilingTarget({ kind: "folder", path: k.filingFolders[0].relativePath });
+                else if (k.filingOfferCreate) setFilingTarget({ kind: "new", name: k.filingQ });
+                else if (k.filingOfferUnsorted) setFilingTarget({ kind: "unsorted" });
+            }
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, [filing]);
+
+    const submitCreateFolder = async () => {
+        if (!newFolderName.trim()) {
+            cancelCreateFolder();
+            return;
+        }
+        if (await createFolderNamed(newFolderName)) cancelCreateFolder();
     };
 
     const isFilterable = !view.startsWith("browse") && view!=="tag-manager";
@@ -790,6 +986,12 @@ export default function Sidebar({
               n.name.toLowerCase().includes(search.trim().toLowerCase()),
           )
         : sortedFolders;
+
+    // Searching for a name no folder has exactly (ignoring case): offer to
+    // make it, at the end of the results.
+    const searchName = search.trim();
+    const offerCreate =
+        isSearching && !folders.some((n) => n.name.toLowerCase() === searchName.toLowerCase());
 
     const allPaths = folders.map((n) => n.relativePath);
     const allChecked = allPaths.every((p) => checkedFolders.has(p));
@@ -825,9 +1027,96 @@ export default function Sidebar({
                         {rootPath!.split("/").pop()}
                     </h1>
 
-                    <div className="px-2 my-2 flex items-center gap-1.5">
+                    {filing && (
+                        <>
+                            {/* Covers the whole app while filing. */}
+                            {createPortal(
+                                <div className="fixed inset-0 z-40 bg-black/60" />,
+                                document.body,
+                            )}
+                            {/* The filing panel, above the cover. */}
+                            <div className="relative z-50 mx-2 my-2 flex flex-col gap-2 rounded-lg border border-neutral-600 bg-neutral-900 p-2 shadow-2xl">
+                                <p className="px-1 text-[11px] text-neutral-400">
+                                    Add{" "}
+                                    <span className="text-neutral-200">
+                                        {filing.length === 1
+                                            ? filing[0].split("/").pop()
+                                            : `${filing.length} files`}
+                                    </span>{" "}
+                                    to…
+                                </p>
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    value={filingQuery}
+                                    onChange={(e) => {
+                                        setFilingQuery(e.target.value);
+                                        setFilingError(null);
+                                    }}
+                                    placeholder="Search folders, or type a new name…"
+                                    className="w-full rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none ring-1 ring-neutral-600"
+                                />
+                                <div className="max-h-64 overflow-y-auto">
+                                    {filingOfferUnsorted && (
+                                        <FilingRow
+                                            selected={filingTarget?.kind === "unsorted"}
+                                            onClick={() => setFilingTarget({ kind: "unsorted" })}
+                                        >
+                                            <span className="italic">Unsorted</span>
+                                        </FilingRow>
+                                    )}
+                                    {filingFolders.map((n) => (
+                                        <FilingRow
+                                            key={n.relativePath}
+                                            selected={filingTarget?.kind === "folder" && filingTarget.path === n.relativePath}
+                                            onClick={() => setFilingTarget({ kind: "folder", path: n.relativePath })}
+                                        >
+                                            {n.name}
+                                        </FilingRow>
+                                    ))}
+                                    {filingOfferCreate && (
+                                        <FilingRow
+                                            selected={filingTarget?.kind === "new"}
+                                            onClick={() => setFilingTarget({ kind: "new", name: filingQ })}
+                                        >
+                                            <span className="text-sm leading-none">+</span> Create folder "
+                                            <span className="text-neutral-200">{filingQ}</span>"
+                                        </FilingRow>
+                                    )}
+                                    {!filingOfferUnsorted && filingFolders.length === 0 && !filingOfferCreate && (
+                                        <p className="px-2 py-1.5 text-xs text-neutral-600">No folders match</p>
+                                    )}
+                                </div>
+                                {filingError && <p className="px-1 text-[11px] text-red-400">{filingError}</p>}
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={endFiling}
+                                        title="Leave the files where they were (Esc)"
+                                        className="rounded px-2.5 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
+                                    >
+                                        Undo
+                                    </button>
+                                    <button
+                                        onClick={confirmFiling}
+                                        disabled={!filingTarget || filingBusy}
+                                        title="Enter"
+                                        className="ml-auto truncate rounded bg-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-900 hover:bg-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                        {filingBusy
+                                            ? "Moving…"
+                                            : filingTarget
+                                              ? `Confirm: ${filingTargetLabel(filingTarget)}`
+                                              : "Pick a folder"}
+                                    </button>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                    <div className={`px-2 my-2 flex items-center gap-1.5 ${filing ? "hidden" : ""}`}>
                         {creatingFolder ? (
+                            <>
                             <input
+                                ref={newFolderInputRef}
                                 type="text"
                                 autoFocus
                                 value={newFolderName}
@@ -844,14 +1133,38 @@ export default function Sidebar({
                                 placeholder="New folder name…"
                                 className="flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none ring-1 ring-neutral-600 transition-colors"
                             />
+                            <button
+                                // mousedown, before the box loses focus.
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    cancelCreateFolder();
+                                }}
+                                title="Cancel (Esc)"
+                                className="flex-shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            </>
                         ) : (
                             <>
                                 <input
                                     type="text"
+                                    // Drop files here to file them into a folder.
+                                    {...searchDrop.dropHandlers}
+                                    title="Search folders, or drop files here to add them to one"
                                     value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder={`Search ${sortedFolders.length} folders…`}
-                                    className="flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors"
+                                    onChange={(e) => {
+                                        setSearch(e.target.value);
+                                        setCreateFolderError(null);
+                                    }}
+                                    placeholder={
+                                        searchDrop.isDropTarget
+                                            ? "Drop to add to a folder…"
+                                            : `Search ${sortedFolders.length} folders…`
+                                    }
+                                    className={`flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors ${
+                                        searchDrop.isDropTarget ? "ring-2 ring-neutral-300" : ""
+                                    }`}
                                 />
                                 {search && (
                                     <button
@@ -862,6 +1175,9 @@ export default function Sidebar({
                                     </button>
                                 )}
                                 <button
+                                    // Keep focus off the button, so the name
+                                    // box gets it.
+                                    onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => setCreatingFolder(true)}
                                     title="New folder"
                                     className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 transition-colors text-base leading-none"
@@ -997,9 +1313,25 @@ export default function Sidebar({
                                 />
                             ))
                         ) : (
-                            <p className="px-5 py-2 text-xs text-neutral-600">
-                                No folders match
-                            </p>
+                            !offerCreate && (
+                                <p className="px-5 py-2 text-xs text-neutral-600">
+                                    No folders match
+                                </p>
+                            )
+                        )}
+                        {offerCreate && (
+                            <button
+                                onClick={async () => {
+                                    if (await createFolderNamed(searchName)) setSearch("");
+                                }}
+                                title={`Create a folder named "${searchName}"`}
+                                className="flex w-full items-center gap-2 px-5 py-1.5 text-left text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
+                            >
+                                <span className="text-sm leading-none">+</span>
+                                <span className="truncate">
+                                    Create folder "<span className="text-neutral-200">{searchName}</span>"
+                                </span>
+                            </button>
                         )}
                     </div>
                 </div>
@@ -1028,6 +1360,12 @@ export default function Sidebar({
                     icon={<ScrollIcon className="w-5"/>}
                     active={view === "scroll"}
                     onClick={() => setView("scroll")}
+                />
+                <NavItem
+                    title={"Sweep (tag one tag at a time)"}
+                    icon={<SweepIcon className="w-5"/>}
+                    active={view === "sweep"}
+                    onClick={() => setView("sweep")}
                 />
                 <NavItem
                     title={"Tag Manager"}

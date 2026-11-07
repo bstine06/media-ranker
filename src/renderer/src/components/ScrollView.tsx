@@ -126,18 +126,23 @@ export default function ScrollView({
         if (currentFile) onFileChange?.(currentFile);
     }, [currentFile]);
 
-    // R: send the file on screen to Compare (the rest of the keys: lib/keys.ts).
+    // R: rotate the file on screen left. K: send it to Compare as king.
+    // (The rest of the keys: lib/keys.ts.)
     useEffect(() => {
-        if (!active || !onCrown || !currentFile) return;
+        if (!active || !currentFile) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.code !== "KeyR" || e.repeat) return;
-            if (e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
-            e.preventDefault();
-            onCrown(currentFile);
+            if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
+            if (e.code === "KeyR") {
+                e.preventDefault();
+                rotateLeft();
+            } else if (e.code === "KeyK" && onCrown) {
+                e.preventDefault();
+                onCrown(currentFile);
+            }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [active, onCrown, currentFile]);
+    }, [active, onCrown, currentFile, rotateLeft]);
 
     const handleDelete = async () => {
         if (!currentFile) return;
@@ -218,7 +223,7 @@ export default function ScrollView({
                 {allowRotate && (
                     <button
                         onClick={rotateLeft}
-                        title="Rotate left"
+                        title="Rotate left (R)"
                         tabIndex={nearTop ? 0 : -1}
                         className={`absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 p-2 text-neutral-300 hover:bg-black/70 hover:text-white transition-opacity duration-200 ${
                             nearTop ? "opacity-100" : "pointer-events-none opacity-0"
@@ -349,7 +354,7 @@ export default function ScrollView({
                         {onCrown && (
                             <button
                                 className="rounded p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors"
-                                title="Keep on screen in Compare (R)"
+                                title="Keep on screen in Compare (K)"
                                 onClick={() => onCrown(currentFile)}
                             >
                                 <CrownIcon className="h-4 w-4" />

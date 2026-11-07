@@ -7,6 +7,8 @@ export function getRandomFile(
     tagList: number[] | null,
     tagMode: "and" | "or" = "or",
     excludeIds: number[] = [],
+    /** Sweep: only files that don't have this tag (own or inherited). */
+    withoutTagId: number | null = null,
 ): DbFile | null {
     const db = getDb();
 
@@ -25,6 +27,13 @@ export function getRandomFile(
             .join(" OR ");
         conditions.push(`(${folderConds})`);
         params.push(...folderPrefixes.map(folderLikePattern));
+    }
+
+    if (withoutTagId != null) {
+        conditions.push(
+            `f.id NOT IN (SELECT file_id FROM file_effective_tags WHERE tag_id = ?)`,
+        );
+        params.push(withoutTagId);
     }
 
     const tagFilter = tagFilterSql(tagList, tagMode);

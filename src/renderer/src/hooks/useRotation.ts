@@ -9,14 +9,14 @@ import { preloadImage } from "@renderer/lib/imageCache";
  *
  * Clicks turn the preview at once; the file is saved once clicking stops
  * (or on leaving it), so several clicks make one save and one Trash item.
- * `onSaved` gets the new version (same record, new content hash) so the
- * caller can swap it in; MediaPlayer then hands a playing video over at
+ * `onSaved` gets the new version (same record, new content hash) and how
+ * many quarter turns it was turned, so the caller can swap it in; MediaPlayer then hands a playing video over at
  * the same moment instead of restarting it.
  */
 export function useRotation(
     currentFile: DbFile | null,
     rootPath: string,
-    onSaved: (file: DbFile) => void,
+    onSaved: (file: DbFile, turns: number) => void,
 ): { turns: (fileId: number) => number; rotateLeft: () => void } {
     const [preview, setPreview] = useState<{ id: number; turns: number }>({
         id: -1,
@@ -56,7 +56,7 @@ export function useRotation(
                     new Promise((r) => setTimeout(r, 1500)),
                 ]);
             }
-            onSavedRef.current(updated);
+            onSavedRef.current(updated, turns);
             dropPreview();
             // Clicked again while saving: carry those on to the new version.
             // (A plain read: TS narrowed the ref to null above, but clicks

@@ -45,6 +45,7 @@ import {
     getAllMetadataFieldNames,
     setFolderProfileImageByPath,
     getFolderByPath,
+    deleteFolderTree,
     getFolderMetadataByPath,
     getActiveFilesByTags,
     getMostUsedTags,
@@ -63,6 +64,8 @@ import {
     mergeTags,
     getTagImplications,
     reorderTags,
+    setTagSweep,
+    setCategoryTagsSweep,
     previewTagImplication,
     addTagImplication,
     removeTagImplication,
@@ -407,13 +410,10 @@ function registerIpcHandlers(): void {
     // library keep their record (score, tags, history); the folder's tags are
     // applied. Files from outside the library are just moved in and the
     // watcher indexes them. Never overwrites: clashes get " (2)" etc.
-    ipcMain.handle(
-        "move-into-folder",
-        async (
-            _event,
-            absPaths: string[],
-            targetFolder: string,
-        ): Promise<{ moved: number; errors: string[] }> => {
+    const moveIntoFolder = async (
+        absPaths: string[],
+        targetFolder: string,
+    ): Promise<{ moved: number; errors: string[] }> => {
             const errors: string[] = [];
             let moved = 0;
             if (!rootPath) return { moved, errors: ["No library open."] };
@@ -485,6 +485,109 @@ function registerIpcHandlers(): void {
                 }
             }
             return { moved, errors };
+    };
+
+    ipcMain.handle(
+        "move-into-folder",
+        (_event, absPaths: string[], targetFolder: string) =>
+            moveIntoFolder(absPaths, targetFolder),
+    );
+
+    // ── Deleting a folder (Browse) ───────────────────────────────────────
+    // What deleting would affect, for the confirm: its media files, other
+    // files in it (not media: they go to the Trash with the folder either
+    // way), subfolders, and what only the folder holds (tags, metadata,
+    // profile image).
+    ipcMain.handle("folder:delete-preview", async (_event, folderRelPath: string) => {
+        if (!rootPath) return null;
+        const root = rootPath;
+        const files = getFilesByFolder(folderRelPath);
+        const tracked = new Set(files.map((f) => f.path));
+        let otherFiles = 0;
+        let subfolders = 0;
+        const walk = async (dir: string): Promise<void> => {
+            let entries: import("fs").Dirent[] = [];
+            try {
+                entries = await fs.readdir(dir, { withFileTypes: true });
+            } catch {
+                return;
+            }
+            for (const entry of entries) {
+                if (entry.name.startsWith(".")) continue;
+                const abs = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    subfolders++;
+                    await walk(abs);
+                } else if (!tracked.has(path.relative(root, abs))) {
+                    otherFiles++;
+                }
+            }
+        };
+        await walk(path.join(root, folderRelPath));
+        const folder = getFolderByPath(folderRelPath);
+        return {
+            files: files.length,
+            otherFiles,
+            subfolders,
+            tags: getTagsForFolderByPath(folderRelPath)
+                .filter((t) => !t.inherited)
+                .map((t) => t.name),
+            metadata: getFolderMetadataByPath(folderRelPath).length,
+            profileImage: !!folder?.profile_image_hash,
+        };
+    });
+
+    // Delete a folder. "unsort": its media moves to the library root
+    // (Unsorted) first, keeping scores, tags and history; "trash": it all
+    // goes to the Trash. The folder itself (with anything left in it) goes
+    // to the Trash, and its tags, metadata and profile image are dropped.
+    // If any file can't be moved to Unsorted, nothing is deleted.
+    ipcMain.handle(
+        "folder:delete",
+        async (
+            _event,
+            folderRelPath: string,
+            mode: "trash" | "unsort",
+        ): Promise<{ ok: true } | { error: string }> => {
+            if (!rootPath) return { error: "No library open." };
+            if (!folderRelPath || folderRelPath.split("/").includes("..") || path.isAbsolute(folderRelPath)) {
+                return { error: "That isn't a folder in the library." };
+            }
+            const root = rootPath;
+            const dirAbs = path.join(root, folderRelPath);
+            const files = getFilesByFolder(folderRelPath);
+            const win = BrowserWindow.getAllWindows()[0];
+
+            if (mode === "unsort" && files.length > 0) {
+                const { errors } = await moveIntoFolder(
+                    files.map((f) => path.join(root, f.path)),
+                    "",
+                );
+                if (errors.length > 0) {
+                    return {
+                        error:
+                            `${errors.length} file${errors.length === 1 ? "" : "s"} couldn't be ` +
+                            `moved to Unsorted, so the folder was kept. ${errors[0]}.`,
+                    };
+                }
+            }
+
+            try {
+                if (existsSync(dirAbs)) await shell.trashItem(dirAbs);
+            } catch (err) {
+                console.error("Failed to trash folder:", dirAbs, err);
+                return { error: "Couldn't move the folder to the Trash." };
+            }
+
+            if (mode === "trash") {
+                for (const f of files) {
+                    markFileMissingById(f.id);
+                    win?.webContents.send("media:removed", { relativePath: f.path });
+                }
+            }
+            deleteFolderTree(folderRelPath);
+            win?.webContents.send("folder:removed", { relativePath: folderRelPath });
+            return { ok: true };
         },
     );
 
@@ -650,8 +753,15 @@ function registerIpcHandlers(): void {
             tagList: number[] | null,
             tagMode: "and" | "or",
             excludeIds: number[] = [],
+            withoutTagId: number | null = null,
         ) => {
-            return getRandomFile(folderPrefixes, tagList, tagMode, excludeIds);
+            return getRandomFile(
+                folderPrefixes,
+                tagList,
+                tagMode,
+                excludeIds,
+                withoutTagId,
+            );
         },
     );
 
@@ -809,11 +919,25 @@ function registerIpcHandlers(): void {
         },
     );
 
+    ipcMain.handle("set-tag-sweep", (_event, tagId: number, on: boolean) =>
+        setTagSweep(tagId, on),
+    );
+    ipcMain.handle(
+        "set-category-tags-sweep",
+        (_event, categoryId: number, on: boolean) => setCategoryTagsSweep(categoryId, on),
+    );
+
     ipcMain.handle(
         "reorder-tags",
         (_event, categoryId: number | null, tagIds: number[]) =>
             reorderTags(categoryId, tagIds),
     );
+
+    // Sweep's full screen: the window's own, so Esc reaches the page
+    // (the browser's full screen always takes Esc for itself).
+    ipcMain.handle("set-fullscreen", (event, on: boolean) => {
+        BrowserWindow.fromWebContents(event.sender)?.setFullScreen(on);
+    });
 
     ipcMain.handle("get-tag-implications", () => getTagImplications());
 
@@ -868,6 +992,7 @@ function registerIpcHandlers(): void {
                 icon?: string | null;
                 order_index?: number;
                 quick_tags?: number;
+                sweep?: number;
             },
         ) => {
             updateTagCategory(id, updates);

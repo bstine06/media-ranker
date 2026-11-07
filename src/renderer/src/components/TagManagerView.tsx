@@ -52,8 +52,14 @@ function CategoryEditor({
     const [icon, setIcon] = useState(category?.icon ?? PRESET_ICONS[0]);
     const [customIcon, setCustomIcon] = useState("");
 
-    const { allTags, allCategories, createCategory, updateCategory, deleteCategory } =
-        useTags();
+    const {
+        allTags,
+        allCategories,
+        createCategory,
+        updateCategory,
+        deleteCategory,
+        setCategoryTagsSweep,
+    } = useTags();
     // Live copy: the toggle below saves straight away.
     const liveCategory = category
         ? allCategories.find((c) => c.id === category.id)
@@ -265,6 +271,53 @@ function CategoryEditor({
 
             {liveCategory && <CategoryTagOrder category={liveCategory} />}
 
+            {liveCategory && (() => {
+                const own = allTags.filter((t) => t.category_id === liveCategory.id);
+                const onCount = own.filter((t) => t.sweep).length;
+                return (
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="flex flex-col gap-0.5">
+                                <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                                    Sweep
+                                </label>
+                                <p className="text-[11px] text-neutral-600">
+                                    Offer this category's tags in Sweep (its tag list and random
+                                    picks). Off overrides each tag's own setting.
+                                </p>
+                            </div>
+                            <OnOff
+                                on={!!liveCategory.sweep}
+                                onToggle={() =>
+                                    updateCategory(liveCategory.id, { sweep: liveCategory.sweep ? 0 : 1 })
+                                }
+                            />
+                        </div>
+                        {own.length > 0 && (
+                            <div className="flex items-center gap-2 text-[11px] text-neutral-500">
+                                <span>
+                                    {onCount} of {own.length} tags on
+                                </span>
+                                <button
+                                    onClick={() => setCategoryTagsSweep(liveCategory.id, true)}
+                                    disabled={onCount === own.length}
+                                    className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-400 transition-colors hover:bg-neutral-800 disabled:opacity-40"
+                                >
+                                    Turn all on
+                                </button>
+                                <button
+                                    onClick={() => setCategoryTagsSweep(liveCategory.id, false)}
+                                    disabled={onCount === 0}
+                                    className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-400 transition-colors hover:bg-neutral-800 disabled:opacity-40"
+                                >
+                                    Turn all off
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
+
             <div className="flex gap-2">
                 {!category && (
                     <>
@@ -310,6 +363,31 @@ function CategoryEditor({
                 />
             )}
         </div>
+    );
+}
+
+// The small on/off switch used for Tag Manager settings.
+function OnOff({
+    on,
+    onToggle,
+    disabled = false,
+}: {
+    on: boolean;
+    onToggle: () => void;
+    disabled?: boolean;
+}) {
+    return (
+        <button
+            onClick={onToggle}
+            disabled={disabled}
+            className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                on
+                    ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+            }`}
+        >
+            {on ? "on" : "off"}
+        </button>
     );
 }
 
@@ -575,7 +653,7 @@ function TagEditor({
     const [categoryId, setCategoryId] = useState<number | null>(
         tag.category_id,
     );
-    const { allCategories, tagMap, updateTag, mergeTags, deleteTag } = useTags();
+    const { allCategories, tagMap, updateTag, mergeTags, deleteTag, setTagSweep } = useTags();
     // The saved name (the input holds an unsaved edit).
     const savedName = tagMap.get(tag.id)?.name ?? tag.name;
     // Renamed onto an existing tag: confirm before merging, since the user
@@ -693,6 +771,33 @@ function TagEditor({
             </div>
 
             <TagLinksEditor tag={tag} />
+
+            {(() => {
+                const live = tagMap.get(tag.id) ?? tag;
+                const category = live.category_id != null
+                    ? allCategories.find((c) => c.id === live.category_id)
+                    : undefined;
+                const locked = category != null && !category.sweep;
+                return (
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="flex flex-col gap-0.5">
+                            <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                                Sweep
+                            </label>
+                            <p className="text-[11px] text-neutral-600">
+                                {locked
+                                    ? `Can't be changed: its category "${category!.name}" is off in Sweep. Turn the category on to choose for this tag.`
+                                    : "Offer this tag in Sweep (its tag list and random picks)."}
+                            </p>
+                        </div>
+                        <OnOff
+                            on={!locked && !!live.sweep}
+                            disabled={locked}
+                            onToggle={() => setTagSweep(tag.id, !live.sweep)}
+                        />
+                    </div>
+                );
+            })()}
 
             <div className="flex gap-2">
                 <button
