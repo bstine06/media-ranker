@@ -45,6 +45,10 @@ interface Settings {
     /** Sweep's extra lanes run slightly faster / slower than the top one. */
     sweepVarispeed: boolean;
     toggleSweepVarispeed: () => void;
+    /** Scrubbing in Sweep stops the lanes until 3 (off: they pick up again
+     *  1 s after the last scrub). */
+    sweepScrubHold: boolean;
+    toggleSweepScrubHold: () => void;
     /** Sweep's 1 / 3 / 6 (and edge zones) move every lane, not just the
      *  one under the cursor. */
     sweepAllLanes: boolean;
@@ -86,6 +90,8 @@ const SettingsContext = createContext<Settings>({
     setSweepSpeed: () => {},
     sweepVarispeed: false,
     toggleSweepVarispeed: () => {},
+    sweepScrubHold: false,
+    toggleSweepScrubHold: () => {},
     sweepAllLanes: false,
     toggleSweepAllLanes: () => {},
 });
@@ -183,6 +189,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const [sweepSpeed, setSweepSpeed] = useState(() => savedNum("sweepSpeed", 90, 20, 1000));
     const [sweepVarispeed, setSweepVarispeed] = useState(() => savedBool("sweepVarispeed", false));
     const toggleSweepVarispeed = useCallback(() => setSweepVarispeed((v) => !v), []);
+    const [sweepScrubHold, setSweepScrubHold] = useState(() => savedBool("sweepScrubHold", false));
+    const toggleSweepScrubHold = useCallback(() => setSweepScrubHold((v) => !v), []);
     const [sweepAllLanes, setSweepAllLanes] = useState(() => savedBool("sweepAllLanes", false));
     const toggleSweepAllLanes = useCallback(() => setSweepAllLanes((v) => !v), []);
 
@@ -243,6 +251,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     sweepInterval,
                     sweepSpeed,
                     sweepVarispeed,
+                    sweepScrubHold,
                     sweepAllLanes,
                 })
                 .catch(() => {});
@@ -266,6 +275,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         sweepInterval,
         sweepSpeed,
         sweepVarispeed,
+        sweepScrubHold,
         sweepAllLanes,
     ]);
 
@@ -306,6 +316,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 setSweepSpeed,
                 sweepVarispeed,
                 toggleSweepVarispeed,
+                sweepScrubHold,
+                toggleSweepScrubHold,
                 sweepAllLanes,
                 toggleSweepAllLanes,
             }}

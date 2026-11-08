@@ -464,6 +464,8 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
         toggleShowLibraryRank,
         sweepVarispeed,
         toggleSweepVarispeed,
+        sweepScrubHold,
+        toggleSweepScrubHold,
         sweepAllLanes,
         toggleSweepAllLanes,
     } = useSettings();
@@ -530,6 +532,11 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         label="Sweep: 1 / 3 / 6 move all lanes"
                         on={sweepAllLanes}
                         onToggle={toggleSweepAllLanes}
+                    />
+                    <ToggleRow
+                        label="Sweep: scrubbing stops lanes until 3"
+                        on={sweepScrubHold}
+                        onToggle={toggleSweepScrubHold}
                     />
                     <SliderInput
                         name="tile size"

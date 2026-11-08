@@ -360,6 +360,15 @@ const PLAY_MARGIN_PX = 300;
 const EDGE_ZONE_LEFT = 0.1;
 const EDGE_ZONE_RIGHT = 0.4;
 const EDGE_FULL_RIGHT = 0.08;
+/** Lanes stopped for a scrub pick up again this long after the last one
+ *  (unless the setting keeps them stopped until 3). */
+const SCRUB_RESUME_MS = 1000;
+/** A scrub's stop: how fast lanes ease to a halt (higher = shorter slide),
+ *  the speed (px/s) under which they count as stopped, and how fast they
+ *  then glide back to where the scrub began. */
+const SCRUB_STOP_EASE = 24;
+const SCRUB_SETTLED = 8;
+const SCRUB_RETURN_EASE = 8;
 /** How many tags show on each side of the one at the history cursor. */
 const STACK_SHOWN = 2;
 
@@ -548,7 +557,7 @@ function SweepStrip({
     setVisible: (ids: number[]) => void;
     onCompare: (file: DbFile) => void;
 }): JSX.Element {
-    const { sweepVarispeed, sweepAllLanes } = useSettings();
+    const { sweepVarispeed, sweepAllLanes, sweepScrubHold } = useSettings();
     const boxRef = useRef<HTMLDivElement>(null);
     const [box, setBox] = useState({ width: 0, height: 0 });
 
@@ -566,6 +575,55 @@ function SweepStrip({
     motionRef.current = motion;
     const setLaneMotion = (lanes: number[], patch: Partial<LaneMotion>) =>
         setMotion((m) => m.map((x, i) => (lanes.includes(i) ? { ...x, ...patch } : x)));
+
+    // ── Scrub pause ──────────────────────────────────────────────────────
+    // Q / E on a video stop every lane: you're watching that one. They stop
+    // quickly, then glide back to where they were at the first scrub, so
+    // the pointer ends up on the same video. Scrubbing stays on the video
+    // the first press picked (the lock) until the mouse moves or the lanes
+    // go again. With the setting on they stay stopped until 3. Otherwise
+    // they pick up again SCRUB_RESUME_MS after the last scrub, as they were
+    // (a rewind comes back as forward). Pressing 1 / 3 / 6, opening the
+    // picker or leaving ends it: you've taken over.
+    const scrubHoldRef = useRef(sweepScrubHold);
+    scrubHoldRef.current = sweepScrubHold;
+    // Lanes are stopped for a scrub (they ease fast and glide back).
+    const scrubbingRef = useRef(false);
+    // The tile key of the video being scrubbed.
+    const scrubLock = useRef<number | null>(null);
+    const scrubResume = useRef<(1 | 0 | -1)[] | null>(null);
+    const scrubTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const clearScrubTimer = () => {
+        if (scrubTimer.current) clearTimeout(scrubTimer.current);
+        scrubTimer.current = null;
+        scrubResume.current = null;
+    };
+    const cancelScrubResume = useCallback(() => {
+        clearScrubTimer();
+        scrubbingRef.current = false;
+        scrubLock.current = null;
+    }, []);
+    const pauseForScrub = () => {
+        if (scrubHoldRef.current) {
+            clearScrubTimer();
+        } else {
+            if (!scrubResume.current) {
+                scrubResume.current = motionRef.current.map((m) => (m.dir === -1 ? 1 : m.dir));
+            }
+            if (scrubTimer.current) clearTimeout(scrubTimer.current);
+            scrubTimer.current = setTimeout(() => {
+                const resume = scrubResume.current;
+                cancelScrubResume();
+                if (resume) setMotion(resume.map((dir) => ({ dir, boost: false })));
+            }, SCRUB_RESUME_MS);
+        }
+        scrubbingRef.current = true;
+        setMotion((m) => m.map(() => ({ dir: 0, boost: false })));
+    };
+    useEffect(() => {
+        if (!active) cancelScrubResume();
+    }, [active, cancelScrubResume]);
+    useEffect(() => cancelScrubResume, [cancelScrubResume]);
     // Per lane, read every frame: velocity (px/s), edge-zone depth, boost.
     const velocities = useRef<number[]>(Array(MAX_LANES).fill(0));
     const edgeDepths = useRef<number[]>(Array(MAX_LANES).fill(0));
@@ -818,7 +876,10 @@ function SweepStrip({
 
     const openPicker = useCallback(() => {
         if (pickingRef.current) return;
-        resumeMotion.current = motionRef.current.map((m) => (m.dir === -1 ? 1 : m.dir));
+        // Lanes paused for a scrub stay paused under the picker, and come
+        // back from it as they were before the scrub.
+        resumeMotion.current = scrubResume.current ?? motionRef.current.map((m) => (m.dir === -1 ? 1 : m.dir));
+        cancelScrubResume();
         applyEdgeRef.current(null, 0, []);
         setMotion((m) => m.map(() => ({ dir: 0, boost: false })));
         setQuery("");
@@ -1153,6 +1214,7 @@ function SweepStrip({
                     // Fast reverse while held (forward again on release).
                     e.preventDefault();
                     if (e.repeat) return;
+                    cancelScrubResume();
                     const lanes = targetLanes();
                     heldLanes.current.one = lanes;
                     setLaneMotion(lanes, { dir: -1, boost: true });
@@ -1161,11 +1223,13 @@ function SweepStrip({
                 case "Digit6":
                     // Stop (the lane under the cursor, or all of them).
                     e.preventDefault();
+                    cancelScrubResume();
                     setLaneMotion(targetLanes(), { dir: 0, boost: false });
                     break;
                 case "Digit3": {
                     e.preventDefault();
                     if (e.repeat) return;
+                    cancelScrubResume();
                     const lanes = targetLanes();
                     heldLanes.current.three = lanes;
                     setLaneMotion(lanes, { dir: 1, boost: true });
@@ -1194,10 +1258,16 @@ function SweepStrip({
                 case "KeyE":
                 case "ArrowLeft":
                 case "ArrowRight": {
-                    // Scrub the active video, as everywhere else.
+                    // Scrub the active video, as everywhere else. The lanes
+                    // stop meanwhile (see Scrub pause).
                     e.preventDefault();
-                    const video = activeItem ? videoEls.current.get(activeItem.key) : undefined;
-                    if (video) stepVideo(video, e.code === "KeyQ" || e.code === "ArrowLeft" ? -1 : 1);
+                    const key = scrubLock.current ?? activeItem?.key;
+                    const video = key != null ? videoEls.current.get(key) : undefined;
+                    if (key != null && video) {
+                        scrubLock.current = key;
+                        pauseForScrub();
+                        stepVideo(video, e.code === "KeyQ" || e.code === "ArrowLeft" ? -1 : 1);
+                    }
                     break;
                 }
                 case "KeyR":
@@ -1252,7 +1322,11 @@ function SweepStrip({
                 // Really moved: a 2 shift ends and the pointer follows the
                 // mouse again.
                 const last = lastScreen.current;
-                if (!last || last.x !== e.screenX || last.y !== e.screenY) laneOffset.current = 0;
+                if (!last || last.x !== e.screenX || last.y !== e.screenY) {
+                    laneOffset.current = 0;
+                    // Aiming somewhere else: the next scrub picks again.
+                    scrubLock.current = null;
+                }
                 lastScreen.current = { x: e.screenX, y: e.screenY };
                 mouseX.current = x;
                 mouseY.current = e.clientY - rect.top;
@@ -1310,6 +1384,7 @@ function SweepStrip({
                         velocities={velocities}
                         edgeDepths={edgeDepths}
                         pickingRef={pickingRef}
+                        scrubbingRef={scrubbingRef}
                         isPointerLane={pointerLane === i}
                         mouseX={mouseX}
                         keyCounter={keyCounter}
@@ -1513,6 +1588,7 @@ function StripLane({
     velocities,
     edgeDepths,
     pickingRef,
+    scrubbingRef,
     isPointerLane,
     mouseX,
     keyCounter,
@@ -1541,6 +1617,8 @@ function StripLane({
     velocities: React.MutableRefObject<number[]>;
     edgeDepths: React.MutableRefObject<number[]>;
     pickingRef: React.MutableRefObject<boolean>;
+    /** Stopped for a scrub: stop fast, then glide back to where it was. */
+    scrubbingRef: React.MutableRefObject<boolean>;
     isPointerLane: boolean;
     mouseX: React.MutableRefObject<number | null>;
     keyCounter: React.MutableRefObject<number>;
@@ -1560,6 +1638,9 @@ function StripLane({
     // The row's left edge, in px from the strip's left edge.
     const offset = useRef(0);
     const boostLevel = useRef(1);
+    // While stopped for a scrub: how far it has moved since the scrub began
+    // (px, offset change), to glide back by.
+    const scrubTravel = useRef<number | null>(null);
     const fetching = useRef(false);
     const [exhausted, setExhausted] = useState(false);
     // Width added or dropped on the left by the last change to `items`,
@@ -1704,10 +1785,29 @@ function StripLane({
             // Rotating one of its files: ease to a stop.
             const target = holdStill ? 0 : motion.dir * cruise * boostLevel.current;
             const v = velocities.current[index];
+            const scrubbing = scrubbingRef.current;
             // Snappy into and out of fast forward; gentle for everything else.
-            const ease = motion.boost || depth > 0 || pickingRef.current || Math.abs(v) > cruise * 1.5 ? 12 : 4;
+            // A scrub stops it quickest, so it hardly slides.
+            const ease = scrubbing
+                ? SCRUB_STOP_EASE
+                : motion.boost || depth > 0 || pickingRef.current || Math.abs(v) > cruise * 1.5
+                  ? 12
+                  : 4;
             velocities.current[index] = v + (target - v) * Math.min(1, dt * ease);
-            offset.current -= velocities.current[index] * dt;
+            const moved = -velocities.current[index] * dt;
+            offset.current += moved;
+            if (scrubbing) {
+                if (scrubTravel.current === null) scrubTravel.current = 0;
+                scrubTravel.current += moved;
+                // Nearly stopped: glide back to where the scrub began.
+                if (Math.abs(velocities.current[index]) < SCRUB_SETTLED) {
+                    const back = -scrubTravel.current * Math.min(1, dt * SCRUB_RETURN_EASE);
+                    offset.current += back;
+                    scrubTravel.current += back;
+                }
+            } else {
+                scrubTravel.current = null;
+            }
             if (rowRef.current) rowRef.current.style.transform = `translateX(${offset.current}px)`;
 
             const list = itemsRef.current;
@@ -1928,7 +2028,7 @@ const STRIP_HINTS: [string, string][] = [
     ["+ / −", "add a lane below / remove the bottom one (up to 3)"],
     ["2", "pointer to the next lane (same height in it)"],
     ["`", "new random tag"],
-    ["Q / E", "scrub the video back / forward"],
+    ["Q / E", "scrub the video back / forward (lanes stop meanwhile)"],
     ["G", "open in file view"],
     ["R", "rotate left"],
     ["K", "send to Compare (king)"],
