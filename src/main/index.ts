@@ -62,6 +62,7 @@ import {
     countRootFiles,
     getTagUsage,
     mergeTags,
+    addTagCheckSeconds,
     getTagImplications,
     reorderTags,
     setTagSweep,
@@ -687,6 +688,12 @@ function registerIpcHandlers(): void {
         if (existing) removeTagFromFile(fileId, existing.id);
         return getTagsForFile(fileId);
     });
+
+    ipcMain.handle(
+        "add-tag-check-seconds",
+        (_event, tagId: number, entries: { fileId: number; seconds: number }[]) =>
+            addTagCheckSeconds(tagId, entries),
+    );
 
     ipcMain.handle("get-all-tags", () => {
         return getAllTags();

@@ -104,6 +104,8 @@ declare global {
             getTags: (fileId: number) => Promise<DbTag[]>;
             addTag: (fileId: number, tag: string) => Promise<DbTag[]>;
             removeTag: (fileId: number, tag: string) => Promise<DbTag[]>;
+            /** Sweep: time each file was on screen with this tag up. */
+            addTagCheckSeconds: (tagId: number, entries: { fileId: number; seconds: number }[]) => Promise<void>;
             getAllTags: () => Promise<DbTag[]>;
             addTagToFolder: (
                 folderRelPath: string,

@@ -194,6 +194,19 @@ export function initDb(rootPath: string): Database.Database {
             timestamp   TEXT    NOT NULL DEFAULT (datetime('now'))
         );
 
+        -- How much each file has been checked for each tag, for coverage.
+        -- seconds: time on screen in Sweep with that tag up (the threshold
+        -- for a "no" is applied when reading). rejected: the user removed
+        -- that tag from the file. A yes isn't stored: it's having the tag.
+        CREATE TABLE IF NOT EXISTS tag_checks (
+            file_id    INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            tag_id     INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
+            seconds    REAL    NOT NULL DEFAULT 0,
+            rejected   INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (file_id, tag_id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_files_hash        ON files(content_hash);
         CREATE INDEX IF NOT EXISTS idx_files_path        ON files(path);
         CREATE INDEX IF NOT EXISTS idx_files_folder      ON files(folder_id);
@@ -204,6 +217,7 @@ export function initDb(rootPath: string): Database.Database {
         CREATE INDEX IF NOT EXISTS idx_tags_category     ON tags(category_id);
         CREATE INDEX IF NOT EXISTS idx_tag_implications_implies ON tag_implications(implies_id);
         CREATE INDEX IF NOT EXISTS idx_tag_implied_implied ON tag_implied(implied_id);
+        CREATE INDEX IF NOT EXISTS idx_tag_checks_tag    ON tag_checks(tag_id);
     `);
 
     // ── Migrations (safe to run on every startup) ──────────────────────────
@@ -1030,6 +1044,16 @@ export function mergeTags(sourceId: number, targetId: number): MergeTagsResult {
             `INSERT OR IGNORE INTO folder_tags (folder_id, tag_id)
              SELECT folder_id, ? FROM folder_tags WHERE tag_id = ?`,
         ).run(targetId, sourceId);
+        // Checks move too; where both have one, the larger counts (a merge
+        // shouldn't add up to a "no" nobody made).
+        db.prepare(
+            `INSERT INTO tag_checks (file_id, tag_id, seconds, rejected, updated_at)
+             SELECT file_id, ?, seconds, rejected, updated_at
+             FROM tag_checks WHERE tag_id = ?
+             ON CONFLICT (file_id, tag_id) DO UPDATE SET
+                 seconds  = max(seconds, excluded.seconds),
+                 rejected = max(rejected, excluded.rejected)`,
+        ).run(targetId, sourceId);
         db.prepare(`DELETE FROM tags WHERE id = ?`).run(sourceId); // cascades
         rebuildTagImplied();
         // A file may now have the target both as its own and inherited.
@@ -1454,10 +1478,45 @@ export function addTagToFile(fileId: number, tagId: number): void {
     })();
 }
 
+// Removes the file's own copy of a tag (inherited tags can't be removed
+// here). Taking a tag off is a deliberate "no", so it's recorded as one.
 export function removeTagFromFile(fileId: number, tagId: number): void {
-    getDb()
-        .prepare(`DELETE FROM file_tags WHERE file_id = ? AND tag_id = ?`)
-        .run(fileId, tagId);
+    const db = getDb();
+    db.transaction(() => {
+        const { changes } = db
+            .prepare(`DELETE FROM file_tags WHERE file_id = ? AND tag_id = ?`)
+            .run(fileId, tagId);
+        if (changes > 0) {
+            db.prepare(
+                `INSERT INTO tag_checks (file_id, tag_id, rejected) VALUES (?, ?, 1)
+                 ON CONFLICT (file_id, tag_id)
+                 DO UPDATE SET rejected = 1, updated_at = datetime('now')`,
+            ).run(fileId, tagId);
+        }
+    })();
+}
+
+// Sweep: adds time each file spent on screen while this tag was up.
+// Files or tags deleted meanwhile are skipped.
+export function addTagCheckSeconds(
+    tagId: number,
+    entries: { fileId: number; seconds: number }[],
+): void {
+    const db = getDb();
+    const upsert = db.prepare(
+        `INSERT INTO tag_checks (file_id, tag_id, seconds)
+         SELECT @fileId, @tagId, @seconds
+         WHERE EXISTS (SELECT 1 FROM files WHERE id = @fileId)
+           AND EXISTS (SELECT 1 FROM tags WHERE id = @tagId)
+         ON CONFLICT (file_id, tag_id)
+         DO UPDATE SET seconds = seconds + excluded.seconds,
+                       updated_at = datetime('now')`,
+    );
+    db.transaction(() => {
+        for (const { fileId, seconds } of entries) {
+            if (seconds > 0) upsert.run({ fileId, tagId, seconds });
+        }
+    })();
 }
 
 // Ids of files passing a tag filter (see tagFilter.ts), any status.

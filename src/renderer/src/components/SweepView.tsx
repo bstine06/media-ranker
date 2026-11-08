@@ -369,6 +369,11 @@ const SCRUB_RESUME_MS = 1000;
 const SCRUB_STOP_EASE = 24;
 const SCRUB_SETTLED = 8;
 const SCRUB_RETURN_EASE = 8;
+/** Coverage: a file counts as on screen once this share of its width is
+ *  showing; time seen is saved this often (and on tag change, leaving or
+ *  the window losing focus). */
+const CHECK_MIN_VISIBLE = 0.5;
+const CHECK_FLUSH_MS = 5000;
 /** How many tags show on each side of the one at the history cursor. */
 const STACK_SHOWN = 2;
 
@@ -923,6 +928,52 @@ function SweepStrip({
     // The pointer's lane's file under it: the one the keys act on.
     const activeItem = activeByLane[pointerLane];
 
+    // ── Coverage: time seen ──────────────────────────────────────────────
+    // While a tag is up, the lanes add up how long each file is on screen
+    // while really being watched (see StripLane), for that tag. Saved as
+    // raw seconds; what counts as a "no" is decided when reading. Nothing
+    // counts with no tag, the picker open, H on or mid-reroll.
+    const checkTagId = useRef<number | null>(null);
+    checkTagId.current = tag && !picking && !contentOnly && !rollFrom ? tag.id : null;
+    const seenSeconds = useRef(new Map<number, number>());
+    const seenTagId = useRef<number | null>(null);
+    // Goes up when the tag changes, so lanes start each file's trip mark over.
+    const checkEpoch = useRef(0);
+    const flushSeen = useCallback(() => {
+        const tagId = seenTagId.current;
+        const seen = seenSeconds.current;
+        if (tagId == null || seen.size === 0) return;
+        const entries = [...seen].map(([fileId, seconds]) => ({ fileId, seconds }));
+        seenSeconds.current = new Map();
+        window.api.addTagCheckSeconds(tagId, entries).catch(() => {});
+    }, []);
+    const addSeen = useCallback(
+        (fileId: number, dt: number) => {
+            const tagId = checkTagId.current;
+            if (tagId == null) return;
+            if (seenTagId.current !== tagId) {
+                flushSeen();
+                seenTagId.current = tagId;
+            }
+            seenSeconds.current.set(fileId, (seenSeconds.current.get(fileId) ?? 0) + dt);
+        },
+        [flushSeen],
+    );
+    useEffect(() => {
+        checkEpoch.current += 1;
+        flushSeen();
+    }, [tag?.id, flushSeen]);
+    useEffect(() => {
+        if (!active) return;
+        const t = setInterval(flushSeen, CHECK_FLUSH_MS);
+        window.addEventListener("blur", flushSeen);
+        return () => {
+            clearInterval(t);
+            window.removeEventListener("blur", flushSeen);
+            flushSeen();
+        };
+    }, [active, flushSeen]);
+
     // Caught first (capture) and kept from everything else: the app-wide T,
     // the view's F / H, the strip's own keys.
     // (toggleOn is filled in once it exists, below.)
@@ -1385,6 +1436,9 @@ function SweepStrip({
                         edgeDepths={edgeDepths}
                         pickingRef={pickingRef}
                         scrubbingRef={scrubbingRef}
+                        checkTagId={checkTagId}
+                        checkEpoch={checkEpoch}
+                        addSeen={addSeen}
                         isPointerLane={pointerLane === i}
                         mouseX={mouseX}
                         keyCounter={keyCounter}
@@ -1589,6 +1643,9 @@ function StripLane({
     edgeDepths,
     pickingRef,
     scrubbingRef,
+    checkTagId,
+    checkEpoch,
+    addSeen,
     isPointerLane,
     mouseX,
     keyCounter,
@@ -1619,6 +1676,11 @@ function StripLane({
     pickingRef: React.MutableRefObject<boolean>;
     /** Stopped for a scrub: stop fast, then glide back to where it was. */
     scrubbingRef: React.MutableRefObject<boolean>;
+    /** The tag time seen counts toward, or null while nothing counts. */
+    checkTagId: React.MutableRefObject<number | null>;
+    /** Changes with the tag: start every trip mark over. */
+    checkEpoch: React.MutableRefObject<number>;
+    addSeen: (fileId: number, seconds: number) => void;
     isPointerLane: boolean;
     mouseX: React.MutableRefObject<number | null>;
     keyCounter: React.MutableRefObject<number>;
@@ -1641,6 +1703,11 @@ function StripLane({
     // While stopped for a scrub: how far it has moved since the scrub began
     // (px, offset change), to glide back by.
     const scrubTravel = useRef<number | null>(null);
+    // Coverage: per tile on its current trip (by item key), the furthest
+    // left its left edge has been. Only new ground counts, so a stretch
+    // watched again after a rewind (or skipped by fast forward) doesn't.
+    const tripMinX = useRef(new Map<number, number>());
+    const tripEpoch = useRef(-1);
     const fetching = useRef(false);
     const [exhausted, setExhausted] = useState(false);
     // Width added or dropped on the left by the last change to `items`,
@@ -1731,6 +1798,11 @@ function StripLane({
         offset.current += pendingShift.current;
         pendingShift.current = 0;
         if (rowRef.current) rowRef.current.style.transform = `translateX(${offset.current}px)`;
+        // Tiles that left the row: their trips are over.
+        const keys = new Set(items.map((it) => it.key));
+        for (const key of tripMinX.current.keys()) {
+            if (!keys.has(key)) tripMinX.current.delete(key);
+        }
     }, [items]);
 
     // A new tag can bring files back, and so can waiting.
@@ -1812,12 +1884,37 @@ function StripLane({
 
             const list = itemsRef.current;
             const pointer = mouseX.current ?? width * POINTER_AT;
+            // Time seen counts only going forward at the lane's own speed:
+            // not stopped, rewinding, fast-forwarding, scrubbing or turning
+            // a file, and only with the window in front.
+            if (tripEpoch.current !== checkEpoch.current) {
+                tripEpoch.current = checkEpoch.current;
+                tripMinX.current.clear();
+            }
+            const counting =
+                checkTagId.current != null &&
+                motion.dir === 1 &&
+                !motion.boost &&
+                depth === 0 &&
+                !scrubbing &&
+                !holdStill &&
+                velocities.current[index] > 0 &&
+                document.hasFocus();
+            const marks = tripMinX.current;
             let x = offset.current;
             let under = -1;
             let first = list.length;
             let lastIdx = -1;
             list.forEach((it, i) => {
                 const w = widthOf(it);
+                const mark = marks.get(it.key);
+                if (mark === undefined || x < mark) {
+                    marks.set(it.key, x);
+                    const shown = Math.min(x + w, width) - Math.max(x, 0);
+                    if (counting && mark !== undefined && shown >= w * CHECK_MIN_VISIBLE) {
+                        addSeen(it.file.id, dt);
+                    }
+                }
                 if (pointer >= x && pointer < x + w) under = i;
                 if (x + w > -PLAY_MARGIN_PX && x < width + PLAY_MARGIN_PX) {
                     first = Math.min(first, i);
