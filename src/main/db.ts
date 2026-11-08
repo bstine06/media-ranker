@@ -1496,6 +1496,29 @@ export function removeTagFromFile(fileId: number, tagId: number): void {
     })();
 }
 
+// Tags that often appear on the same files as `tagId` (own or inherited,
+// active files only), best first. Ranked by shared² ÷ the tag's own count,
+// so a tag that's on nearly everything doesn't top every list.
+export function getRelatedTags(tagId: number, limit = 30): { id: number; n: number }[] {
+    return getDb()
+        .prepare(
+            `WITH et AS (
+                 SELECT DISTINCT e.file_id, e.tag_id FROM file_effective_tags e
+                 JOIN files f ON f.id = e.file_id AND f.status = 'active'
+             ),
+             totals AS (SELECT tag_id, COUNT(*) AS total FROM et GROUP BY tag_id)
+             SELECT b.tag_id AS id, COUNT(*) AS n
+             FROM et a
+             JOIN et b ON b.file_id = a.file_id AND b.tag_id != a.tag_id
+             JOIN totals t ON t.tag_id = b.tag_id
+             WHERE a.tag_id = ?
+             GROUP BY b.tag_id
+             ORDER BY (COUNT(*) * COUNT(*) * 1.0 / MAX(t.total)) DESC, n DESC
+             LIMIT ?`,
+        )
+        .all(tagId, limit) as { id: number; n: number }[];
+}
+
 // Sweep: adds time each file spent on screen while this tag was up.
 // Files or tags deleted meanwhile are skipped.
 export function addTagCheckSeconds(

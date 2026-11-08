@@ -104,6 +104,8 @@ declare global {
             getTags: (fileId: number) => Promise<DbTag[]>;
             addTag: (fileId: number, tag: string) => Promise<DbTag[]>;
             removeTag: (fileId: number, tag: string) => Promise<DbTag[]>;
+            /** Tags often on the same files as this one, best first. */
+            getRelatedTags: (tagId: number) => Promise<{ id: number; n: number }[]>;
             /** Sweep: time each file was on screen with this tag up. */
             addTagCheckSeconds: (tagId: number, entries: { fileId: number; seconds: number }[]) => Promise<void>;
             getAllTags: () => Promise<DbTag[]>;

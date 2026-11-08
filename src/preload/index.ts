@@ -282,6 +282,9 @@ const api = {
     removeTag: (fileId: number, tag: string): Promise<DbTag[]> =>
         ipcRenderer.invoke("remove-tag", fileId, tag),
 
+    getRelatedTags: (tagId: number): Promise<{ id: number; n: number }[]> =>
+        ipcRenderer.invoke("get-related-tags", tagId),
+
     addTagCheckSeconds: (
         tagId: number,
         entries: { fileId: number; seconds: number }[],

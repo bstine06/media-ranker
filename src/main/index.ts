@@ -63,6 +63,7 @@ import {
     getTagUsage,
     mergeTags,
     addTagCheckSeconds,
+    getRelatedTags,
     getTagImplications,
     reorderTags,
     setTagSweep,
@@ -688,6 +689,9 @@ function registerIpcHandlers(): void {
         if (existing) removeTagFromFile(fileId, existing.id);
         return getTagsForFile(fileId);
     });
+
+    // Generous limit: the picker filters it for Sweep's lists (2 and 3).
+    ipcMain.handle("get-related-tags", (_event, tagId: number) => getRelatedTags(tagId, 300));
 
     ipcMain.handle(
         "add-tag-check-seconds",
