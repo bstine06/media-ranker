@@ -1,4 +1,8 @@
-import { DbTagWithCategory, TagGroup } from "@renderer/shared/types/types";
+import { DbTag, DbTagWithCategory, TagGroup } from "@renderer/shared/types/types";
+
+/** A category's tags in their Tag Manager order. */
+export const byTagOrder = (a: DbTag, b: DbTag): number =>
+    a.order_index - b.order_index || a.name.localeCompare(b.name);
 
 // Groups tags by their category, in the categories' order, with
 // Uncategorized last.

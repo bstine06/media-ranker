@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
-import { QuickTagBar } from "./QuickTagBar";
 import { isTyping } from "@renderer/lib/keys";
 import { FolderIcon } from "./icons/FolderIcon";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
@@ -257,10 +256,6 @@ export default function ScrollView({
                             )}
                         </div>
                     ))}
-                </div>
-
-                <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center">
-                    <QuickTagBar file={currentFile} active={active} />
                 </div>
 
                 <div

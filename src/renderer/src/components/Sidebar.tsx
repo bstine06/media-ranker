@@ -11,7 +11,6 @@ import { FolderIcon } from "./icons/FolderIcon";
 import { useFolders, type Lane } from "@renderer/contexts/FolderContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { CompareIcon } from "./icons/CompareIcon";
-import { ScrollIcon } from "./icons/ScrollIcon";
 import { TagIcon } from "./icons/TagIcon";
 import {
     UNTAGGED,
@@ -463,8 +462,6 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
         toggleCompareBothAudio,
         showLibraryRank,
         toggleShowLibraryRank,
-        quickTagsEnabled,
-        toggleQuickTags,
         sweepVarispeed,
         toggleSweepVarispeed,
         sweepAllLanes,
@@ -523,11 +520,6 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         label="Show Unsorted when empty"
                         on={alwaysShowUnsorted}
                         onToggle={toggleAlwaysShowUnsorted}
-                    />
-                    <ToggleRow
-                        label="Quick tag bar (T)"
-                        on={quickTagsEnabled}
-                        onToggle={toggleQuickTags}
                     />
                     <ToggleRow
                         label="Sweep: extra lanes vary in speed"
@@ -1354,12 +1346,6 @@ export default function Sidebar({
                     icon={<CompareIcon className="w-5"/>}
                     active={view === "compare"}
                     onClick={() => setView("compare")}
-                />
-                <NavItem
-                    title={"Infinite Scroll"}
-                    icon={<ScrollIcon className="w-5"/>}
-                    active={view === "scroll"}
-                    onClick={() => setView("scroll")}
                 />
                 <NavItem
                     title={"Sweep (tag one tag at a time)"}

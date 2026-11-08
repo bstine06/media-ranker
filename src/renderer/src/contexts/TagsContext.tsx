@@ -69,7 +69,7 @@ interface Tags {
     ) => Promise<void>;
     updateCategory: (
         id: number,
-        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "quick_tags" | "sweep">>,
+        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "sweep">>,
     ) => Promise<void>;
     deleteCategory: (id: number) => Promise<void>;
     /** Puts these tags first in the category, in this order (moving any
@@ -300,7 +300,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     const updateCategory = useCallback(
     async (
         id: number,
-        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "quick_tags" | "sweep">>,
+        updates: Partial<Pick<DbTagCategory, "name" | "color" | "icon" | "order_index" | "sweep">>,
     ) => {
         await window.api.updateTagCategory(id, updates);
         // Optimistic update

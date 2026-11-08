@@ -1,11 +1,10 @@
 // Shared bits of the viewers' keyboard scheme. Every viewer (Compare,
-// Discover, Browse scroll, single file) uses the same keys:
+// Browse scroll, single file) uses the same keys:
 //   Space / ↓  confirm (Compare: focused side wins) or next file
 //   W / ↑      previous (Compare: undo the last pick)
 //   Q / ←      rewind          E / →  fast forward
 //   V          play / pause    R      rotate left    K  king (crown / Compare)
 //   Tab        Compare: switch side
-//   1–4, `, T  quick tags (QuickTagBar)
 
 /** True while the user is typing somewhere keys should be left alone. A
  *  dropdown doesn't count: once picked from, keys go back to the viewer. */

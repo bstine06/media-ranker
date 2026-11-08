@@ -15,7 +15,6 @@ import type {
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
 import { MediaPlayer, type MediaControls } from "./MediaPlayer";
-import { QuickTagBar } from "./QuickTagBar";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -515,7 +514,7 @@ export default function CompareView({
         };
     }, [endKing, setKing]);
 
-    // A king crowned from elsewhere (Browse / Discover) isn't on screen yet,
+    // A king crowned from elsewhere (Browse, single file view) isn't on screen yet,
     // so pull up a matchup for it. Crowning a card that's already showing,
     // or a challenger taking the hill, keeps the current pair.
     useEffect(() => {
@@ -843,7 +842,6 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "a"}
-                        quickTagsActive={keysEnabled}
                         audible={compareBothAudio || focus === "a"}
                         controlsRef={controlsA}
                         rotateRef={rotateA}
@@ -871,7 +869,6 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "b"}
-                        quickTagsActive={keysEnabled}
                         audible={compareBothAudio || focus === "b"}
                         controlsRef={controlsB}
                         rotateRef={rotateB}
@@ -903,7 +900,6 @@ function CompareCard({
     rootPath,
     disabled,
     focused,
-    quickTagsActive,
     audible,
     controlsRef,
     rotateRef,
@@ -923,8 +919,6 @@ function CompareCard({
     rootPath: string;
     disabled: boolean;
     focused: boolean;
-    /** The quick tag bar's keys work (it shows on the focused side). */
-    quickTagsActive: boolean;
     audible: boolean;
     controlsRef: React.MutableRefObject<MediaControls | null>;
     /** Filled with this card's rotate-left (R on the focused side). */
@@ -1039,14 +1033,6 @@ function CompareCard({
                     );
                 })}
             </div>
-
-            {/* Quick tag bar: on the focused side, over the bottom of the media
-                (high enough to clear the placement pill in the middle). */}
-            {focused && (
-                <div className="pointer-events-none absolute inset-x-0 bottom-11 z-30 flex justify-center">
-                    <QuickTagBar file={file} active={quickTagsActive && !disabled} />
-                </div>
-            )}
 
             {/* Focus marker: a thin line across the top of the focused side. */}
             <div

@@ -10,7 +10,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import React, { useEffect, useMemo, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
 import { TagPill } from "./TagPill";
-import { QUICK_TAG_SLOTS, byTagOrder } from "@renderer/lib/quickTags";
+import { byTagOrder } from "@renderer/lib/tagGroups";
 
 type FocusTarget =
     | { kind: "tag"; item: DbTagWithCategory }
@@ -240,37 +240,6 @@ function CategoryEditor({
                 </div>
             </div>
 
-            {liveCategory && (
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex flex-col gap-0.5">
-                        <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                            Quick tags
-                        </label>
-                        <p className="text-[11px] text-neutral-600">
-                            Offer this category in the quick tag bar. Its first{" "}
-                            {QUICK_TAG_SLOTS} tags get keys 1–{QUICK_TAG_SLOTS}; drag
-                            tags below or in the list to change which.
-                        </p>
-                    </div>
-                    <button
-                        onClick={() =>
-                            updateCategory(liveCategory.id, {
-                                quick_tags: liveCategory.quick_tags ? 0 : 1,
-                            })
-                        }
-                        className={`shrink-0 text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
-                            liveCategory.quick_tags
-                                ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
-                                : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
-                        }`}
-                    >
-                        {liveCategory.quick_tags ? "on" : "off"}
-                    </button>
-                </div>
-            )}
-
-            {liveCategory && <CategoryTagOrder category={liveCategory} />}
-
             {liveCategory && (() => {
                 const own = allTags.filter((t) => t.category_id === liveCategory.id);
                 const onCount = own.filter((t) => t.sweep).length;
@@ -391,166 +360,8 @@ function OnOff({
     );
 }
 
-// ─── CategoryTagOrder ─────────────────────────────────────────────────────────
-// The category's tags in order: the first few in the quick tag bar's key
-// slots, then the rest. Drag to reorder; a tag dragged in from the sidebar
-// list (any category) moves into this one where it's dropped.
-
-/** Drag data: a tag's id (Tag Manager's list and order view). */
+/** Drag data set when a tag in the list starts dragging. */
 const TAG_DRAG_TYPE = "application/x-media-ranker-tag";
-
-function CategoryTagOrder({ category }: { category: DbTagCategory }) {
-    const { allTags, reorderTags } = useTags();
-    const tags = useMemo(
-        () => allTags.filter((t) => t.category_id === category.id).sort(byTagOrder),
-        [allTags, category.id],
-    );
-    // Where a drop would land: before tags[index] (tags.length: the end).
-    const [dropIndex, setDropIndex] = useState<number | null>(null);
-    const [dragging, setDragging] = useState<number | null>(null);
-
-    const accepts = (e: React.DragEvent) =>
-        e.dataTransfer.types.includes(TAG_DRAG_TYPE);
-
-    // "slot": the dropped tag takes position `index` (a key slot).
-    // "before": it goes in front of the tag now at `index`.
-    const target = (index: number, mode: "slot" | "before" = "before") => ({
-        onDragOver: (e: React.DragEvent) => {
-            if (!accepts(e)) return;
-            e.preventDefault();
-            e.stopPropagation();
-            if (dropIndex !== index) setDropIndex(index);
-        },
-        onDrop: (e: React.DragEvent) => {
-            if (!accepts(e)) return;
-            e.preventDefault();
-            e.stopPropagation();
-            setDropIndex(null);
-            setDragging(null);
-            const id = Number(e.dataTransfer.getData(TAG_DRAG_TYPE));
-            if (!id) return;
-            // Index among the others, so dropping a tag on itself is a no-op.
-            const ids = tags.map((t) => t.id);
-            const from = ids.indexOf(id);
-            let at = index;
-            if (from >= 0) {
-                ids.splice(from, 1);
-                if (mode === "before" && from < at) at -= 1;
-            }
-            ids.splice(Math.min(at, ids.length), 0, id);
-            reorderTags(category.id, ids);
-        },
-    });
-
-    const chip = (tag: DbTag, index: number) => (
-        <span
-            draggable
-            onDragStart={(e) => {
-                e.dataTransfer.setData(TAG_DRAG_TYPE, String(tag.id));
-                e.dataTransfer.effectAllowed = "move";
-                setDragging(tag.id);
-            }}
-            onDragEnd={() => {
-                setDragging(null);
-                setDropIndex(null);
-            }}
-            className={`flex max-w-full cursor-grab items-center gap-1.5 rounded-full bg-neutral-800 px-2.5 py-1 text-xs text-neutral-200 active:cursor-grabbing ${
-                dragging === tag.id ? "opacity-40" : ""
-            }`}
-            title={`Drag to reorder${index < QUICK_TAG_SLOTS ? "" : ` (position ${index + 1})`}`}
-        >
-            <span className="text-[10px] leading-none" style={{ color: category.color }}>
-                {category.icon}
-            </span>
-            <span className="truncate">{tag.name}</span>
-        </span>
-    );
-
-    const slots = Array.from({ length: QUICK_TAG_SLOTS }, (_, i) => tags[i] ?? null);
-    const rest = tags.slice(QUICK_TAG_SLOTS);
-    const off = !category.quick_tags;
-
-    return (
-        <div className="flex flex-col gap-3" onDragLeave={() => setDropIndex(null)}>
-            <div className="flex items-baseline justify-between">
-                <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                    Hotkeys
-                </label>
-                {off && (
-                    <span className="text-[11px] text-neutral-600">
-                        Quick tags is off for this category
-                    </span>
-                )}
-            </div>
-            <div className={`grid grid-cols-4 gap-2 ${off ? "opacity-50" : ""}`}>
-                {slots.map((tag, i) => (
-                    <div
-                        key={i}
-                        {...target(tag ? i : tags.length, "slot")}
-                        className={`relative flex h-16 min-w-0 items-center justify-center rounded-lg border px-2 pt-3 transition-colors ${
-                            dropIndex === (tag ? i : tags.length) && (tag || i === tags.length)
-                                ? "border-neutral-300 bg-neutral-800/60"
-                                : tag
-                                  ? "border-neutral-700 bg-neutral-900"
-                                  : "border-dashed border-neutral-800"
-                        }`}
-                    >
-                        <kbd className="absolute left-1.5 top-1 rounded bg-neutral-800 px-1.5 font-mono text-[10px] leading-4 text-neutral-400">
-                            {i + 1}
-                        </kbd>
-                        {tag ? (
-                            chip(tag, i)
-                        ) : (
-                            <span className="text-[11px] text-neutral-700">empty</span>
-                        )}
-                    </div>
-                ))}
-            </div>
-
-            {(rest.length > 0 || tags.length >= QUICK_TAG_SLOTS) && (
-                <>
-                    <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                        Other tags
-                    </label>
-                    <div
-                        {...target(tags.length)}
-                        className={`flex min-h-[2.5rem] flex-wrap items-center gap-1.5 rounded-lg border p-2 transition-colors ${
-                            dropIndex === tags.length && tags.length >= QUICK_TAG_SLOTS
-                                ? "border-neutral-500"
-                                : "border-neutral-800"
-                        }`}
-                    >
-                        {rest.map((tag, j) => {
-                            const index = QUICK_TAG_SLOTS + j;
-                            return (
-                                <div
-                                    key={tag.id}
-                                    {...target(index)}
-                                    className={`rounded-full pl-1 ${
-                                        dropIndex === index
-                                            ? "shadow-[inset_2px_0_0_0_#d4d4d4]"
-                                            : ""
-                                    }`}
-                                >
-                                    {chip(tag, index)}
-                                </div>
-                            );
-                        })}
-                        {rest.length === 0 && (
-                            <span className="text-[11px] text-neutral-700">
-                                Drop tags here to keep them off the hotkeys
-                            </span>
-                        )}
-                    </div>
-                </>
-            )}
-            <p className="text-[11px] text-neutral-600 -mt-1">
-                Drag tags between slots to change their keys. Tags dragged in from the
-                list on the left join this category.
-            </p>
-        </div>
-    );
-}
 
 // ─── NewTagEditor ─────────────────────────────────────────────────────────────
 
@@ -1209,13 +1020,6 @@ export default function TagManagerView(): JSX.Element {
     });
     const dropLine = (tag: DbTag) =>
         dropBeforeId === tag.id ? "shadow-[inset_0_2px_0_0_#a3a3a3]" : "";
-    // Key 1–4 for a quick tag category's first tags.
-    const slotBadge = (category: DbTagCategory | null, index: number) =>
-        category?.quick_tags && index < QUICK_TAG_SLOTS ? (
-            <span className="ml-auto text-[10px] text-neutral-600 tabular-nums">
-                {index + 1}
-            </span>
-        ) : null;
 
     const handleDone = () => setFocus(null);
 
@@ -1353,7 +1157,7 @@ export default function TagManagerView(): JSX.Element {
                                         </button>
 
                                         {!isCollapsed &&
-                                            catTags.map((tag, index) => (
+                                            catTags.map((tag) => (
                                                 <button
                                                     key={tag.id}
                                                     draggable={!isQuickAdding}
@@ -1409,7 +1213,6 @@ export default function TagManagerView(): JSX.Element {
                                                         {category.icon ?? "●"}
                                                     </span>
                                                     {tag.name}
-                                                    {slotBadge(category, index)}
                                                 </button>
                                             ))}
                                     </div>

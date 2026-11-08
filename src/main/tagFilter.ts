@@ -1,5 +1,5 @@
 // main/tagFilter.ts
-// The tag part of a file filter (Browse, Compare, Discover), as SQL.
+// The tag part of a file filter (Browse, Compare, Sweep), as SQL.
 //
 // A filter is a list of tag ids. Two kinds of negative id stand for special
 // filters, so they travel through the same plumbing as ordinary tags (the

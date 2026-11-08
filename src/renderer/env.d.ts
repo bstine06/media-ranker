@@ -282,7 +282,7 @@ declare global {
             // Category CRUD
             getAllTagCategories: () => Promise<DbTagCategory[]>;
             createTagCategory: (name: string, color: string, icon: string) => Promise<DbTagCategory>;
-            updateTagCategory: (id: number, updates: { name?: string; color?: string | null; icon?: string | null, order_index?: number, quick_tags?: number, sweep?: number }) => Promise<void>;
+            updateTagCategory: (id: number, updates: { name?: string; color?: string | null; icon?: string | null, order_index?: number, sweep?: number }) => Promise<void>;
             reorderTags: (categoryId: number | null, tagIds: number[]) => Promise<void>;
             setTagSweep: (tagId: number, on: boolean) => Promise<void>;
             setCategoryTagsSweep: (categoryId: number, on: boolean) => Promise<void>;

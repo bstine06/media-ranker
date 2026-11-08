@@ -10,7 +10,6 @@ import { useTags } from "./contexts/TagsContext";
 import { useFolders } from "./contexts/FolderContext";
 import ScrollView from "./components/ScrollView";
 import CompareView from "./components/CompareView";
-import DiscoverView from "./components/DiscoverView";
 import SweepView from "./components/SweepView";
 import TagManagerView from "./components/TagManagerView";
 
@@ -21,7 +20,7 @@ export default function App(): JSX.Element {
         scanned: number;
         added: number;
     } | null>(null);
-    const { toggleHoverPreview, toggleQuickTags } = useSettings();
+    const { toggleHoverPreview } = useSettings();
 
     const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -98,7 +97,6 @@ export default function App(): JSX.Element {
     }, []);
 
     useKeyboardShortcut({ key: "z", onKeyPressed: toggleHoverzoom });
-    useKeyboardShortcut({ key: "t", onKeyPressed: toggleQuickTags });
 
     const openLibrary = useCallback(
         async (path: string, activeFolder: string | null = null) => {
@@ -199,18 +197,6 @@ export default function App(): JSX.Element {
                     >
                         <CompareView
                             active={view === "compare"}
-                            setView={setView}
-                        />
-                    </div>
-                    <div
-                        className={
-                            view === "scroll"
-                                ? "flex flex-1 flex-col overflow-hidden"
-                                : "hidden"
-                        }
-                    >
-                        <DiscoverView
-                            active={view === "scroll"}
                             setView={setView}
                         />
                     </div>

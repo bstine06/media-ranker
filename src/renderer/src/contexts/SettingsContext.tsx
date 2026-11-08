@@ -31,12 +31,6 @@ interface Settings {
     setBrowseSortDirection: (direction: SortDirection) => void;
     browseViewMode: ViewMode;
     setBrowseViewMode: (mode: ViewMode) => void;
-    /** The quick tag bar over Scroll, Discover and Compare (T toggles). */
-    quickTagsEnabled: boolean;
-    toggleQuickTags: () => void;
-    /** The bar's category; stays until the user switches it. */
-    quickTagCategoryId: number | null;
-    setQuickTagCategoryId: (id: number | null) => void;
     /** Sweep: the tag being swept, whether it's picked at random, and how
      *  often a random one is rerolled (seconds). */
     sweepTagId: number | null;
@@ -82,10 +76,6 @@ const SettingsContext = createContext<Settings>({
     setBrowseSortDirection: () => {},
     browseViewMode: "grid",
     setBrowseViewMode: () => {},
-    quickTagsEnabled: false,
-    toggleQuickTags: () => {},
-    quickTagCategoryId: null,
-    setQuickTagCategoryId: () => {},
     sweepTagId: null,
     setSweepTagId: () => {},
     sweepRandom: false,
@@ -185,12 +175,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         savedOneOf("browseViewMode", ["grid", "rows"], "grid"),
     );
 
-    const [quickTagsEnabled, setQuickTagsEnabled] = useState(() => savedBool("quickTagsEnabled", false));
-    const toggleQuickTags = useCallback(() => setQuickTagsEnabled((q) => !q), []);
-    const [quickTagCategoryId, setQuickTagCategoryId] = useState<number | null>(() =>
-        typeof saved.quickTagCategoryId === "number" ? saved.quickTagCategoryId : null,
-    );
-
     const [sweepTagId, setSweepTagId] = useState<number | null>(() =>
         typeof saved.sweepTagId === "number" ? saved.sweepTagId : null,
     );
@@ -254,8 +238,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     browseSortMode,
                     browseSortDirection,
                     browseViewMode,
-                    quickTagsEnabled,
-                    quickTagCategoryId,
                     sweepTagId,
                     sweepRandom,
                     sweepInterval,
@@ -279,8 +261,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         browseSortMode,
         browseSortDirection,
         browseViewMode,
-        quickTagsEnabled,
-        quickTagCategoryId,
         sweepTagId,
         sweepRandom,
         sweepInterval,
@@ -316,10 +296,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 setBrowseSortDirection,
                 browseViewMode,
                 setBrowseViewMode,
-                quickTagsEnabled,
-                toggleQuickTags,
-                quickTagCategoryId,
-                setQuickTagCategoryId,
                 sweepTagId,
                 setSweepTagId,
                 sweepRandom,

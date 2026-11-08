@@ -1,4 +1,4 @@
-export type View = "browse" | "compare" | "file" | "scroll" | "sweep" | "tag-manager";
+export type View = "browse" | "compare" | "file" | "sweep" | "tag-manager";
 
 export interface DbFile {
     id: number;
@@ -37,8 +37,6 @@ export interface DbTagCategory {
     color: string;
     icon: string;
     order_index: number;
-    /** 1: its first tags are offered in the quick tag bar. */
-    quick_tags: number;
     /** 1: its tags can be offered in Sweep (0 overrides theirs). */
     sweep: number;
 }

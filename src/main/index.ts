@@ -991,7 +991,6 @@ function registerIpcHandlers(): void {
                 color?: string | null;
                 icon?: string | null;
                 order_index?: number;
-                quick_tags?: number;
                 sweep?: number;
             },
         ) => {

@@ -45,8 +45,6 @@ export interface DbTagCategory {
     color: string;
     icon: string;
     order_index: number;
-    /** 1: its first tags are offered in the quick tag bar. */
-    quick_tags: number;
     /** 1: its tags can be offered in Sweep (0 overrides theirs). */
     sweep: number;
 }
@@ -542,6 +540,8 @@ function runMigrations(db: Database.Database): void {
             }[]
         ).map((c) => c.name),
     );
+    // quick_tags is no longer used (Quick tags was removed); the column stays
+    // so older libraries open unchanged.
     if (!categoryCols3.has("quick_tags")) {
         db.exec(
             `ALTER TABLE tag_categories ADD COLUMN quick_tags INTEGER NOT NULL DEFAULT 1`,
@@ -1349,13 +1349,12 @@ export function updateTagCategory(
         color?: string | null;
         icon?: string | null;
         order_index?: number;
-        quick_tags?: number;
         sweep?: number;
     },
 ): DbTagCategory {
     const db = getDb();
     // Only known columns (the keys become SQL).
-    const allowed = new Set(["name", "color", "icon", "order_index", "quick_tags", "sweep"]);
+    const allowed = new Set(["name", "color", "icon", "order_index", "sweep"]);
     updates = Object.fromEntries(
         Object.entries(updates).filter(([k]) => allowed.has(k)),
     );

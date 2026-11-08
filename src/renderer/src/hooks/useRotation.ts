@@ -4,8 +4,8 @@ import { toMediaUrl } from "@renderer/lib/media";
 import { preloadImage } from "@renderer/lib/imageCache";
 
 /**
- * Rotate-left for whatever file is on screen (single file view, Discover,
- * a Compare card).
+ * Rotate-left for whatever file is on screen (single file view, Browse
+ * scroll, a Compare card).
  *
  * Clicks turn the preview at once; the file is saved once clicking stops
  * (or on leaving it), so several clicks make one save and one Trash item.
