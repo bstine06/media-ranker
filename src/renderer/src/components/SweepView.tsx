@@ -374,6 +374,13 @@ const SCRUB_RETURN_EASE = 8;
  *  the window losing focus). */
 const CHECK_MIN_VISIBLE = 0.5;
 const CHECK_FLUSH_MS = 5000;
+/** Lean-back guard: time seen since the last input is dropped once this
+ *  many different files have gone by without one, and at least this long
+ *  has passed. Generous on purpose: a missed "no" gets collected another
+ *  time, a wrong one makes coverage look further along than it is. Counted
+ *  in files, so it scales with speed, lanes and tile widths. */
+const IDLE_FILES = 30;
+const IDLE_MIN_MS = 20000;
 /** How many tags show on each side of the one at the history cursor. */
 const STACK_SHOWN = 2;
 
@@ -933,31 +940,62 @@ function SweepStrip({
     // while really being watched (see StripLane), for that tag. Saved as
     // raw seconds; what counts as a "no" is decided when reading. Nothing
     // counts with no tag, the picker open, H on or mid-reroll.
+    // Lean-back guard: time since the last input (a key, click, scroll or
+    // mouse movement) is only provisional. The next input confirms it; if
+    // IDLE_FILES files go by first (and IDLE_MIN_MS passes), it's dropped
+    // and nothing counts until the next input.
     const checkTagId = useRef<number | null>(null);
     checkTagId.current = tag && !picking && !contentOnly && !rollFrom ? tag.id : null;
-    const seenSeconds = useRef(new Map<number, number>());
-    const seenTagId = useRef<number | null>(null);
+    type SeenByTag = Map<number, Map<number, number>>; // tag → file → seconds
+    const pending = useRef<SeenByTag>(new Map());
+    const pendingFiles = useRef(new Set<number>());
+    const queued = useRef<SeenByTag>(new Map());
+    const lastInput = useRef(Date.now());
+    const idle = useRef(false);
     // Goes up when the tag changes, so lanes start each file's trip mark over.
     const checkEpoch = useRef(0);
     const flushSeen = useCallback(() => {
-        const tagId = seenTagId.current;
-        const seen = seenSeconds.current;
-        if (tagId == null || seen.size === 0) return;
-        const entries = [...seen].map(([fileId, seconds]) => ({ fileId, seconds }));
-        seenSeconds.current = new Map();
-        window.api.addTagCheckSeconds(tagId, entries).catch(() => {});
+        const byTag = queued.current;
+        if (byTag.size === 0) return;
+        queued.current = new Map();
+        for (const [tagId, seen] of byTag) {
+            const entries = [...seen].map(([fileId, seconds]) => ({ fileId, seconds }));
+            window.api.addTagCheckSeconds(tagId, entries).catch(() => {});
+        }
     }, []);
+    const dropPending = useCallback(() => {
+        pending.current = new Map();
+        pendingFiles.current = new Set();
+    }, []);
+    const confirmInput = useCallback(() => {
+        for (const [tagId, seen] of pending.current) {
+            const into = queued.current.get(tagId) ?? new Map<number, number>();
+            for (const [fileId, seconds] of seen) {
+                into.set(fileId, (into.get(fileId) ?? 0) + seconds);
+            }
+            queued.current.set(tagId, into);
+        }
+        dropPending();
+        idle.current = false;
+        lastInput.current = Date.now();
+    }, [dropPending]);
     const addSeen = useCallback(
         (fileId: number, dt: number) => {
             const tagId = checkTagId.current;
-            if (tagId == null) return;
-            if (seenTagId.current !== tagId) {
-                flushSeen();
-                seenTagId.current = tagId;
+            if (tagId == null || idle.current) return;
+            const seen = pending.current.get(tagId) ?? new Map<number, number>();
+            seen.set(fileId, (seen.get(fileId) ?? 0) + dt);
+            pending.current.set(tagId, seen);
+            pendingFiles.current.add(fileId);
+            if (
+                pendingFiles.current.size >= IDLE_FILES &&
+                Date.now() - lastInput.current >= IDLE_MIN_MS
+            ) {
+                dropPending();
+                idle.current = true;
             }
-            seenSeconds.current.set(fileId, (seenSeconds.current.get(fileId) ?? 0) + dt);
         },
-        [flushSeen],
+        [dropPending],
     );
     useEffect(() => {
         checkEpoch.current += 1;
@@ -965,14 +1003,38 @@ function SweepStrip({
     }, [tag?.id, flushSeen]);
     useEffect(() => {
         if (!active) return;
+        // Coming into Sweep counts as input.
+        idle.current = false;
+        lastInput.current = Date.now();
         const t = setInterval(flushSeen, CHECK_FLUSH_MS);
         window.addEventListener("blur", flushSeen);
+        // Capture, and set up before the picker's key handler (which stops
+        // other handlers), so every key counts.
+        let mx: number | null = null;
+        let my: number | null = null;
+        const onMove = (e: MouseEvent) => {
+            if (e.screenX === mx && e.screenY === my) return;
+            mx = e.screenX;
+            my = e.screenY;
+            confirmInput();
+        };
+        const opts = { capture: true } as const;
+        window.addEventListener("keydown", confirmInput, opts);
+        window.addEventListener("mousedown", confirmInput, opts);
+        window.addEventListener("wheel", confirmInput, opts);
+        window.addEventListener("mousemove", onMove, opts);
         return () => {
             clearInterval(t);
             window.removeEventListener("blur", flushSeen);
+            window.removeEventListener("keydown", confirmInput, opts);
+            window.removeEventListener("mousedown", confirmInput, opts);
+            window.removeEventListener("wheel", confirmInput, opts);
+            window.removeEventListener("mousemove", onMove, opts);
+            // Leaving: whatever was real got confirmed by the input that left.
+            dropPending();
             flushSeen();
         };
-    }, [active, flushSeen]);
+    }, [active, flushSeen, confirmInput, dropPending]);
 
     // Caught first (capture) and kept from everything else: the app-wide T,
     // the view's F / H, the strip's own keys.
