@@ -7,16 +7,13 @@ import type {
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { SliderInput } from "./Sidebar";
+import { inTagPointer } from "@renderer/contexts/TagPointerContext";
 
 // Tag coverage: how much of the library has been checked for each tag.
 // A file is checked for a tag when it's a yes (has the tag) or a no (the
-// tag was taken off it, or it sat on screen in Sweep long enough with the
+// tag was taken off it, or it sat on screen long enough with the
 // tag up — the seconds are a setting). Share = checked ÷ library files.
 
-/** Offered in Sweep: on itself, and its category (if any) is on too. */
-export function inSweep(t: DbTagWithCategory): boolean {
-    return !!t.sweep && (!t.category || !!t.category.sweep);
-}
 
 /** Coverage for every tag at the current seconds threshold. Read while
  *  `active` (and again when the tags change); the threshold is applied
@@ -152,10 +149,10 @@ export default function TagCoverageView({
         });
         const dir = lowestFirst ? 1 : -1;
         rows.sort((a, b) => dir * (a.checked - b.checked) || a.tag.name.localeCompare(b.tag.name));
-        const swept = rows.filter((r) => inSweep(r.tag));
-        const off = rows.filter((r) => !inSweep(r.tag));
-        // Library total: every checked file/tag pair over every pair, Sweep
-        // tags only (the average of their shares).
+        const swept = rows.filter((r) => inTagPointer(r.tag));
+        const off = rows.filter((r) => !inTagPointer(r.tag));
+        // Library total: every checked file/tag pair over every pair, tag
+        // pointer tags only (the average of their shares).
         const checked = swept.reduce((s, r) => s + r.checked, 0);
         const pairs = swept.length * files;
         return { swept, off, total: { checked, pairs } };
@@ -200,11 +197,11 @@ export default function TagCoverageView({
                     className="mt-2 h-2"
                 />
                 <p className="mt-2 text-[11px] text-neutral-600 tabular-nums">
-                    {num(swept.length)} Sweep tag{swept.length === 1 ? "" : "s"} ×{" "}
+                    {num(swept.length)} tag{swept.length === 1 ? "" : "s"} in the tag pointer ×{" "}
                     {num(files)} file{files === 1 ? "" : "s"}
                 </p>
                 <SliderInput
-                    name="Seconds on screen in Sweep to count as a no"
+                    name="Seconds on screen to count as a no"
                     min={1}
                     max={30}
                     value={coverageSeconds}
@@ -232,7 +229,7 @@ export default function TagCoverageView({
                 </div>
 
                 {swept.length === 0 && (
-                    <p className="px-2 py-2 text-xs text-neutral-600">No tags are on in Sweep.</p>
+                    <p className="px-2 py-2 text-xs text-neutral-600">No tags are on in the tag pointer.</p>
                 )}
                 {swept.map(renderRow)}
 
@@ -240,7 +237,7 @@ export default function TagCoverageView({
                     <>
                         <div className="mt-5 px-2 pb-1 flex items-baseline gap-2 border-b border-neutral-800">
                             <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                                Off in Sweep
+                                Off in the tag pointer
                             </span>
                             <span className="text-[11px] text-neutral-600">
                                 Not counted in the library total

@@ -55,3 +55,11 @@ html, body, #root {
 :focus:not(:focus-visible) {
   outline: none;
 }
+
+/* Tag pointer and Sweep animations */
+@keyframes sweep-countdown { from { width: 100%; } to { width: 0%; } }
+@keyframes sweep-pick-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes sweep-flash { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes sweep-flash-twice { 0% { opacity: 0; } 12% { opacity: 1; } 35% { opacity: 0.1; } 50% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes sweep-ending { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.sweep-countdown-fill[data-ending="1"] { animation: sweep-ending 0.7s ease-in-out infinite; }

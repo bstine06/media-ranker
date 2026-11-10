@@ -33,6 +33,14 @@ import SingleFileView from "./SingleFileView";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useStatus } from "@renderer/contexts/StatusContext";
 import { usePlacement, PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
+import {
+    useTagPointer,
+    useTagPointerSurface,
+    usePointerCursorClass,
+    type MediaFlashState,
+    type PointerTarget,
+} from "@renderer/contexts/TagPointerContext";
+import { MediaFlash } from "./TagPointer";
 
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
     if (file.media_type === "video") return;
@@ -655,7 +663,7 @@ export default function CompareView({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [comparing, setKing, bump]);
 
-    // Space / ↓: the focused side wins.
+    // 2 / ↓: the focused side wins.
     const submit = useCallback(() => {
         if (comparing || !pair) return;
         if (performance.now() - pairShownAtRef.current < PICK_LOCKOUT_MS)
@@ -664,6 +672,82 @@ export default function CompareView({
     }, [comparing, pair, focus, handlePick]);
 
     const keysEnabled = active && !inspectedFile;
+
+    // ── Tag pointer ──────────────────────────────────────────────────────
+    // It works over both sides: the side under the mouse is its target. 1 /
+    // 3 move it to the same spot on the other side without moving the mouse
+    // (like Sweep's 2); it follows the mouse again once the mouse really moves.
+    useTagPointerSurface(keysEnabled);
+    const { setTarget, clearTarget, togglePicker } = useTagPointer();
+    const cursorClass = usePointerCursorClass(keysEnabled);
+    const [hoverSide, setHoverSide] = useState<Side | null>(null);
+    const hoverSideRef = useRef<Side | null>(null);
+    hoverSideRef.current = hoverSide;
+    const [pointerShift, setPointerShift] = useState<{ side: Side; x: number; y: number } | null>(null);
+    const pointerShiftRef = useRef(pointerShift);
+    pointerShiftRef.current = pointerShift;
+    const [pointerFlash, setPointerFlash] = useState<Record<Side, MediaFlashState>>({ a: null, b: null });
+    const mousePos = useRef({ x: 0, y: 0 });
+    useEffect(() => {
+        let last: { x: number; y: number } | null = null;
+        const onMove = (e: MouseEvent) => {
+            mousePos.current = { x: e.clientX, y: e.clientY };
+            // Really moved (not content changing under a still mouse).
+            const moved = !last || last.x !== e.screenX || last.y !== e.screenY;
+            last = { x: e.screenX, y: e.screenY };
+            if (moved && pointerShiftRef.current) setPointerShift(null);
+        };
+        window.addEventListener("mousemove", onMove, true);
+        return () => window.removeEventListener("mousemove", onMove, true);
+    }, []);
+    // 1 / 3: the pointer to that side, at the mouse's spot mirrored there.
+    const shiftPointerTo = useCallback((side: Side) => {
+        const from = hoverSideRef.current;
+        const shifted = pointerShiftRef.current?.side ?? from;
+        if (!from || shifted === side) return;
+        if (side === from) {
+            setPointerShift(null);
+            return;
+        }
+        const fromEl = document.querySelector(`[data-side="${from}"]`);
+        const toEl = document.querySelector(`[data-side="${side}"]`);
+        if (!fromEl || !toEl) return;
+        const f = fromEl.getBoundingClientRect();
+        const t = toEl.getBoundingClientRect();
+        const m = mousePos.current;
+        setPointerShift({
+            side,
+            x: t.left + ((m.x - f.left) / f.width) * t.width,
+            y: t.top + ((m.y - f.top) / f.height) * t.height,
+        });
+    }, []);
+    const pointerSide = pointerShift?.side ?? hoverSide;
+    const pointerFile = pair && pointerSide ? (pointerSide === "a" ? pair[0] : pair[1]) : null;
+    useEffect(() => {
+        if (!keysEnabled || !pointerFile || !pointerSide) return;
+        const t: PointerTarget = {
+            file: pointerFile,
+            pointAt: pointerShift ? { x: pointerShift.x, y: pointerShift.y } : undefined,
+            onFlash: (kind) =>
+                setPointerFlash((f) => ({
+                    ...f,
+                    [pointerSide]: { kind, n: (f[pointerSide]?.n ?? 0) + 1 },
+                })),
+        };
+        setTarget(t);
+        return () => clearTarget(t);
+    }, [keysEnabled, pointerFile, pointerSide, pointerShift, setTarget, clearTarget]);
+    const pointerProps = (side: Side) => ({
+        cursorClass,
+        flash: pointerFlash[side],
+        onPointerEnter: () => setHoverSide(side),
+        onPointerLeave: () => setHoverSide((s) => (s === side ? null : s)),
+        onContextMenu: (e: React.MouseEvent) => {
+            if (!keysEnabled) return;
+            e.preventDefault();
+            togglePicker();
+        },
+    });
 
     useEffect(() => {
         if (!keysEnabled) return;
@@ -678,13 +762,17 @@ export default function CompareView({
 
             // Physical keys, so the left-hand layout holds on any keyboard
             // layout. The scheme is in lib/keys.ts.
+            // (Tab and Space belong to the tag pointer.)
             switch (e.code) {
-                case "Tab":
+                case "Digit1":
+                case "Digit3":
+                    // 1 / 3: the left / right side (next to Tab + 1 / 2 / 3).
                     e.preventDefault();
                     if (e.repeat) return;
-                    setFocus((f) => (f === "a" ? "b" : "a"));
+                    setFocus(e.code === "Digit1" ? "a" : "b");
+                    shiftPointerTo(e.code === "Digit1" ? "a" : "b");
                     break;
-                case "Space":
+                case "Digit2":
                 case "ArrowDown":
                     e.preventDefault();
                     if (e.repeat) return;
@@ -757,6 +845,7 @@ export default function CompareView({
         toggleCompareBothAudio,
         setStatus,
         resetStatus,
+        shiftPointerTo,
     ]);
 
     // Only blank the screen on the very first load. Swapping in a new pair
@@ -839,6 +928,7 @@ export default function CompareView({
                     <CompareCard
                         file={a}
                         side="a"
+                        {...pointerProps("a")}
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "a"}
@@ -866,6 +956,7 @@ export default function CompareView({
                     <CompareCard
                         file={b}
                         side="b"
+                        {...pointerProps("b")}
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "b"}
@@ -897,6 +988,11 @@ export default function CompareView({
 function CompareCard({
     file,
     side,
+    cursorClass,
+    flash,
+    onPointerEnter,
+    onPointerLeave,
+    onContextMenu,
     rootPath,
     disabled,
     focused,
@@ -916,6 +1012,13 @@ function CompareCard({
 }: {
     file: DbFile;
     side: Side;
+    /** Tag pointer: hides the cursor while the pointer shows over it. */
+    cursorClass: string;
+    /** Tag pointer: the last toggle's feedback on this side. */
+    flash: MediaFlashState;
+    onPointerEnter: () => void;
+    onPointerLeave: () => void;
+    onContextMenu: (e: React.MouseEvent) => void;
     rootPath: string;
     disabled: boolean;
     focused: boolean;
@@ -984,17 +1087,23 @@ function CompareCard({
     return (
         <div
             data-side={side}
-            className={`relative flex min-w-0 flex-1 flex-col overflow-hidden transition-opacity ${disabled ? "opacity-60" : ""}`}
+            className={`relative flex min-w-0 flex-1 flex-col overflow-hidden transition-opacity ${disabled ? "opacity-60" : ""} ${cursorClass}`}
             onMouseMove={(e) => {
                 const top = e.currentTarget.getBoundingClientRect().top;
                 setShowBar(e.clientY - top < INFO_BAR_ZONE_PX);
             }}
-            onMouseLeave={() => setShowBar(false)}
+            onMouseEnter={onPointerEnter}
+            onMouseLeave={() => {
+                setShowBar(false);
+                onPointerLeave();
+            }}
+            onContextMenu={onContextMenu}
         >
             {/* Keyed siblings in one list, so the old player is the same
                 instance it was a moment ago (not remounted) while it covers
                 the swap. */}
             <div className="relative min-h-0 flex-1">
+                <MediaFlash flash={flash} />
                 {[outgoing, file].map((f) => {
                     if (!f) return null;
                     const isOutgoing = f === outgoing;

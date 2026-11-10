@@ -11,6 +11,7 @@ import { ClipboardProvider } from "./contexts/ClipboardContext";
 import { KingOfHillProvider } from "./contexts/KingOfHillContext";
 import { PlacementProvider } from "./contexts/PlacementContext";
 import { RankProvider } from "./contexts/RankContext";
+import { TagPointerProvider } from "./contexts/TagPointerContext";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
@@ -23,7 +24,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                                 <KingOfHillProvider>
                                     <PlacementProvider>
                                         <RankProvider>
-                                            <App />
+                                            <TagPointerProvider>
+                                                <App />
+                                            </TagPointerProvider>
                                         </RankProvider>
                                     </PlacementProvider>
                                 </KingOfHillProvider>

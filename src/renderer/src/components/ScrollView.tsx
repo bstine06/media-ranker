@@ -15,6 +15,8 @@ import { RotateIcon } from "./icons/RotateIcon";
 import { useRotation } from "@renderer/hooks/useRotation";
 import { PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
 import { useLibraryRank, useRankedTotal } from "@renderer/contexts/RankContext";
+import { usePointerTarget, useTagPointerSurface } from "@renderer/contexts/TagPointerContext";
+import { MediaFlash } from "./TagPointer";
 
 /** How close to the top of the media the mouse must be to show Rotate. */
 const NEAR_TOP_PX = 96;
@@ -70,6 +72,10 @@ export default function ScrollView({
         rootPath,
         replaceFile,
     );
+
+    // The tag pointer works over the file on screen.
+    useTagPointerSurface(active);
+    const pointer = usePointerTarget(currentFile, active);
 
     const libraryRank = useLibraryRank(currentFile?.id ?? -1);
     const rankedTotal = useRankedTotal();
@@ -232,9 +238,11 @@ export default function ScrollView({
                     </button>
                 )}
                 <div
-                    className="relative min-h-0 flex-1 overflow-hidden"
+                    className={`relative min-h-0 flex-1 overflow-hidden ${pointer.cursorClass}`}
                     onWheel={handleWheel}
+                    {...pointer.handlers}
                 >
+                    <MediaFlash flash={pointer.flash} />
                     {([0, 1] as const).map((slot) => (
                         <div
                             key={slot}

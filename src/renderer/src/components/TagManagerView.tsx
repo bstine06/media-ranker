@@ -252,11 +252,11 @@ function CategoryEditor({
                         <div className="flex items-start justify-between gap-4">
                             <div className="flex flex-col gap-0.5">
                                 <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                                    Sweep
+                                    Tag pointer
                                 </label>
                                 <p className="text-[11px] text-neutral-600">
-                                    Offer this category's tags in Sweep (its tag list and random
-                                    picks). Off overrides each tag's own setting.
+                                    Offer this category's tags in the tag pointer (its tag list and
+                                    random picks). Off overrides each tag's own setting.
                                 </p>
                             </div>
                             <OnOff
@@ -601,12 +601,12 @@ function TagEditor({
                     <div className="flex items-start justify-between gap-4">
                         <div className="flex flex-col gap-0.5">
                             <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                                Sweep
+                                Tag pointer
                             </label>
                             <p className="text-[11px] text-neutral-600">
                                 {locked
-                                    ? `Can't be changed: its category "${category!.name}" is off in Sweep. Turn the category on to choose for this tag.`
-                                    : "Offer this tag in Sweep (its tag list and random picks)."}
+                                    ? `Can't be changed: its category "${category!.name}" is off in the tag pointer. Turn the category on to choose for this tag.`
+                                    : "Offer this tag in the tag pointer (its tag list and random picks)."}
                             </p>
                         </div>
                         <OnOff

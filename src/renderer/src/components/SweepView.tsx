@@ -4,9 +4,15 @@ import { useFolders } from "@renderer/contexts/FolderContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
-import { publishFileTags, useFileTags } from "@renderer/hooks/useFileTags";
+import { useFileTags } from "@renderer/hooks/useFileTags";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
-import { byTagOrder } from "@renderer/lib/tagGroups";
+import {
+    useTagPointer,
+    useTagPointerSurface,
+    type FlashKind,
+    type PointerTarget,
+} from "@renderer/contexts/TagPointerContext";
+import { PointerLabel } from "./TagPointer";
 import { preloadImage } from "@renderer/lib/imageCache";
 import { stepVideo, toMediaUrl, toThumbnailUrl, volumeLevel } from "@renderer/lib/media";
 import SingleFileView from "./SingleFileView";
@@ -16,7 +22,9 @@ import SingleFileView from "./SingleFileView";
 //
 // One row scrolls steadily right to left, every file at full height (no
 // black bars). The file under the pointer is the active one; the pointer
-// follows the mouse over the strip.
+// follows the mouse over the strip. The tag is the app-wide tag pointer's
+// (contexts/TagPointerContext): its keys (Space, Tab / T / right click, `,
+// H) work the same here as everywhere; Sweep adds the strip's own.
 //   Space  toggle the tag on the active file (or click any file)
 //   1  held: fast reverse; on release, forward again at the set speed
 //   3  forward again (held: fast forward)    6  stop
@@ -37,20 +45,6 @@ import SingleFileView from "./SingleFileView";
 
 const INTERVALS = [15, 30, 60, 120, 300];
 
-/** The swept tag on a file: its own, inherited, or not there. */
-type TagState = "own" | "inherited" | null;
-
-/** Adds or removes the swept tag. An inherited one can't be: returns false. */
-async function toggleSweptTag(file: DbFile, tag: DbTag, state: TagState): Promise<boolean> {
-    if (state === "inherited") return false;
-    const next =
-        state === "own"
-            ? await window.api.removeTag(file.id, tag.name)
-            : await window.api.addTag(file.id, tag.name);
-    publishFileTags(file.id, next);
-    return true;
-}
-
 export default function SweepView({
     active,
     setView,
@@ -64,21 +58,8 @@ export default function SweepView({
     setImmersive: (on: boolean) => void;
 }): JSX.Element {
     const { rootPath, folderPrefixes } = useFolders();
-    const { allTags: everyTag, tagMap, activeTags, tagMode } = useTags();
-    // Only tags switched on for Sweep (and whose category is) are offered:
-    // in the picker, random picks and the roll animation.
-    const allTags = useMemo(
-        () => everyTag.filter((t) => t.sweep && (!t.category || t.category.sweep)),
-        [everyTag],
-    );
-    // The rest: reachable only through the picker's Tab+3 search.
-    const excludedTags = useMemo(
-        () => everyTag.filter((t) => !(t.sweep && (!t.category || t.category.sweep))),
-        [everyTag],
-    );
+    const { activeTags, tagMode } = useTags();
     const {
-        sweepTagId,
-        setSweepTagId,
         sweepRandom,
         setSweepRandom,
         sweepInterval,
@@ -86,15 +67,12 @@ export default function SweepView({
         sweepSpeed,
         setSweepSpeed,
     } = useSettings();
+    const { tag, reroll, pickingRef, hidden } = useTagPointer();
     const { crown } = useKingOfHill();
 
-    const tag = sweepTagId != null ? (tagMap.get(sweepTagId) ?? null) : null;
+    const sweepTagId = tag?.id ?? null;
     // G: a file open in the single file view, over the sweep.
     const [inspected, setInspected] = useState<DbFile | null>(null);
-    // The pointer's tag picker is open (the strip's keys wait, and so do ours).
-    const [picking, setPicking] = useState(false);
-    const pickingRef = useRef(false);
-    pickingRef.current = picking;
 
     // Latest filters for fetching, without re-creating the layout.
     const filters = useRef({ folderPrefixes, activeTags, tagMode, tagId: sweepTagId });
@@ -138,78 +116,6 @@ export default function SweepView({
         seen.current = new Set();
     }, [rootPath]);
 
-    // ── Random tag ───────────────────────────────────────────────────────
-    const [rolledAt, setRolledAt] = useState(0);
-
-    // Tags swept before this one, most recent last, for going back.
-    const tagHistory = useRef<number[]>([]);
-
-    // Counts rerolls, so the strip's pointer can play its roll animation.
-    const [rollSeq, setRollSeq] = useState(0);
-    const reroll = useCallback(() => {
-        const pool = allTags.filter((t) => t.id !== sweepTagId);
-        if (pool.length === 0) return;
-        if (sweepTagId != null) tagHistory.current.push(sweepTagId);
-        setSweepTagId(pool[Math.floor(Math.random() * pool.length)].id);
-        setRolledAt(Date.now());
-        setRollSeq((n) => n + 1);
-    }, [allTags, sweepTagId, setSweepTagId]);
-
-    // Random on with nothing (or a deleted tag) to sweep: pick one now.
-    useEffect(() => {
-        if (sweepRandom && !tag && allTags.length > 0) reroll();
-    }, [sweepRandom, tag, allTags.length, reroll]);
-
-    // Reroll on the interval, counted from the last pick, while sweeping.
-    // `deadline` is when it'll fire, for the countdown on the pointer. The
-    // picker pauses it; cancelling resumes where it was, picking starts a
-    // full countdown.
-    const [deadline, setDeadline] = useState<number | null>(null);
-    const deadlineRef = useRef<number | null>(null);
-    deadlineRef.current = deadline;
-    const pausedLeft = useRef<number | null>(null);
-    useEffect(() => {
-        if (!sweepRandom || !active || inspected || picking) {
-            if (picking && deadlineRef.current != null) {
-                pausedLeft.current = Math.max(1000, deadlineRef.current - Date.now());
-            }
-            setDeadline(null);
-            return;
-        }
-        const ms = pausedLeft.current ?? sweepInterval * 1000;
-        pausedLeft.current = null;
-        setDeadline(Date.now() + ms);
-        const t = setTimeout(reroll, ms);
-        return () => clearTimeout(t);
-    }, [sweepRandom, active, inspected, picking, sweepInterval, rolledAt, reroll]);
-
-    const pickTag = useCallback(
-        (t: DbTag) => {
-            pausedLeft.current = null;
-            if (sweepTagId != null && sweepTagId !== t.id) tagHistory.current.push(sweepTagId);
-            setSweepTagId(t.id);
-            setRolledAt(Date.now());
-        },
-        [sweepTagId, setSweepTagId],
-    );
-
-    // Earlier tags, most recent first, each once, leaving out the current
-    // one and any since deleted or switched off for Sweep: the hold's
-    // history stack. Read while rendering (it only changes with the tag).
-    const pastTags = (() => {
-        const out: DbTagWithCategory[] = [];
-        const seenIds = new Set<number>(sweepTagId != null ? [sweepTagId] : []);
-        const h = tagHistory.current;
-        for (let i = h.length - 1; i >= 0 && out.length < 50; i--) {
-            if (seenIds.has(h[i])) continue;
-            seenIds.add(h[i]);
-            // Any tag still there, including one picked through Tab+3.
-            const t = tagMap.get(h[i]);
-            if (t) out.push(t);
-        }
-        return out;
-    })();
-
     const toCompare = useCallback(
         (file: DbFile) => {
             crown(file);
@@ -220,10 +126,11 @@ export default function SweepView({
 
     // F: full screen (just the strip: no sidebar, no toolbar). It's the
     // window's own full screen, so Esc reaches us: Esc leaves it (unless the
-    // pointer's hold is open; Esc lets go of that first). H: content only,
-    // no pointer, toolbar or hints. Esc also leaves the single file view.
+    // pointer's hold is open; Esc lets go of that first). H (the pointer put
+    // away, app-wide): content only, no pointer, toolbar or hints. Esc also
+    // leaves the single file view.
     const fullscreen = immersive;
-    const [contentOnly, setContentOnly] = useState(false);
+    const contentOnly = hidden;
     // Whether F put the window in full screen (so leaving doesn't take it
     // out of a full screen the user chose themselves).
     const windowFullscreenByUs = useRef(false);
@@ -264,14 +171,11 @@ export default function SweepView({
             } else if (e.code === "Escape" && fullscreen) {
                 e.preventDefault();
                 setFullscreen(false);
-            } else if (e.code === "KeyH" && !e.repeat) {
-                e.preventDefault();
-                setContentOnly((c) => !c);
             }
         };
         window.addEventListener("keydown", onKey, true);
         return () => window.removeEventListener("keydown", onKey, true);
-    }, [active, inspected, fullscreen, setFullscreen]);
+    }, [active, inspected, fullscreen, setFullscreen, pickingRef]);
 
     // The sweep stays mounted (and paused) under the single file view, so
     // closing it comes back to the same spot.
@@ -279,9 +183,6 @@ export default function SweepView({
 
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden bg-neutral-950">
-            {/* Here, not in the toolbar: it isn't rendered in full screen or
-                with H, and these are needed then too. */}
-            <style>{SWEEP_KEYFRAMES}</style>
             {inspected && (
                 <SingleFileView
                     file={inspected}
@@ -296,15 +197,9 @@ export default function SweepView({
                     <SweepToolbar
                         tag={tag}
                         random={sweepRandom}
-                        onToggleRandom={() => {
-                            setSweepRandom(!sweepRandom);
-                            setRolledAt(Date.now());
-                        }}
+                        onToggleRandom={() => setSweepRandom(!sweepRandom)}
                         interval={sweepInterval}
-                        onInterval={(s) => {
-                            setSweepInterval(s);
-                            setRolledAt(Date.now());
-                        }}
+                        onInterval={setSweepInterval}
                         onReroll={reroll}
                         speed={sweepSpeed}
                         onSpeed={setSweepSpeed}
@@ -318,14 +213,6 @@ export default function SweepView({
                         tag={tag}
                         speed={sweepSpeed}
                         onSpeed={setSweepSpeed}
-                        onReroll={reroll}
-                        onPickTag={pickTag}
-                        pastTags={pastTags}
-                        onPickingChange={setPicking}
-                        rollSeq={rollSeq}
-                        allTags={allTags}
-                        excludedTags={excludedTags}
-                        countdown={deadline ? { deadline, interval: sweepInterval } : null}
                         onInspect={setInspected}
                         fetchFile={fetchFile}
                         setVisible={setVisible}
@@ -337,15 +224,6 @@ export default function SweepView({
         </div>
     );
 }
-
-const SWEEP_KEYFRAMES = `
-@keyframes sweep-countdown { from { width: 100%; } to { width: 0%; } }
-@keyframes sweep-pick-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes sweep-flash { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes sweep-flash-twice { 0% { opacity: 0; } 12% { opacity: 1; } 35% { opacity: 0.1; } 50% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes sweep-ending { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.sweep-countdown-fill[data-ending="1"] { animation: sweep-ending 0.7s ease-in-out infinite; }
-`;
 
 // ─── Strip ─────────────────────────────────────────────────────────────────
 // One row moving at a steady speed. Files are height-matched, so each is as
@@ -375,54 +253,8 @@ const SCRUB_RESUME_MS = 1000;
 /** A scrub's stop: how fast lanes ease to a halt (higher = shorter slide). */
 const SCRUB_STOP_EASE = 24;
 /** Coverage: a file counts as on screen once this share of its width is
- *  showing; time seen is saved this often (and on tag change, leaving or
- *  the window losing focus). */
+ *  showing. */
 const CHECK_MIN_VISIBLE = 0.5;
-const CHECK_FLUSH_MS = 5000;
-/** Lean-back guard: time seen since the last input is dropped once this
- *  many different files have gone by without one, and at least this long
- *  has passed. Generous on purpose: a missed "no" gets collected another
- *  time, a wrong one makes coverage look further along than it is. Counted
- *  in files, so it scales with speed, lanes and tile widths. */
-const IDLE_FILES = 30;
-const IDLE_MIN_MS = 20000;
-/** Stepping through the history rolodex, resting this long (ms) on an
- *  earlier tag picks it (Space picks at once). So Tab, Tab goes back to
- *  the previous tag. */
-const HISTORY_PICK_MS = 2000;
-/** The same in the Tab + 1 / 2 / 3 lists. */
-const LIST_PICK_MS = HISTORY_PICK_MS;
-/** Tab+3's front card: "search…" (typing there searches the excluded tags). */
-const SEARCH_CARD = { id: -1, name: "search…" } as DbTagWithCategory;
-/** How many tags show on each side of the one at the history cursor. */
-const STACK_SHOWN = 2;
-
-/** Where a history pill sits: slot 0 is the main pill's place, 1–3 rise
- *  above it smaller and fainter, -1 (newer than the cursor) drops away
- *  below. `leaving`: a search is starting, so they all fade. */
-function stackSlotStyle(slot: number): React.CSSProperties {
-    // A rolodex: the card at the cursor faces you; older ones (above) and
-    // newer ones (below) shrink the further they are.
-    const d = Math.min(Math.abs(slot), STACK_RISE.length - 1);
-    const dir = Math.sign(slot); // 1 above, -1 below
-    return {
-        transform:
-            `translateX(-50%) translateY(${-dir * STACK_RISE[d]}px) scale(${STACK_SCALE[d]})`,
-        opacity: STACK_OPACITY[d],
-        zIndex: 10 - d,
-        transition: `transform ${STACK_MS}ms ease-out, opacity ${STACK_MS}ms ease-out, background-color ${STACK_MS}ms`,
-    };
-}
-
-/** Per distance from the cursor: how far a card sits (px), its size and
- *  how visible it is. The last entry is just past what's shown. */
-const STACK_RISE = [0, 22, 40, 54];
-const STACK_SCALE = [1, 0.82, 0.68, 0.56];
-// Fully opaque (cards behind don't show through), just gone past what's shown.
-const STACK_OPACITY = [1, 1, 1, 0];
-
-/** How long the history stack takes to slide one step (ms). */
-const STACK_MS = 120;
 /** Holding 3 jumps to BOOST_START × the set speed and climbs to BOOST_MAX ×
  *  within about a second. */
 const BOOST_START = 4;
@@ -437,78 +269,6 @@ interface StripItem {
     file: DbFile;
     /** Width over height. */
     aspect: number;
-}
-
-/**
- * The hold's search: tags matching `q`, best first, at most 8. Forgiving,
- * since only tags that exist can be picked:
- *   0  the name starts with it       1  a word in it starts with it
- *   2  it's somewhere in the name    3+ a typo or two away from the start
- *   of the name or a word (from 3 letters typed; 2 typos from 6)
- *   6  its letters appear in order (from 2 letters typed)
- * Ties: shorter names first, then alphabetical.
- */
-function searchTags(q: string, tags: DbTagWithCategory[]): DbTagWithCategory[] {
-    if (!q) return [];
-    const maxTypos = q.length >= 6 ? 2 : q.length >= 3 ? 1 : 0;
-    const scored: { tag: DbTagWithCategory; score: number }[] = [];
-    for (const tag of tags) {
-        const name = tag.name;
-        const words = name.split(/[\s\-_]+/).filter(Boolean);
-        let score = Infinity;
-        if (name.startsWith(q)) score = 0;
-        else if (words.some((w) => w.startsWith(q))) score = 1;
-        else if (name.includes(q)) score = 2;
-        else {
-            if (maxTypos > 0) {
-                // Against the start of the name and of each word, a letter
-                // shorter or longer too (a dropped or doubled letter).
-                let best = Infinity;
-                for (const w of [name, ...words]) {
-                    for (const len of [q.length - 1, q.length, q.length + 1]) {
-                        if (len < 1 || len > w.length) continue;
-                        best = Math.min(best, typos(q, w.slice(0, len)));
-                    }
-                }
-                if (best <= maxTypos) score = 3 + best;
-            }
-            if (score === Infinity && q.length >= 2 && inOrder(q, name)) score = 6;
-        }
-        if (score !== Infinity) scored.push({ tag, score });
-    }
-    return scored
-        .sort(
-            (a, b) =>
-                a.score - b.score ||
-                a.tag.name.length - b.tag.name.length ||
-                a.tag.name.localeCompare(b.tag.name),
-        )
-        .slice(0, 8)
-        .map((s) => s.tag);
-}
-
-/** Edits (insert, delete, change, swap two neighbours) to turn a into b. */
-function typos(a: string, b: string): number {
-    const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
-        Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
-    );
-    for (let i = 1; i <= a.length; i++) {
-        for (let j = 1; j <= b.length; j++) {
-            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-            if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
-                d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
-            }
-        }
-    }
-    return d[a.length][b.length];
-}
-
-/** Whether all of q's letters appear in s, in order. */
-function inOrder(q: string, s: string): boolean {
-    let i = 0;
-    for (const c of s) if (c === q[i]) i++;
-    return i === q.length;
 }
 
 /** A file's shape, from its thumbnail (every file has one). */
@@ -545,14 +305,6 @@ function SweepStrip({
     tag,
     speed,
     onSpeed,
-    onReroll,
-    onPickTag,
-    pastTags,
-    onPickingChange,
-    rollSeq,
-    allTags,
-    excludedTags,
-    countdown,
     onInspect,
     fetchFile,
     setVisible,
@@ -566,26 +318,24 @@ function SweepStrip({
     contentOnly: boolean;
     speed: number;
     onSpeed: (speed: number) => void;
-    onReroll: () => void;
-    /** A tag chosen in the pointer's picker. */
-    onPickTag: (tag: DbTagWithCategory) => void;
-    /** Earlier tags, most recent first: the hold's history stack. */
-    pastTags: DbTagWithCategory[];
-    /** The picker opened or closed. */
-    onPickingChange: (open: boolean) => void;
-    /** Goes up on each reroll: the pointer rolls through tag names. */
-    rollSeq: number;
-    allTags: DbTagWithCategory[];
-    /** Tags not offered in Sweep (Tab+3 searches them). */
-    excludedTags: DbTagWithCategory[];
-    /** Random on: when the next reroll fires (ms), shown on the pointer. */
-    countdown: { deadline: number; interval: number } | null;
     onInspect: (file: DbFile) => void;
     fetchFile: () => Promise<DbFile | null>;
     setVisible: (ids: number[]) => void;
     onCompare: (file: DbFile) => void;
 }): JSX.Element {
     const { sweepVarispeed, sweepAllLanes, sweepScrubHold } = useSettings();
+    const {
+        picking,
+        pickingRef,
+        togglePicker,
+        closePicker,
+        checkTagId,
+        addSeen,
+        setTarget,
+        clearTarget,
+        toggleTagOn,
+    } = useTagPointer();
+    useTagPointerSurface(active);
     const boxRef = useRef<HTMLDivElement>(null);
     const [box, setBox] = useState({ width: 0, height: 0 });
 
@@ -785,72 +535,6 @@ function SweepStrip({
     const [flashes, setFlashes] = useState<Record<number, { kind: "on" | "already" | "denied"; n: number }>>({});
     const flashCount = useRef(0);
 
-    // Reroll animation: tag names flick past on the pointer, slowing down,
-    // then it lands on the new tag.
-    const [rolling, setRolling] = useState<DbTagWithCategory | null>(null);
-    // Until the roll lands, tagging still uses the tag that was showing
-    // before it: the new one hasn't been seen yet.
-    const [rollFrom, setRollFrom] = useState<DbTagWithCategory | null>(null);
-    const shownTag = useRef(tag);
-    const firstRoll = useRef(rollSeq);
-    useEffect(() => {
-        if (rollSeq === firstRoll.current || allTags.length < 2) return;
-        setRollFrom(shownTag.current);
-        const steps = [40, 45, 50, 60, 70, 85, 105, 130, 160];
-        const timers: ReturnType<typeof setTimeout>[] = [];
-        let at = 0;
-        steps.forEach((delay) => {
-            at += delay;
-            timers.push(
-                setTimeout(
-                    () => setRolling(allTags[Math.floor(Math.random() * allTags.length)]),
-                    at - delay,
-                ),
-            );
-        });
-        timers.push(
-            setTimeout(() => {
-                setRolling(null);
-                setRollFrom(null);
-            }, at),
-        );
-        return () => {
-            timers.forEach(clearTimeout);
-            setRolling(null);
-            setRollFrom(null);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rollSeq]);
-    // After the roll effect, so it still sees the tag from before a reroll.
-    useEffect(() => {
-        shownTag.current = tag;
-    }, [tag]);
-    // The tag a press applies: the one on screen (the old one mid-roll).
-    const applyTag = rollFrom ?? tag;
-
-    // The countdown bar's fill, sized from the deadline every frame (so it's
-    // right whatever happened in between: full screen, H, a hidden view).
-    const countdownFill = useRef<HTMLDivElement>(null);
-    const countdownNow = useRef(countdown);
-    countdownNow.current = countdown;
-    useEffect(() => {
-        if (!active) return;
-        let raf = 0;
-        const frame = () => {
-            const cd = countdownNow.current;
-            const fill = countdownFill.current;
-            if (cd && fill) {
-                const left = Math.max(0, cd.deadline - Date.now());
-                fill.style.width = `${(left / (cd.interval * 1000)) * 100}%`;
-                // The last 3 seconds pulse.
-                fill.dataset.ending = left < 3000 ? "1" : "0";
-            }
-            raf = requestAnimationFrame(frame);
-        };
-        raf = requestAnimationFrame(frame);
-        return () => cancelAnimationFrame(raf);
-    }, [active]);
-
     // The live set speed: scrolling changes it straight away (finer than the
     // rounded setting); the slider and 4 / 5 come in through `speed`. A new
     // speed takes effect at once in every cruising lane (no easing).
@@ -869,466 +553,41 @@ function SweepStrip({
         if (Math.round(wheelSpeed.current) !== speed) applySpeed(speed);
     }, [speed, applySpeed]);
 
-    // ── Hold (Tab, right click or T) ─────────────────────────────────────
-    // Stops every lane and enlarges the pointer. Typing replaces the pill's
-    // text, searching the tags offered in Sweep (forgiving small typos),
-    // with suggestions below (8 at most): Shift+Tab or ↓ steps down, round
-    // to the top after the last, ↑ up; Tab, Space, Enter or a click picks.
-    // Before typing, the history rolodex: Tab back, Shift+Tab forward, Space
-    // picks. Esc lets go (the tag stays). While it's open, letters and
-    // digits type, so the strip's hotkeys wait.
-    const [picking, setPicking] = useState(false);
-    const pickingRef = useRef(false);
-    pickingRef.current = picking;
-    const [query, setQuery] = useState("");
-    // Searching: the front pill shows what's typed (started by typing a
-    // letter or digit). Before that, the hold shows the history rolodex.
-    const [searchMode, setSearchMode] = useState(false);
-    const searchModeRef = useRef(false);
-    searchModeRef.current = searchMode;
-    const [highlight, setHighlight] = useState(0);
-    // The history stack: 0 is the current tag, 1 the one before, and so
-    // on. The one at the cursor sits in the main pill's place; up to 2 older
-    // ones above it and 2 newer ones below, like a rolodex. Space on the
-    // current tag just lets go.
-    const [cursor, setCursor] = useState(0);
-    const stack = useMemo(() => (tag ? [tag, ...pastTags] : pastTags), [tag, pastTags]);
-    // Holding Tab, a digit opens a list, a rolodex of its own that stays
-    // open: 1 the current tag's category, 2 tags often on the same files, 3
-    // the tags not offered in Sweep (with a "search…" card). In it, Tab /
-    // Shift+Tab move, resting on a tag or Space picks, Esc leaves as it was.
-    type ListMode = "category" | "related" | "excluded";
-    const [listMode, setListMode] = useState<ListMode | null>(null);
-    const listModeRef = useRef<ListMode | null>(null);
-    listModeRef.current = listMode;
-    const [listIndex, setListIndex] = useState(0);
-    const tabDown = useRef(false);
-    // Resting on an earlier tag in the rolodex picks it when this fires.
-    const doubleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // Drawn as a fill across the front card while it runs (seq restarts it).
-    const [pickFill, setPickFill] = useState<{ seq: number; ms: number } | null>(null);
-    const startPickFill = (ms: number) => setPickFill((f) => ({ seq: (f?.seq ?? 0) + 1, ms }));
-    // The timer's pick. Pressing Shift (about to step back) switches it off
-    // for the card in front; moving to another card starts it again.
-    const restPick = useRef<{ ms: number; pick: () => void } | null>(null);
-    const startRest = (ms: number, pick: () => void) => {
-        if (doubleTimer.current) clearTimeout(doubleTimer.current);
-        doubleTimer.current = null;
-        restPick.current = { ms, pick };
-        startPickFill(ms);
-        doubleTimer.current = setTimeout(() => {
-            doubleTimer.current = null;
-            restPick.current = null;
-            pick();
-        }, ms);
-    };
-    const cancelDouble = useCallback(() => {
-        if (doubleTimer.current) clearTimeout(doubleTimer.current);
-        doubleTimer.current = null;
-        restPick.current = null;
-        setPickFill(null);
-    }, []);
-    // 1: the current tag's category (no category: the other uncategorized
-    // tags), in Tag Manager order, starting after the current tag.
-    // A tag Sweep doesn't offer (picked through Tab+3) gets its whole
-    // category, excluded ones too: often the category itself is excluded.
-    const categoryList = useMemo(() => {
-        if (!tag) return [];
-        const offered = allTags.some((t) => t.id === tag.id);
-        const pool = offered ? allTags : [...allTags, ...excludedTags];
-        const same = pool
-            .filter((t) => (t.category_id ?? null) === (tag.category_id ?? null))
-            .sort(byTagOrder);
-        const at = same.findIndex((t) => t.id === tag.id);
-        const from = at >= 0 ? [...same.slice(at + 1), ...same.slice(0, at)] : same;
-        return from.filter((t) => t.id !== tag.id);
-    }, [tag, allTags, excludedTags]);
-    // Fetched when the picker opens: tag ids most often on the same files as
-    // the current tag (null while loading), and every tag by how many files
-    // have it.
-    const [relatedIds, setRelatedIds] = useState<number[] | null>(null);
-    const [usageIds, setUsageIds] = useState<number[]>([]);
+    // ── Picker ───────────────────────────────────────────────────────────
+    // The tag pointer's picker (Tab, T or right click; see
+    // TagPointerContext) stops every lane while it's open; closing it, they
+    // carry on as they were (stopped stays stopped). Lanes paused for a
+    // scrub stay paused under it, and come back from it as they were
+    // before the scrub.
+    const resumeMotion = useRef<(1 | 0 | -1)[] | null>(null);
     useEffect(() => {
-        if (!picking) return;
-        let stale = false;
-        setRelatedIds(tag ? null : []);
-        if (tag) {
-            window.api.getRelatedTags(tag.id).then((rows) => {
-                if (!stale) setRelatedIds(rows.map((r) => r.id).filter((id) => id !== tag.id));
-            });
+        if (picking && active) {
+            resumeMotion.current =
+                scrubResume.current ?? motionRef.current.map((m) => (m.dir === -1 ? 1 : m.dir));
+            cancelScrubResume();
+            applyEdgeRef.current(null, 0, []);
+            setMotion((m) => m.map(() => ({ dir: 0, boost: false })));
+        } else if (!picking && resumeMotion.current) {
+            const resume = resumeMotion.current;
+            resumeMotion.current = null;
+            setMotion(resume.map((dir) => ({ dir, boost: false })));
         }
-        window.api.getMostUsedTags().then((rows) => {
-            if (!stale) setUsageIds(rows.map((r) => r.id));
-        });
-        return () => {
-            stale = true;
-        };
-    }, [picking, tag]);
-    // 2: the related ones Sweep offers.
-    const related = useMemo(() => {
-        if (relatedIds === null) return null;
-        const offered = new Map(allTags.map((t) => [t.id, t]));
-        return relatedIds
-            .map((id) => offered.get(id))
-            .filter((t): t is DbTagWithCategory => !!t)
-            .slice(0, 30);
-    }, [relatedIds, allTags]);
-    // 3: the excluded ones, related to the current tag first, then the most
-    // used, then the rest alphabetically.
-    const excludedRanked = useMemo(() => {
-        const rank = new Map<number, number>();
-        (relatedIds ?? []).forEach((id, i) => rank.set(id, i));
-        const used = new Map<number, number>();
-        usageIds.forEach((id, i) => used.set(id, i));
-        return [...excludedTags].sort((a, b) => {
-            const ra = rank.get(a.id) ?? Infinity;
-            const rb = rank.get(b.id) ?? Infinity;
-            if (ra !== rb) return ra - rb;
-            const ua = used.get(a.id) ?? Infinity;
-            const ub = used.get(b.id) ?? Infinity;
-            if (ua !== ub) return ua - ub;
-            return a.name.localeCompare(b.name);
-        });
-    }, [excludedTags, relatedIds, usageIds]);
-    // Like the history rolodex, the current tag stays in front (0) and the
-    // list rises behind it: the first press shows it, the next steps onto
-    // the first tag. Letting go on the current tag keeps it.
-    // Tab+3 the same way, with a "search…" card in front of the excluded
-    // tags (ranked as above); typing there searches them.
-    const listItems = useMemo(() => {
-        if (listMode === "excluded") return [SEARCH_CARD, ...excludedRanked];
-        const list =
-            listMode === "category" ? categoryList : listMode === "related" ? (related ?? []) : [];
-        return tag && listMode ? [tag, ...list] : list;
-    }, [listMode, categoryList, related, tag, excludedRanked]);
-    // Each lane's direction to carry on with when it closes (stopped stays
-    // stopped).
-    const resumeMotion = useRef<(1 | 0 | -1)[]>(Array(MAX_LANES).fill(1));
-    // Results open above the pointer when it's in the lower half.
-    const [resultsAbove, setResultsAbove] = useState(false);
-    const matches = useMemo(() => {
-        if (listMode !== "excluded") return searchTags(query.trim(), allTags);
-        // Tab+3: the excluded tags, best suggestions first, until typing.
-        if (!query.trim()) return excludedRanked.slice(0, 8);
-        return searchTags(query.trim(), excludedTags);
-    }, [query, allTags, excludedTags, excludedRanked, listMode]);
-    useEffect(() => setHighlight(0), [query]);
-
-    const openPicker = useCallback(() => {
-        if (pickingRef.current) return;
-        // Lanes paused for a scrub stay paused under the picker, and come
-        // back from it as they were before the scrub.
-        resumeMotion.current = scrubResume.current ?? motionRef.current.map((m) => (m.dir === -1 ? 1 : m.dir));
-        cancelScrubResume();
-        applyEdgeRef.current(null, 0, []);
-        setMotion((m) => m.map(() => ({ dir: 0, boost: false })));
-        setQuery("");
-        setSearchMode(false);
-        setCursor(0);
-        setListMode(null);
-        setListIndex(0);
-        cancelDouble();
-        const el = pointerRef.current;
-        const boxEl = boxRef.current;
-        if (el && boxEl) {
-            const r = el.getBoundingClientRect();
-            const b = boxEl.getBoundingClientRect();
-            setResultsAbove(r.top - b.top > b.height / 2);
-        }
-        setPicking(true);
-        onPickingChange(true);
-    }, [onPickingChange, cancelDouble]);
-
-    const closePicker = useCallback(
-        (picked?: DbTagWithCategory) => {
-            if (!pickingRef.current) return;
-            cancelDouble();
-            setPicking(false);
-            setSearchMode(false);
-            setListMode(null);
-            onPickingChange(false);
-            setMotion(resumeMotion.current.map((dir) => ({ dir, boost: false })));
-            if (picked) onPickTag(picked);
-        },
-        [onPickingChange, onPickTag, cancelDouble],
-    );
-
-    // Typing a letter or digit turns the front pill into the search, right
-    // there (the rest of the rolodex goes).
-    const startSearch = useCallback((first: string) => {
-        cancelDouble();
-        setQuery((q) => q + first);
-        setSearchMode(true);
-        setListMode(null);
-    }, [cancelDouble]);
-
-    // Leaving (file view, another view) closes it.
-    useEffect(() => {
-        if (!active) closePicker();
-    }, [active, closePicker]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [picking]);
 
     // The pointer's lane's file under it: the one the keys act on.
     const activeItem = activeByLane[pointerLane];
 
     // ── Coverage: time seen ──────────────────────────────────────────────
     // While a tag is up, the lanes add up how long each file is on screen
-    // while really being watched (see StripLane), for that tag. Saved as
-    // raw seconds; what counts as a "no" is decided when reading. Nothing
-    // counts with no tag, the picker open, H on or mid-reroll.
-    // Lean-back guard: time since the last input (a key, click, scroll or
-    // mouse movement) is only provisional. The next input confirms it; if
-    // IDLE_FILES files go by first (and IDLE_MIN_MS passes), it's dropped
-    // and nothing counts until the next input.
-    const checkTagId = useRef<number | null>(null);
-    checkTagId.current = tag && !picking && !contentOnly && !rollFrom ? tag.id : null;
-    type SeenByTag = Map<number, Map<number, number>>; // tag → file → seconds
-    const pending = useRef<SeenByTag>(new Map());
-    const pendingFiles = useRef(new Set<number>());
-    const queued = useRef<SeenByTag>(new Map());
-    const lastInput = useRef(Date.now());
-    const idle = useRef(false);
+    // while really being watched (see StripLane), and hand it to the tag
+    // pointer (which applies the lean-back guard and saves it).
     // Goes up when the tag changes, so lanes start each file's trip mark over.
     const checkEpoch = useRef(0);
-    const flushSeen = useCallback(() => {
-        const byTag = queued.current;
-        if (byTag.size === 0) return;
-        queued.current = new Map();
-        for (const [tagId, seen] of byTag) {
-            const entries = [...seen].map(([fileId, seconds]) => ({ fileId, seconds }));
-            window.api.addTagCheckSeconds(tagId, entries).catch(() => {});
-        }
-    }, []);
-    const dropPending = useCallback(() => {
-        pending.current = new Map();
-        pendingFiles.current = new Set();
-    }, []);
-    const confirmInput = useCallback(() => {
-        for (const [tagId, seen] of pending.current) {
-            const into = queued.current.get(tagId) ?? new Map<number, number>();
-            for (const [fileId, seconds] of seen) {
-                into.set(fileId, (into.get(fileId) ?? 0) + seconds);
-            }
-            queued.current.set(tagId, into);
-        }
-        dropPending();
-        idle.current = false;
-        lastInput.current = Date.now();
-    }, [dropPending]);
-    const addSeen = useCallback(
-        (fileId: number, dt: number) => {
-            const tagId = checkTagId.current;
-            if (tagId == null || idle.current) return;
-            const seen = pending.current.get(tagId) ?? new Map<number, number>();
-            seen.set(fileId, (seen.get(fileId) ?? 0) + dt);
-            pending.current.set(tagId, seen);
-            pendingFiles.current.add(fileId);
-            if (
-                pendingFiles.current.size >= IDLE_FILES &&
-                Date.now() - lastInput.current >= IDLE_MIN_MS
-            ) {
-                dropPending();
-                idle.current = true;
-            }
-        },
-        [dropPending],
-    );
+    const tagId = tag?.id;
     useEffect(() => {
         checkEpoch.current += 1;
-        flushSeen();
-    }, [tag?.id, flushSeen]);
-    useEffect(() => {
-        if (!active) return;
-        // Coming into Sweep counts as input.
-        idle.current = false;
-        lastInput.current = Date.now();
-        const t = setInterval(flushSeen, CHECK_FLUSH_MS);
-        window.addEventListener("blur", flushSeen);
-        // Capture, and set up before the picker's key handler (which stops
-        // other handlers), so every key counts.
-        let mx: number | null = null;
-        let my: number | null = null;
-        const onMove = (e: MouseEvent) => {
-            if (e.screenX === mx && e.screenY === my) return;
-            mx = e.screenX;
-            my = e.screenY;
-            confirmInput();
-        };
-        const opts = { capture: true } as const;
-        window.addEventListener("keydown", confirmInput, opts);
-        window.addEventListener("mousedown", confirmInput, opts);
-        window.addEventListener("wheel", confirmInput, opts);
-        window.addEventListener("mousemove", onMove, opts);
-        return () => {
-            clearInterval(t);
-            window.removeEventListener("blur", flushSeen);
-            window.removeEventListener("keydown", confirmInput, opts);
-            window.removeEventListener("mousedown", confirmInput, opts);
-            window.removeEventListener("wheel", confirmInput, opts);
-            window.removeEventListener("mousemove", onMove, opts);
-            // Leaving: whatever was real got confirmed by the input that left.
-            dropPending();
-            flushSeen();
-        };
-    }, [active, flushSeen, confirmInput, dropPending]);
-
-    // Caught first (capture) and kept from everything else: the app-wide T,
-    // the view's F / H, the strip's own keys.
-    // (toggleOn is filled in once it exists, below.)
-    const pickState = useRef({
-        matches,
-        highlight,
-        query,
-        activeItem,
-        toggleOn: (_item: StripItem) => {},
-    });
-    pickState.current.matches = matches;
-    pickState.current.highlight = highlight;
-    pickState.current.query = query;
-    pickState.current.activeItem = activeItem;
-    const stackState = useRef({ stack, cursor, listItems, listIndex });
-    stackState.current = { stack, cursor, listItems, listIndex };
-    useEffect(() => {
-        if (!active) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.metaKey || e.ctrlKey || e.altKey) return;
-            if (!pickingRef.current) {
-                if ((e.code === "Tab" || e.code === "KeyT") && !isTyping()) {
-                    e.preventDefault();
-                    e.stopImmediatePropagation();
-                    if (e.repeat) return;
-                    if (e.code === "Tab") tabDown.current = true;
-                    openPicker();
-                }
-                return;
-            }
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            const { matches, highlight, query } = pickState.current;
-            const searching = searchModeRef.current;
-            const step = (by: 1 | -1) =>
-                setHighlight((i) => (matches.length ? (i + by + matches.length) % matches.length : 0));
-            const { stack, cursor, listItems, listIndex } = stackState.current;
-            const mode = listModeRef.current;
-            // Holding Tab never steps on its own (no key repeat).
-            if (e.code === "Tab" && e.repeat) return;
-            if (e.code === "Tab") tabDown.current = true;
-            const listKey =
-                e.code === "Digit1" ? "category" : e.code === "Digit2" ? "related" : e.code === "Digit3" ? "excluded" : null;
-            if (listKey && tabDown.current) {
-                // Tab held + 1 / 2 / 3: open that list, or step down it.
-                if (e.repeat) return;
-                cancelDouble();
-                if (listKey === "excluded" && mode === "excluded" && searching) {
-                    step(1);
-                } else if (mode === listKey) {
-                    setListIndex((i) => (listItems.length ? (i + 1) % listItems.length : 0));
-                } else {
-                    setListMode(listKey);
-                    setListIndex(0);
-                    setSearchMode(false);
-                    setQuery("");
-                }
-                return;
-            }
-            if (e.key === "Shift") {
-                // About to Shift+Tab back: this card won't be picked by
-                // resting on it (moving on starts the timer again).
-                if (!e.repeat) cancelDouble();
-            } else if (e.key === "Escape") {
-                closePicker();
-            } else if (mode && !searching && (e.code === "Space" || e.key === "Enter")) {
-                // On the front card: 1 / 2 keep the current tag; 3 waits for typing.
-                if (e.repeat) return;
-                if (listIndex > 0) closePicker(listItems[listIndex]);
-                else if (mode !== "excluded") closePicker();
-            } else if (e.code === "Tab" && !searching && !mode) {
-                // The history stack: Tab further back, Shift+Tab toward now.
-                const next = e.shiftKey
-                    ? Math.max(cursor - 1, 0)
-                    : Math.min(cursor + 1, Math.max(0, stack.length - 1));
-                setCursor(next);
-                // Resting on an earlier tag picks it. Stepping back onto the
-                // current one lets go after the same rest (just opening the
-                // picker doesn't, so there's time to type a search).
-                cancelDouble();
-                if (next > 0 || cursor > 0) {
-                    startRest(HISTORY_PICK_MS, () => {
-                        const { stack, cursor } = stackState.current;
-                        closePicker(cursor > 0 ? stack[cursor] : undefined);
-                    });
-                }
-            } else if (e.code === "Tab" && mode && !searching) {
-                // A list works like the history: Tab further in, Shift+Tab
-                // back toward the front card; resting on a tag picks it.
-                const next = e.shiftKey
-                    ? Math.max(listIndex - 1, 0)
-                    : Math.min(listIndex + 1, Math.max(0, listItems.length - 1));
-                setListIndex(next);
-                cancelDouble();
-                // Stepping back onto the current tag (1 / 2) lets go after the
-                // rest too; 3's "search…" card waits for typing.
-                if (next > 0 || (listIndex > 0 && mode !== "excluded")) {
-                    startRest(LIST_PICK_MS, () => {
-                        const { listItems, listIndex } = stackState.current;
-                        if (!listModeRef.current || searchModeRef.current) return;
-                        if (listIndex > 0) closePicker(listItems[listIndex]);
-                        else if (listModeRef.current !== "excluded") closePicker();
-                    });
-                }
-            } else if (e.code === "Tab" && e.shiftKey) {
-                // Next suggestion, round to the top after the last.
-                step(1);
-            } else if (e.key === "Enter" || e.code === "Space" || e.code === "Tab") {
-                if (e.repeat) return;
-                if (searching) {
-                    if (matches[highlight]) closePicker(matches[highlight]);
-                } else if (cursor > 0) {
-                    // An earlier tag: take it and carry on.
-                    closePicker(stack[cursor]);
-                } else {
-                    // The current tag: just let go (its countdown carries on).
-                    closePicker();
-                }
-            } else if (e.key === "ArrowDown") {
-                step(1);
-            } else if (e.key === "ArrowUp") {
-                step(-1);
-            } else if (e.key === "Backspace") {
-                // Past the last letter: back to the history stack.
-                if (query) setQuery((q) => q.slice(0, -1));
-                else if (searching) {
-                    // Back to the excluded cards (from 3), else the history.
-                    setSearchMode(false);
-                    if (mode !== "excluded") setListMode(null);
-                }
-            } else if (e.key.length === 1) {
-                if (searching) setQuery((q) => q + e.key.toLowerCase());
-                else if (mode === "excluded") {
-                    // Typing on Tab+3's cards searches the excluded tags.
-                    cancelDouble();
-                    setQuery(e.key.toLowerCase());
-                    setSearchMode(true);
-                } else startSearch(e.key.toLowerCase());
-            }
-        };
-        // Tab is only tracked as held (Tab + 1 / 2 / 3 opens a list, which
-        // then stays open until a pick or Esc).
-        const onKeyUp = (e: KeyboardEvent) => {
-            if (e.code === "Tab") tabDown.current = false;
-        };
-        const onBlur = () => {
-            tabDown.current = false;
-        };
-        window.addEventListener("keydown", onKey, true);
-        window.addEventListener("keyup", onKeyUp, true);
-        window.addEventListener("blur", onBlur);
-        return () => {
-            window.removeEventListener("keydown", onKey, true);
-            window.removeEventListener("keyup", onKeyUp, true);
-            window.removeEventListener("blur", onBlur);
-            cancelDouble();
-        };
-    }, [active, openPicker, closePicker, startSearch, cancelDouble]);
+    }, [tagId]);
 
     // ── Rotation (R) ─────────────────────────────────────────────────────
     // Quarter turns left being previewed per file. The tile keeps its width
@@ -1460,49 +719,32 @@ function SweepStrip({
     const { tags } = useFileTags(activeItem?.file.id ?? null);
     const onFile = tag ? tags.find((t) => t.id === tag.id) : undefined;
 
-    // Toggle the tag on a file (Space: the active one; or a click). Its
-    // current tags are read fresh, so any file works.
-    // Failsafe: a file that already had the swept tag before we touched it
-    // here (added some other way) isn't untagged by the first click or
-    // Space: that just flashes as if adding it. The second one removes it.
-    // Tags added here come off in one, as usual. Per tag: a new tag starts
-    // over.
-    const addedHere = useRef(new Set<number>());
-    const confirmed = useRef(new Set<number>());
-    useEffect(() => {
-        addedHere.current = new Set();
-        confirmed.current = new Set();
-    }, [tag?.id]);
-
+    // Toggle the tag on a file (Space on the active one, through the tag
+    // pointer; or a click on any), with a flash on its tile.
+    const flashTile = useCallback((key: number, kind: FlashKind) => {
+        const n = ++flashCount.current;
+        setFlashes((f) => ({ ...f, [key]: { kind, n } }));
+    }, []);
     const toggleOn = useCallback(
         async (item: StripItem) => {
-            const tag = applyTag;
-            if (!tag) return;
-            const current = await window.api.getTags(item.file.id);
-            const has = current.find((t) => t.id === tag.id);
-            const state: TagState = has ? (has.inherited ? "inherited" : "own") : null;
-            const flash = (kind: "on" | "already" | "denied") => {
-                const n = ++flashCount.current;
-                setFlashes((f) => ({ ...f, [item.key]: { kind, n } }));
-            };
-            const id = item.file.id;
-            if (state === "own" && !addedHere.current.has(id) && !confirmed.current.has(id)) {
-                confirmed.current.add(id);
-                flash("already");
-                return;
-            }
-            const ok = await toggleSweptTag(item.file, tag, state);
-            if (ok && state === null) addedHere.current.add(id);
-            if (ok && state === "own") {
-                addedHere.current.delete(id);
-                confirmed.current.delete(id);
-            }
-            if (!ok) flash("denied");
-            else if (state === null) flash("on");
+            const kind = await toggleTagOn(item.file);
+            if (kind) flashTile(item.key, kind);
         },
-        [applyTag],
+        [toggleTagOn, flashTile],
     );
-    pickState.current.toggleOn = toggleOn;
+
+    // The active file is the pointer's target: Space toggles it there.
+    useEffect(() => {
+        if (!active || !activeItem) return;
+        const t: PointerTarget = {
+            file: activeItem.file,
+            ownPointer: true,
+            onFlash: (kind) => flashTile(activeItem.key, kind),
+            anchorY: () => pointerRef.current?.getBoundingClientRect().top ?? null,
+        };
+        setTarget(t);
+        return () => clearTarget(t);
+    }, [active, activeItem, setTarget, clearTarget, flashTile]);
 
     const rotateLeftRef = useRef(rotateLeft);
     rotateLeftRef.current = rotateLeft;
@@ -1512,8 +754,8 @@ function SweepStrip({
     );
 
     // Keys
-    const state = useRef({ activeItem, toggleOn, speed });
-    state.current = { activeItem, toggleOn, speed };
+    const state = useRef({ activeItem, speed });
+    state.current = { activeItem, speed };
     // The lanes a held 1 / 3 started on (letting go affects the same ones).
     const heldLanes = useRef<{ one: number[]; three: number[] }>({ one: [], three: [] });
     // Whether the strip itself took the 1 / 3 press (not the picker), so
@@ -1523,12 +765,8 @@ function SweepStrip({
         if (!active) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.metaKey || e.ctrlKey || e.altKey || isTyping() || pickingRef.current) return;
-            const { activeItem, toggleOn, speed } = state.current;
+            const { activeItem, speed } = state.current;
             switch (e.code) {
-                case "Space":
-                    e.preventDefault();
-                    if (!e.repeat && activeItem) toggleOn(activeItem);
-                    break;
                 case "Digit4":
                 case "Digit5":
                     e.preventDefault();
@@ -1538,10 +776,6 @@ function SweepStrip({
                             Math.min(SPEED_MAX, speed + (e.code === "Digit5" ? SPEED_STEP : -SPEED_STEP)),
                         ),
                     );
-                    break;
-                case "Backquote":
-                    e.preventDefault();
-                    if (!e.repeat) onReroll();
                     break;
                 case "KeyG":
                     e.preventDefault();
@@ -1650,7 +884,7 @@ function SweepStrip({
             release();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [active, onCompare, onSpeed, onReroll, onInspect, sweepAllLanes]);
+    }, [active, onCompare, onSpeed, onInspect, sweepAllLanes]);
 
     const pointerMotion = motion[pointerLane] ?? CRUISE;
 
@@ -1700,8 +934,7 @@ function SweepStrip({
             onContextMenu={(e) => {
                 // Right click: hold; again: let go.
                 e.preventDefault();
-                if (pickingRef.current) closePicker();
-                else openPicker();
+                togglePicker();
             }}
             onWheel={(e) => {
                 // Scrolling (wheel or two fingers) sets the speed: up faster,
@@ -1761,210 +994,7 @@ function SweepStrip({
                 // Moved by the mouse handlers above; React only sets the rest spot.
                 style={{ left: `${POINTER_AT * 100}%`, top: 0, transform: "translate(-50%, 0)" }}
             >
-                {/* Enlarged while picking, growing away from the tip. */}
-                <div
-                    className={`flex flex-col items-center transition-transform duration-150 ${
-                        picking ? "scale-[1.25]" : ""
-                    } ${mouseX.current == null ? "origin-top" : "origin-bottom"}`}
-                >
-                <div className="relative mt-2 flex flex-col items-stretch">
-                {/* The history stack, a rolodex over the main pill: the tag
-                    at the cursor in its place, up to 2 older ones above and
-                    (after Tab) up to 2 newer ones below, smaller the further
-                    they are. Each keeps its element, so moving the cursor rolls them. */}
-                {/* Tab held + 1 / 2 / 3: which list is showing. Hidden when 3's
-                    results open upward, over where it sits. */}
-                {picking && listMode && !(listMode === "excluded" && searchMode && resultsAbove) && (
-                    <div className="pointer-events-none absolute bottom-full left-1/2 mb-[62px] flex -translate-x-1/2 gap-1 whitespace-nowrap rounded-full bg-black/80 px-2 py-0.5 text-[10px] shadow">
-                        {(
-                            [
-                                ["category", "1 same category"],
-                                ["related", "2 related"],
-                                ["excluded", "3 excluded"],
-                            ] as const
-                        ).map(([m, label]) => (
-                            <span
-                                key={m}
-                                className={`rounded-full px-1.5 ${
-                                    listMode === m ? "bg-neutral-200 text-neutral-900" : "text-neutral-400"
-                                }`}
-                            >
-                                {label}
-                            </span>
-                        ))}
-                    </div>
-                )}
-                {/* A list with nothing in it says so. */}
-                {picking && listMode && !searchMode && listItems.length <= 1 && (
-                    // Where the list's first tag would be, behind the current one.
-                    <div
-                        className="pointer-events-none absolute left-1/2 top-0 min-w-[5rem] whitespace-nowrap rounded-full bg-neutral-900 px-3 py-1 text-xs text-neutral-400 shadow-lg"
-                        style={stackSlotStyle(1)}
-                    >
-                        {listMode === "excluded"
-                            ? "No tags are excluded from Sweep"
-                            : listMode === "category"
-                            ? "No other tags in this category"
-                            : related === null
-                              ? "Finding related tags…"
-                              : "No related tags yet"}
-                    </div>
-                )}
-                {picking && !searchMode &&
-                    (listMode ? listItems : stack).map((t, i) => {
-                        // History: the current tag is 0. A list: just its tags.
-                        const inList = listMode != null;
-                        const slot = i - (inList ? listIndex : cursor);
-                        if (slot < -STACK_SHOWN - 1 || slot > STACK_SHOWN + 1) return null;
-                        const isCurrent = i === 0 && listMode !== "excluded" && tag != null && t.id === tag.id;
-                        const isSearchCard = t.id === SEARCH_CARD.id;
-                        return (
-                            <div
-                                key={t.id}
-                                onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    // The current one just lets go; "search…" waits for typing.
-                                    if (isSearchCard) setSearchMode(true);
-                                    else closePicker(isCurrent ? undefined : t);
-                                }}
-                                title={isSearchCard ? "Type to search tags not offered in Sweep" : isCurrent ? "Keep this tag" : inList ? "Sweep this tag" : "Back to this tag (Space)"}
-                                className={`pointer-events-auto absolute left-1/2 top-0 flex min-w-[5rem] cursor-pointer items-center justify-center gap-1.5 overflow-hidden rounded-full px-3 py-1 text-xs font-medium shadow-lg backdrop-blur ${
-                                    slot === 0
-                                        ? "bg-neutral-900 text-neutral-100 ring-1 ring-white/50"
-                                        : "bg-neutral-900 text-neutral-400"
-                                }`}
-                                style={stackSlotStyle(slot)}
-                            >
-                                {/* About to be picked from resting on it: fills left to right. */}
-                                {slot === 0 && pickFill && (
-                                    <span
-                                        key={pickFill.seq}
-                                        className="pointer-events-none absolute inset-0 -z-10 origin-left bg-white/15"
-                                        style={{ animation: `sweep-pick-fill ${pickFill.ms}ms linear forwards` }}
-                                    />
-                                )}
-                                {t.category && (
-                                    <span
-                                        className="rounded-full bg-neutral-900 px-1 py-0.5 text-[10px] leading-none"
-                                        style={{ color: t.category.color }}
-                                    >
-                                        {t.category.icon}
-                                    </span>
-                                )}
-                                {isSearchCard ? (
-                                    <span className="text-neutral-500">search…</span>
-                                ) : isCurrent && onFile ? (
-                                    `✓ ${t.name}`
-                                ) : (
-                                    t.name
-                                )}
-                            </div>
-                        );
-                    })}
-                <div
-                    style={
-                        // In the hold's stack view the stack shows its own
-                        // pill here; this one keeps the place.
-                        picking && !searchMode ? { visibility: "hidden" } : undefined
-                    }
-                    // min-w: one typed letter mustn't shrink it to a dot.
-                    className={`relative flex min-w-[5rem] items-center justify-center gap-1.5 overflow-hidden rounded-full px-3 py-1 text-xs font-medium shadow-lg backdrop-blur transition-colors ${
-                        picking
-                            ? "bg-neutral-900 text-neutral-100 ring-1 ring-white/50"
-                            : onFile && !rolling
-                              ? "bg-neutral-100 text-neutral-900"
-                              : "bg-black/70 text-neutral-200"
-                    } ${onFile?.inherited && !rolling && !picking ? "opacity-60" : ""}`}
-                    title={
-                        onFile?.inherited
-                            ? onFile.inheritedVia
-                                ? `Comes with "${onFile.inheritedVia}"`
-                                : "From the folder's tags"
-                            : undefined
-                    }
-                >
-                    {picking && searchMode ? (
-                        // What's typed, live (the pill is the search).
-                        <span className="flex items-center">
-                            {!query && listMode === "excluded" && (
-                                <span className="text-neutral-500">excluded tags…</span>
-                            )}
-                            <span>{query}</span>
-                            <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-neutral-200" />
-                        </span>
-                    ) : (() => {
-                        const shown = rolling ?? tag;
-                        return (
-                            <>
-                                {shown?.category && (
-                                    // Dark backing: the label turns white, and so are some category colors.
-                                    <span className="rounded-full bg-neutral-900 px-1 py-0.5 text-[10px] leading-none" style={{ color: shown.category.color }}>
-                                        {shown.category.icon}
-                                    </span>
-                                )}
-                                {rolling
-                                    ? rolling.name
-                                    : tag
-                                      ? onFile
-                                          ? `✓ ${tag.name}`
-                                          : tag.name
-                                      : "pick a tag"}
-                            </>
-                        );
-                    })()}
-                </div>
-                {/* Time left until the next random tag (as wide as the label) */}
-                {countdown && !rolling && !picking && (
-                    <div className="mx-2 mt-1 h-1.5 overflow-hidden rounded-full bg-black/60 shadow">
-                        <div
-                            ref={countdownFill}
-                            className="sweep-countdown-fill h-full rounded-full bg-neutral-200"
-                            style={{ width: "100%" }}
-                        />
-                    </div>
-                )}
-                </div>
-                {/* Hidden in the hold (still taking its space, so nothing shifts). */}
-                <svg width="22" height="14" viewBox="0 0 22 14" className={`drop-shadow ${picking ? "invisible" : ""}`}>
-                    <path d="M1 1 H21 L11 13 Z" fill={onFile && !picking ? "#f5f5f5" : "rgba(0,0,0,0.7)"} stroke="#f5f5f5" strokeWidth="1.5" strokeLinejoin="round" />
-                </svg>
-                </div>
-
-                {/* Suggestions, while something's typed */}
-                {picking && searchMode && (query || listMode === "excluded") && (
-                    <div
-                        className={`pointer-events-auto absolute left-1/2 min-w-[12rem] -translate-x-1/2 overflow-hidden rounded-md border border-neutral-700 bg-neutral-950/95 text-xs shadow-xl backdrop-blur ${
-                            resultsAbove ? "bottom-full mb-2" : "top-full mt-2"
-                        }`}
-                    >
-                        {matches.length > 0 ? (
-                            matches.map((t, i) => (
-                                <button
-                                    key={t.id}
-                                    onMouseDown={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        closePicker(t);
-                                    }}
-                                    onMouseEnter={() => setHighlight(i)}
-                                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${
-                                        i === highlight ? "bg-neutral-800 text-white" : "text-neutral-300"
-                                    }`}
-                                >
-                                    <span className="w-3 text-center text-[10px]" style={{ color: t.category?.color }}>
-                                        {t.category?.icon ?? ""}
-                                    </span>
-                                    {t.name}
-                                </button>
-                            ))
-                        ) : (
-                            <div className="px-3 py-2 text-neutral-500">
-                                {listMode === "excluded" && !query ? "No tags are excluded from Sweep" : "No tags match"}
-                            </div>
-                        )}
-                    </div>
-                )}
+                <PointerLabel onFile={onFile} originTop={mouseX.current == null} />
             </div>
 
             {/* Direction / stopped (the pointer's lane), and the lanes */}
@@ -2461,7 +1491,7 @@ const STRIP_HINTS: [string, string][] = [
     ["Space / click", "toggle the tag"],
     ["Tab / right click / T", "hold: Tab back through earlier tags, Shift+Tab forward, Space picks; or type to search"],
     ["Tab Tab", "back to the previous tag (resting on an earlier tag picks it)"],
-    ["Tab + 1 / 2 / 3", "rolodex of tags in the same category / often on the same files / not offered in Sweep (3: type to search); Tab / Shift+Tab move, rest or Space picks, Esc leaves"],
+    ["Tab + 1 / 2 / 3", "rolodex of tags in the same category / often on the same files / not offered in the tag pointer (3: type to search); Tab / Shift+Tab move, rest or Space picks, Esc leaves"],
     ["Esc / right click", "let go of the hold (Esc also leaves full screen)"],
     ["hold 1", "rewind"],
     ["6", "stop"],

@@ -12,6 +12,7 @@ import ScrollView from "./components/ScrollView";
 import CompareView from "./components/CompareView";
 import SweepView from "./components/SweepView";
 import TagManagerView from "./components/TagManagerView";
+import { CursorPointer } from "./components/TagPointer";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -228,6 +229,7 @@ export default function App(): JSX.Element {
                     </div>
                 </main>
             </div>
+            <CursorPointer />
         </div>
     );
 }

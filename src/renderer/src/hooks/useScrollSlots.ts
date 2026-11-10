@@ -115,10 +115,11 @@ export function useScrollSlots({
     // Keyboard
     useEffect(() => {
         if (!active) return;
-        // Space / ↓ next, W / ↑ previous (the scheme is in lib/keys.ts).
+        // 2 / ↓ next, W / ↑ previous (the scheme is in lib/keys.ts; Space
+        // is the tag pointer's).
         const onKey = (e: KeyboardEvent) => {
             if (e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
-            if (e.code === "ArrowDown" || e.code === "Space") {
+            if (e.code === "ArrowDown" || e.code === "Digit2") {
                 e.preventDefault();
                 navigate("down");
             } else if (e.code === "ArrowUp" || e.code === "KeyW") {

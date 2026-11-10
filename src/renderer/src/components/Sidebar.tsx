@@ -487,6 +487,7 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
 
     return createPortal(
         <div
+            data-modal
             className="fixed inset-0 z-40 flex items-center justify-center bg-black/60"
             onMouseDown={(e) => {
                 if (e.target === e.currentTarget) onClose();
@@ -541,7 +542,7 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         onToggle={toggleSweepScrubHold}
                     />
                     <SliderInput
-                        name="Sweep: seconds on screen to count as a no"
+                        name="Tag pointer: seconds on screen to count as a no"
                         min={1}
                         max={30}
                         value={coverageSeconds}
@@ -1040,7 +1041,7 @@ export default function Sidebar({
                         <>
                             {/* Covers the whole app while filing. */}
                             {createPortal(
-                                <div className="fixed inset-0 z-40 bg-black/60" />,
+                                <div data-modal className="fixed inset-0 z-40 bg-black/60" />,
                                 document.body,
                             )}
                             {/* The filing panel, above the cover. */}

@@ -48,6 +48,7 @@ function ConfirmDialog({
 
     return createPortal(
         <div
+            data-modal
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
             onMouseDown={(e) => {
                 if (e.target === e.currentTarget) onCancel?.();
