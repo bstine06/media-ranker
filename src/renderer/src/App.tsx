@@ -221,7 +221,10 @@ export default function App(): JSX.Element {
                                 : "hidden"
                         }
                     >
-                        <TagManagerView />
+                        <TagManagerView
+                            active={view === "tag-manager"}
+                            setView={setView}
+                        />
                     </div>
                 </main>
             </div>

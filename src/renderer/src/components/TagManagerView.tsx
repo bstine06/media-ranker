@@ -3,9 +3,13 @@ import {
     DbTag,
     DbTagCategory,
     DbTagWithCategory,
+    TagCoverage,
     TagImplicationPreview,
     TagUsage,
+    View,
 } from "@renderer/shared/types/types";
+import { useSettings } from "@renderer/contexts/SettingsContext";
+import TagCoverageView, { TagCoverageSummary, useTagCoverage } from "./TagCoverageView";
 import ConfirmDialog from "./ConfirmDialog";
 import React, { useEffect, useMemo, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
@@ -456,9 +460,11 @@ function NewTagEditor({ onDone }: { onDone: () => void }) {
 function TagEditor({
     tag,
     onDone,
+    coverage,
 }: {
     tag: DbTagWithCategory;
     onDone: () => void;
+    coverage: TagCoverage | null;
 }) {
     const [name, setName] = useState(tag.name);
     const [categoryId, setCategoryId] = useState<number | null>(
@@ -580,6 +586,8 @@ function TagEditor({
                     ))}
                 </select>
             </div>
+
+            <TagCoverageSummary tagId={tag.id} coverage={coverage} />
 
             <TagLinksEditor tag={tag} />
 
@@ -920,9 +928,18 @@ function usageText({ files, folders }: TagUsage): string {
 
 // ─── TagManagerView ───────────────────────────────────────────────────────────
 
-export default function TagManagerView(): JSX.Element {
-    const { allTags, allCategories, refreshTags, updateTag, updateCategory, reorderTags } =
+export default function TagManagerView({
+    active,
+    setView,
+}: {
+    active: boolean;
+    setView: (view: View) => void;
+}): JSX.Element {
+    const { allTags, allCategories, tagMap, refreshTags, updateTag, updateCategory, reorderTags } =
         useTags();
+    const { setSweepTagId, setSweepRandom } = useSettings();
+    const [tab, setTab] = useState<"tags" | "coverage">("tags");
+    const coverage = useTagCoverage(active);
     // The tag a dragged tag would be dropped in front of.
     const [dropBeforeId, setDropBeforeId] = useState<number | null>(null);
     const [focus, setFocus] = useState<FocusTarget>(null);
@@ -1023,6 +1040,33 @@ export default function TagManagerView(): JSX.Element {
 
     const handleDone = () => setFocus(null);
 
+    // From the Coverage tab: open a tag in the editor, its category opened
+    // in the list so it shows there too.
+    const editTag = (tagId: number) => {
+        const t = tagMap.get(tagId);
+        if (!t) return;
+        setTab("tags");
+        setFocus({ kind: "tag", item: t });
+        if (t.category_id == null) {
+            setUncategorizedCollapsed(false);
+        } else {
+            const catId = t.category_id;
+            setCollapsedCategories((prev) => {
+                const next = new Set(prev);
+                next.delete(catId);
+                return next;
+            });
+        }
+    };
+
+    // From the Coverage tab: sweep for this tag (random off, or it'd be
+    // rerolled away).
+    const sweepTag = (tagId: number) => {
+        setSweepRandom(false);
+        setSweepTagId(tagId);
+        setView("sweep");
+    };
+
     const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
     };
@@ -1048,14 +1092,32 @@ export default function TagManagerView(): JSX.Element {
 
     return (
         <div className="flex flex-1 flex-col overflow-hidden w-full">
-            <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-3 flex-shrink-0">
-                <h2 className="text-sm font-medium text-neutral-300">
-                    Tag Manager
-                </h2>
+            <div className="flex items-center gap-1 border-b border-neutral-800 px-4 py-2 flex-shrink-0">
+                {(["tags", "coverage"] as const).map((t) => (
+                    <button
+                        key={t}
+                        onClick={() => setTab(t)}
+                        className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                            tab === t
+                                ? "bg-neutral-800 text-neutral-100"
+                                : "text-neutral-500 hover:text-neutral-300"
+                        }`}
+                    >
+                        {t === "tags" ? "Tags" : "Coverage"}
+                    </button>
+                ))}
             </div>
 
+            {tab === "coverage" && (
+                <TagCoverageView
+                    coverage={coverage}
+                    onEditTag={editTag}
+                    onSweepTag={sweepTag}
+                />
+            )}
+
             <div
-                className="flex flex-1 overflow-hidden"
+                className={tab === "tags" ? "flex flex-1 overflow-hidden" : "hidden"}
                 onClick={() => setFocus(null)}
             >
                 {/* Sidebar */}
@@ -1320,6 +1382,7 @@ export default function TagManagerView(): JSX.Element {
                             key={focus.item.id}
                             tag={focus.item}
                             onDone={handleDone}
+                            coverage={coverage}
                         />
                     )}
                 </div>

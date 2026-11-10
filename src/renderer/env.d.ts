@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, TagUsage, PlacementBounds, TagImplication, TagImplicationPreview } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview } from "./src/shared/types/types";
 
 export {};
 
@@ -108,6 +108,9 @@ declare global {
             getRelatedTags: (tagId: number) => Promise<{ id: number; n: number }[]>;
             /** Sweep: time each file was on screen with this tag up. */
             addTagCheckSeconds: (tagId: number, entries: { fileId: number; seconds: number }[]) => Promise<void>;
+            /** What per-tag coverage is worked out from (threshold applied
+             *  in the renderer). */
+            getTagCoverage: () => Promise<TagCoverageRaw>;
             getAllTags: () => Promise<DbTag[]>;
             addTagToFolder: (
                 folderRelPath: string,

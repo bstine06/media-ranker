@@ -63,6 +63,7 @@ import {
     getTagUsage,
     mergeTags,
     addTagCheckSeconds,
+    getTagCoverage,
     getRelatedTags,
     getTagImplications,
     reorderTags,
@@ -698,6 +699,8 @@ function registerIpcHandlers(): void {
         (_event, tagId: number, entries: { fileId: number; seconds: number }[]) =>
             addTagCheckSeconds(tagId, entries),
     );
+
+    ipcMain.handle("get-tag-coverage", () => getTagCoverage());
 
     ipcMain.handle("get-all-tags", () => {
         return getAllTags();

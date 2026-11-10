@@ -128,6 +128,29 @@ export interface TagImplicationPreview {
     convertedFolders: number;
 }
 
+/** What coverage is worked out from (see getTagCoverage). */
+export interface TagCoverageRaw {
+    /** Library files (active) — the whole for every tag's share. */
+    files: number;
+    tags: {
+        tagId: number;
+        /** Files that have the tag. */
+        yes: number;
+        /** Files it was taken off (and isn't back on). */
+        rejected: number;
+        /** The other untagged files with Sweep time: [whole seconds, files],
+         *  seconds capped at the threshold's max (30). */
+        seen: [number, number][];
+    }[];
+}
+
+/** How many files have been checked for each tag, at the current
+ *  seconds threshold. */
+export interface TagCoverage {
+    files: number;
+    tags: { tagId: number; yes: number; no: number }[];
+}
+
 export interface TagUsage {
     /** Files that have it, their own or from their folder. */
     files: number;

@@ -53,6 +53,10 @@ interface Settings {
      *  one under the cursor. */
     sweepAllLanes: boolean;
     toggleSweepAllLanes: () => void;
+    /** Tag coverage: seconds a file must be on screen in Sweep with a tag up
+     *  (and not tagged) to count as a no for that tag. */
+    coverageSeconds: number;
+    setCoverageSeconds: (seconds: number) => void;
 }
 
 const SettingsContext = createContext<Settings>({
@@ -94,6 +98,8 @@ const SettingsContext = createContext<Settings>({
     toggleSweepScrubHold: () => {},
     sweepAllLanes: false,
     toggleSweepAllLanes: () => {},
+    coverageSeconds: 6,
+    setCoverageSeconds: () => {},
 });
 
 // Saved settings (config.json), read once at startup. Anything missing or
@@ -193,6 +199,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const toggleSweepScrubHold = useCallback(() => setSweepScrubHold((v) => !v), []);
     const [sweepAllLanes, setSweepAllLanes] = useState(() => savedBool("sweepAllLanes", false));
     const toggleSweepAllLanes = useCallback(() => setSweepAllLanes((v) => !v), []);
+    // Max 30: getTagCoverage groups Sweep time up to 30 s.
+    const [coverageSeconds, setCoverageSeconds] = useState(() => savedNum("coverageSeconds", 6, 1, 30));
 
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
@@ -253,6 +261,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     sweepVarispeed,
                     sweepScrubHold,
                     sweepAllLanes,
+                    coverageSeconds,
                 })
                 .catch(() => {});
         }, 300);
@@ -277,6 +286,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         sweepVarispeed,
         sweepScrubHold,
         sweepAllLanes,
+        coverageSeconds,
     ]);
 
     return (
@@ -320,6 +330,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 toggleSweepScrubHold,
                 sweepAllLanes,
                 toggleSweepAllLanes,
+                coverageSeconds,
+                setCoverageSeconds,
             }}
         >
             {children}

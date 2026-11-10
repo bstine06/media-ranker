@@ -468,6 +468,8 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
         toggleSweepScrubHold,
         sweepAllLanes,
         toggleSweepAllLanes,
+        coverageSeconds,
+        setCoverageSeconds,
     } = useSettings();
     // A confirm opened from inside handles its own Escape.
     const confirmOpen = useRef(false);
@@ -537,6 +539,14 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         label="Sweep: scrubbing stops lanes until 3"
                         on={sweepScrubHold}
                         onToggle={toggleSweepScrubHold}
+                    />
+                    <SliderInput
+                        name="Sweep: seconds on screen to count as a no"
+                        min={1}
+                        max={30}
+                        value={coverageSeconds}
+                        unit="s"
+                        onChange={setCoverageSeconds}
                     />
                     <SliderInput
                         name="tile size"
@@ -691,7 +701,7 @@ function MissingRecordsRow({
     );
 }
 
-function SliderInput({
+export function SliderInput({
     name, min, max, value, unit, onChange,
 }: {
     name: string;

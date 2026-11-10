@@ -1542,6 +1542,68 @@ export function addTagCheckSeconds(
     })();
 }
 
+// Coverage: for each tag, what's needed to count the library files settled
+// yes or no. Yes: the file has the tag (own or inherited). No: the user took
+// the tag off the file, or it was on screen in Sweep with the tag up for at
+// least the threshold (a setting, 1–30 s). The threshold is applied in the
+// renderer, so Sweep time comes grouped by whole second (capped at 30): a
+// file counts as a no at threshold T when its bucket is ≥ T. Yes beats no.
+// Only active files count.
+export function getTagCoverage(): {
+    files: number;
+    tags: { tagId: number; yes: number; rejected: number; seen: [number, number][] }[];
+} {
+    const db = getDb();
+    const files = (
+        db.prepare(`SELECT COUNT(*) AS n FROM files WHERE status = 'active'`).get() as {
+            n: number;
+        }
+    ).n;
+    const yes = db
+        .prepare(
+            `SELECT e.tag_id AS tagId, COUNT(DISTINCT e.file_id) AS n
+             FROM file_effective_tags e
+             JOIN files f ON f.id = e.file_id AND f.status = 'active'
+             GROUP BY e.tag_id`,
+        )
+        .all() as { tagId: number; n: number }[];
+    // Untagged checks: rejected ones, else bucketed by seconds.
+    const checks = db
+        .prepare(
+            `SELECT c.tag_id AS tagId,
+                    CASE WHEN c.rejected = 1 THEN -1
+                         ELSE CAST(MIN(c.seconds, 30) AS INTEGER) END AS bucket,
+                    COUNT(*) AS n
+             FROM tag_checks c
+             JOIN files f ON f.id = c.file_id AND f.status = 'active'
+             WHERE (c.rejected = 1 OR c.seconds >= 1)
+               AND NOT EXISTS (
+                   SELECT 1 FROM file_effective_tags e
+                   WHERE e.file_id = c.file_id AND e.tag_id = c.tag_id)
+             GROUP BY c.tag_id, bucket`,
+        )
+        .all() as { tagId: number; bucket: number; n: number }[];
+    const yesBy = new Map(yes.map((r) => [r.tagId, r.n]));
+    const rejectedBy = new Map<number, number>();
+    const seenBy = new Map<number, [number, number][]>();
+    for (const r of checks) {
+        if (r.bucket < 0) rejectedBy.set(r.tagId, r.n);
+        else seenBy.set(r.tagId, [...(seenBy.get(r.tagId) ?? []), [r.bucket, r.n]]);
+    }
+    const tagIds = (db.prepare(`SELECT id FROM tags`).all() as { id: number }[]).map(
+        (r) => r.id,
+    );
+    return {
+        files,
+        tags: tagIds.map((tagId) => ({
+            tagId,
+            yes: yesBy.get(tagId) ?? 0,
+            rejected: rejectedBy.get(tagId) ?? 0,
+            seen: seenBy.get(tagId) ?? [],
+        })),
+    };
+}
+
 // Ids of files passing a tag filter (see tagFilter.ts), any status.
 export function getFileIdsByTags(
     tagIds: number[],
