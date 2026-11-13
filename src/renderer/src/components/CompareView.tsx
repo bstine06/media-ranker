@@ -3,7 +3,6 @@ import {
     useState,
     useCallback,
     useRef,
-    useMemo,
 } from "react";
 import type {
     DbFile,
@@ -109,7 +108,7 @@ export default function CompareView({
     const rotateA = useRef<(() => void) | null>(null);
     const rotateB = useRef<(() => void) | null>(null);
 
-    const { activeTags, tagMode } = useTags();
+    const { activeFilter, activeFilterKey: tagKey } = useTags();
     const {
         compareBothAudio,
         toggleCompareBothAudio,
@@ -138,11 +137,6 @@ export default function CompareView({
     // Each side's folders come from the sidebar's L / R checkboxes.
     const laneKey = JSON.stringify(laneFolderPrefixes);
 
-    const tagKey = useMemo(
-        () => [...activeTags].sort().join(","),
-        [activeTags],
-    );
-
     // Next pair, fetched + preloaded in the background. Tagged with the filter
     // state it was fetched under so it's discarded if filters change.
     const prefetchedRef = useRef<{
@@ -166,12 +160,10 @@ export default function CompareView({
             // still fit and replace only the rest.
             refit?: [DbFile, DbFile],
         ) => {
-            const tagList = activeTags.size > 0 ? [...activeTags] : null;
             const lanes: Record<Side, string[] | null> = JSON.parse(laneKey);
             const filterKey = JSON.stringify([
                 laneKey,
                 tagKey,
-                tagMode,
                 rootPath,
                 k?.file.id ?? null,
             ]);
@@ -179,15 +171,14 @@ export default function CompareView({
             // Folders per side; tags apply to both.
             const laneFilter = (side: Side): PoolFilter => ({
                 folderPrefixes: lanes[side],
-                tagList,
-                tagMode,
+                filter: activeFilter,
             });
 
             const fetchNext = async (): Promise<[DbFile, DbFile] | null> => {
                 if (!k) {
                     // Same folders on both sides: the usual single-pool pick.
                     if (JSON.stringify(lanes.a) === JSON.stringify(lanes.b)) {
-                        return window.api.getPair(lanes.a, tagList, tagMode);
+                        return window.api.getPair(lanes.a, activeFilter);
                     }
                     return window.api.getLanePair(
                         laneFilter("a"),
@@ -199,8 +190,7 @@ export default function CompareView({
                 const challenger = await window.api.getChallenger(
                     k.file.id,
                     pool.folderPrefixes,
-                    pool.tagList,
-                    pool.tagMode,
+                    pool.filter,
                     recentChallengersRef.current,
                 );
                 if (!challenger) return null;
@@ -215,8 +205,7 @@ export default function CompareView({
             if (!k && session) {
                 const wholeLibrary: PoolFilter = {
                     folderPrefixes: null,
-                    tagList: null,
-                    tagMode: "or",
+                    filter: null,
                 };
                 const key =
                     session.kind === "folder"
@@ -245,8 +234,7 @@ export default function CompareView({
                 } else {
                     const folderPool: PoolFilter = {
                         folderPrefixes: [session.folder],
-                        tagList: null,
-                        tagMode: "or",
+                        filter: null,
                     };
                     if (st && st.file.comparison_count >= st.target) st = null;
                     if (!st) {
@@ -379,7 +367,7 @@ export default function CompareView({
             });
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [laneKey, rootPath, tagKey, tagMode, endKing, session],
+        [laneKey, rootPath, tagKey, activeFilter, endKing, session],
     );
 
     // Starting a session from Browse: placement takes over (a king would

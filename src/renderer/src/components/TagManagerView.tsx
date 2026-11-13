@@ -40,6 +40,17 @@ export const PRESET_ICONS = ["●", "▲", "■", "◆", "★"];
 
 // ─── CategoryEditor ───────────────────────────────────────────────────────────
 
+
+// Deleting a tag or category a saved feed uses breaks that feed: it won't
+// apply until it's fixed in the filter builder.
+function feedsWarning(names: string[]): string {
+    if (names.length === 0) return "";
+    const list = names.map((n) => `"${n}"`).join(", ");
+    return names.length === 1
+        ? ` The saved feed ${list} uses it, and won't apply until you fix it.`
+        : ` The saved feeds ${list} use it, and won't apply until you fix them.`;
+}
+
 function CategoryEditor({
     category,
     onDone,
@@ -69,6 +80,8 @@ function CategoryEditor({
         ? allCategories.find((c) => c.id === category.id)
         : undefined;
     const [confirmDelete, setConfirmDelete] = useState(false);
+    // Saved feeds counting tags in this category, named in the delete confirm.
+    const [deleteFeeds, setDeleteFeeds] = useState<string[]>([]);
     const nameTaken = allCategories.some(
         (c) => c.name === name.trim() && c.id !== category?.id,
     );
@@ -312,7 +325,10 @@ function CategoryEditor({
 
                 {category && (
                     <button
-                        onClick={() => setConfirmDelete(true)}
+                        onClick={async () => {
+                            setDeleteFeeds(await window.api.feedsUsing({ categoryId: category.id }));
+                            setConfirmDelete(true);
+                        }}
                         className="ml-auto px-3 py-1.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/30 transition-colors"
                     >
                         Delete category
@@ -328,7 +344,8 @@ function CategoryEditor({
                         (tagsInCategory > 0
                             ? ` Its ${tagsInCategory} tag${tagsInCategory === 1 ? "" : "s"} ` +
                               `will be kept, without a category.`
-                            : "")
+                            : "") +
+                        feedsWarning(deleteFeeds)
                     }
                     confirmText="Delete"
                     onConfirm={handleDelete}
@@ -479,6 +496,8 @@ function TagEditor({
         (DbTag & TagUsage) | null
     >(null);
     const [deleteUsage, setDeleteUsage] = useState<TagUsage | null>(null);
+    // Saved feeds using this tag, named in the delete confirm.
+    const [deleteFeeds, setDeleteFeeds] = useState<string[]>([]);
     const [mergeError, setMergeError] = useState<string | null>(null);
 
     // Same lowercase enforcement here: renaming a tag to mixed case would
@@ -620,9 +639,14 @@ function TagEditor({
 
             <div className="flex gap-2">
                 <button
-                    onClick={async () =>
-                        setDeleteUsage(await window.api.getTagUsage(tag.id))
-                    }
+                    onClick={async () => {
+                        const [usage, feeds] = await Promise.all([
+                            window.api.getTagUsage(tag.id),
+                            window.api.feedsUsing({ tagId: tag.id }),
+                        ]);
+                        setDeleteFeeds(feeds);
+                        setDeleteUsage(usage);
+                    }}
                     className="ml-auto px-3 py-1.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/30 transition-colors"
                 >
                     Delete tag
@@ -652,10 +676,11 @@ function TagEditor({
                 <ConfirmDialog
                     title="Delete tag?"
                     message={
-                        deleteUsage.files === 0 && deleteUsage.folders === 0
+                        (deleteUsage.files === 0 && deleteUsage.folders === 0
                             ? `Delete "${tag.name}"? It isn't on any files.`
                             : `Delete "${tag.name}"? It's on ${usageText(deleteUsage)}, ` +
-                              `and will be removed from all of them. This can't be undone.`
+                              `and will be removed from all of them. This can't be undone.`) +
+                        feedsWarning(deleteFeeds)
                     }
                     confirmText="Delete"
                     onConfirm={handleDelete}

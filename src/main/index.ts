@@ -18,7 +18,7 @@ import {
     getFilesByFolder,
     getTagsForFile,
     getAllTags,
-    getFileIdsByTags,
+    getFileIdsByFilter,
     addTagToFolder,
     getDb,
     updateEloScores,
@@ -47,7 +47,7 @@ import {
     getFolderByPath,
     deleteFolderTree,
     getFolderMetadataByPath,
-    getActiveFilesByTags,
+    getActiveFilesByFilter,
     getMostUsedTags,
     getAllTagCategories,
     deleteTagCategory,
@@ -93,6 +93,24 @@ import {
     getWeightedPair,
     type PoolFilter,
 } from "./elo";
+import { validateFilter } from "./tagFilter";
+import {
+    listFeeds,
+    createFeed,
+    updateFeedTree,
+    renameFeed,
+    deleteFeed,
+    getFeedHistory,
+    pushFeedHistory,
+    feedsUsing,
+    countFilter,
+} from "./feeds";
+
+// A Compare pool from the renderer, with its filter tree checked.
+const pool = (p: PoolFilter): PoolFilter => ({
+    folderPrefixes: p.folderPrefixes,
+    filter: validateFilter(p.filter),
+});
 import { promisify } from "util";
 import { renameFolderPaths } from "./db";
 import { watchFolder, unwatchAll, ignoredPaths } from "./watcher";
@@ -262,8 +280,8 @@ function registerIpcHandlers(): void {
 
     ipcMain.handle(
         "get-files-by-tags",
-        (_event, tagIds: number[], mode: "and" | "or", folderPath?: string) => {
-            return getActiveFilesByTags(tagIds, mode, folderPath);
+        (_event, filter: unknown, folderPath?: string) => {
+            return getActiveFilesByFilter(validateFilter(filter), folderPath);
         },
     );
 
@@ -706,12 +724,36 @@ function registerIpcHandlers(): void {
         return getAllTags();
     });
 
+    ipcMain.handle("get-file-ids-by-filter", (_event, filter: unknown) =>
+        getFileIdsByFilter(validateFilter(filter)),
+    );
+
+    // -- Feeds (saved tag filters) and recent filters, see feeds.ts
+
+    ipcMain.handle("feeds:list", () => listFeeds());
+    ipcMain.handle("feeds:create", (_event, name: string, tree: unknown) =>
+        createFeed(name, tree),
+    );
+    ipcMain.handle("feeds:update", (_event, id: number, tree: unknown) =>
+        updateFeedTree(id, tree),
+    );
+    ipcMain.handle("feeds:rename", (_event, id: number, name: string) =>
+        renameFeed(id, name),
+    );
+    ipcMain.handle("feeds:delete", (_event, id: number) => deleteFeed(id));
+    ipcMain.handle("feeds:history", () => getFeedHistory());
     ipcMain.handle(
-        "get-file-ids-by-tags",
-        (_event, tags: number[], mode: "and" | "or") => {
-            const tagIds = tags.filter((id): id is number => id !== undefined);
-            return getFileIdsByTags(tagIds, mode);
-        },
+        "feeds:push-history",
+        (_event, entry: { feedId: number } | { tree: unknown }) => pushFeedHistory(entry),
+    );
+    ipcMain.handle(
+        "feeds:using",
+        (_event, ref: { tagId: number } | { categoryId: number }) => feedsUsing(ref),
+    );
+    ipcMain.handle(
+        "feeds:count",
+        (_event, filter: unknown, folderPrefixes: string[] | null) =>
+            countFilter(validateFilter(filter), folderPrefixes),
     );
 
     // Create a new top-level folder in the library. Returns its relative path,
@@ -764,15 +806,13 @@ function registerIpcHandlers(): void {
         (
             _event,
             folderPrefixes: string[] | null,
-            tagList: number[] | null,
-            tagMode: "and" | "or",
+            filter: unknown,
             excludeIds: number[] = [],
             withoutTagId: number | null = null,
         ) => {
             return getRandomFile(
                 folderPrefixes,
-                tagList,
-                tagMode,
+                validateFilter(filter),
                 excludeIds,
                 withoutTagId,
             );
@@ -786,17 +826,16 @@ function registerIpcHandlers(): void {
         (
             _event,
             folderPrefixes: string[] | null,
-            tagList: number[] | null,
-            tagMode: "and" | "or",
+            filter: unknown,
         ) => {
-            return getWeightedPair(folderPrefixes, tagList, tagMode);
+            return getWeightedPair(folderPrefixes, validateFilter(filter));
         },
     );
 
     ipcMain.handle(
         "get-lane-pair",
         (_event, laneA: PoolFilter, laneB: PoolFilter) => {
-            return getLanePair(laneA, laneB);
+            return getLanePair(pool(laneA), pool(laneB));
         },
     );
 
@@ -809,7 +848,7 @@ function registerIpcHandlers(): void {
             laneB: PoolFilter,
             kingSide: "a" | "b" | null,
             recentIds: number[],
-        ) => refitPair(ids, laneA, laneB, kingSide, recentIds),
+        ) => refitPair(ids, pool(laneA), pool(laneB), kingSide, recentIds),
     );
 
     ipcMain.handle(
@@ -818,15 +857,13 @@ function registerIpcHandlers(): void {
             _event,
             kingId: number,
             folderPrefixes: string[] | null,
-            tagList: number[] | null,
-            tagMode: "and" | "or",
+            filter: unknown,
             recentIds: number[],
         ) => {
             return getChallenger(
                 kingId,
                 folderPrefixes,
-                tagList,
-                tagMode,
+                validateFilter(filter),
                 recentIds,
             );
         },
@@ -847,28 +884,34 @@ function registerIpcHandlers(): void {
             laneB: PoolFilter,
             matches: number,
             opponentPool?: PoolFilter,
-        ) => getPlacementCandidate(laneA, laneB, matches, opponentPool),
+        ) =>
+            getPlacementCandidate(
+                pool(laneA),
+                pool(laneB),
+                matches,
+                opponentPool && pool(opponentPool),
+            ),
     );
     ipcMain.handle(
         "placement:count",
         (_event, laneA: PoolFilter, laneB: PoolFilter, matches: number) =>
-            countPlacementCandidates(laneA, laneB, matches),
+            countPlacementCandidates(pool(laneA), pool(laneB), matches),
     );
     ipcMain.handle(
         "placement:bounds",
-        (_event, fileId: number, pool: PoolFilter, matches: number) =>
-            initialPlacementBounds(fileId, pool, matches),
+        (_event, fileId: number, p: PoolFilter, matches: number) =>
+            initialPlacementBounds(fileId, pool(p), matches),
     );
     ipcMain.handle(
         "placement:opponent",
         (
             _event,
             fileId: number,
-            pool: PoolFilter,
+            p: PoolFilter,
             matches: number,
             bounds: PlacementBounds,
             recentIds: number[],
-        ) => getPlacementOpponent(fileId, pool, matches, bounds, recentIds),
+        ) => getPlacementOpponent(fileId, pool(p), matches, bounds, recentIds),
     );
     ipcMain.handle(
         "placement:record",
@@ -877,7 +920,7 @@ function registerIpcHandlers(): void {
             placingId: number,
             opponentId: number,
             placingWon: boolean,
-            pool: PoolFilter,
+            p: PoolFilter,
             matches: number,
             bounds: PlacementBounds,
         ) =>
@@ -886,7 +929,7 @@ function registerIpcHandlers(): void {
                     placingId,
                     opponentId,
                     placingWon,
-                    pool,
+                    pool(p),
                     matches,
                     bounds,
                     rootPath ?? "all",

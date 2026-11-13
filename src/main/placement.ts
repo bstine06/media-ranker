@@ -27,7 +27,7 @@ export interface PlacementBounds {
 }
 
 const filesIn = (pool: PoolFilter): DbFile[] =>
-    getFilteredFiles(pool.folderPrefixes, pool.tagList, pool.tagMode);
+    getFilteredFiles(pool.folderPrefixes, pool.filter);
 
 /** Middle part of the range an opponent is drawn from (0.4 = the middle 40%). */
 const PIVOT_WINDOW = 0.4;

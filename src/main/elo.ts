@@ -1,6 +1,6 @@
 import { getDb, folderLikePattern, updateEloScores } from "./db";
 import type { DbFile } from "./db";
-import { tagFilterSql } from "./tagFilter";
+import { filterSql, type FilterNode } from "./tagFilter";
 
 const K_LOW = 32; // fewer than 10 comparisons
 const K_MID = 16; // 10–30 comparisons
@@ -87,8 +87,7 @@ export function recordComparison(
 
 export function getFilteredFiles(
     folderPrefixes: string[] | null,
-    tagList: number[] | null,
-    tagMode: "and" | "or",
+    filter: FilterNode | null,
 ): DbFile[] {
     const db = getDb();
 
@@ -103,7 +102,7 @@ export function getFilteredFiles(
         params.push(...folderPrefixes.map(folderLikePattern));
     }
 
-    const tagFilter = tagFilterSql(tagList, tagMode);
+    const tagFilter = filterSql(filter);
     if (tagFilter) {
         conditions.push(tagFilter.sql);
         params.push(...tagFilter.params);
@@ -141,10 +140,9 @@ function pickOpponent(
 
 export function getWeightedPair(
     folderPrefixes: string[] | null,
-    tagList: number[] | null,
-    tagMode: "and" | "or" = "or",
+    filter: FilterNode | null,
 ): [DbFile, DbFile] | null {
-    const allFiles = getFilteredFiles(folderPrefixes, tagList, tagMode);
+    const allFiles = getFilteredFiles(folderPrefixes, filter);
     if (allFiles.length < 2) return null;
 
     let fileA: DbFile;
@@ -165,12 +163,10 @@ export function getWeightedPair(
     return [fileA, pickOpponent(fileA, others, 0.8)];
 }
 
-// What one side of Compare draws from. Same shape as the global filter so a
-// lane can narrow by folder now and by tags later.
+// What one side of Compare draws from: its folders and the tag filter.
 export interface PoolFilter {
     folderPrefixes: string[] | null;
-    tagList: number[] | null;
-    tagMode: "and" | "or";
+    filter: FilterNode | null;
 }
 
 // A pair with each side drawn from its own pool. One side (chosen at random,
@@ -181,16 +177,8 @@ export function getLanePair(
     laneA: PoolFilter,
     laneB: PoolFilter,
 ): [DbFile, DbFile] | null {
-    const poolA = getFilteredFiles(
-        laneA.folderPrefixes,
-        laneA.tagList,
-        laneA.tagMode,
-    );
-    const poolB = getFilteredFiles(
-        laneB.folderPrefixes,
-        laneB.tagList,
-        laneB.tagMode,
-    );
+    const poolA = getFilteredFiles(laneA.folderPrefixes, laneA.filter);
+    const poolB = getFilteredFiles(laneB.folderPrefixes, laneB.filter);
     if (poolA.length === 0 || poolB.length === 0) return null;
 
     const anchorIsA = Math.random() < 0.5;
@@ -240,7 +228,7 @@ export function refitPair(
             .prepare(`SELECT * FROM files WHERE id = ? AND status = 'active'`)
             .get(id) as DbFile | undefined;
     const pools = [laneA, laneB].map((l) =>
-        getFilteredFiles(l.folderPrefixes, l.tagList, l.tagMode),
+        getFilteredFiles(l.folderPrefixes, l.filter),
     );
     const current = ids.map(byId);
     const fits = [0, 1].map((i) => {
@@ -275,8 +263,7 @@ export function refitPair(
 export function getChallenger(
     kingId: number,
     folderPrefixes: string[] | null,
-    tagList: number[] | null,
-    tagMode: "and" | "or" = "or",
+    filter: FilterNode | null,
     recentIds: number[] = [],
 ): DbFile | null {
     const king = getDb()
@@ -284,7 +271,7 @@ export function getChallenger(
         .get(kingId) as DbFile | undefined;
     if (!king) return null;
 
-    const candidates = getFilteredFiles(folderPrefixes, tagList, tagMode).filter(
+    const candidates = getFilteredFiles(folderPrefixes, filter).filter(
         (f) => f.id !== kingId,
     );
     if (candidates.length === 0) return null;

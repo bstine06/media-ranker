@@ -58,7 +58,7 @@ export default function SweepView({
     setImmersive: (on: boolean) => void;
 }): JSX.Element {
     const { rootPath, folderPrefixes } = useFolders();
-    const { activeTags, tagMode } = useTags();
+    const { activeFilter, activeFilterKey } = useTags();
     const {
         sweepRandom,
         setSweepRandom,
@@ -75,8 +75,8 @@ export default function SweepView({
     const [inspected, setInspected] = useState<DbFile | null>(null);
 
     // Latest filters for fetching, without re-creating the layout.
-    const filters = useRef({ folderPrefixes, activeTags, tagMode, tagId: sweepTagId });
-    filters.current = { folderPrefixes, activeTags, tagMode, tagId: sweepTagId };
+    const filters = useRef({ folderPrefixes, activeFilter, tagId: sweepTagId });
+    filters.current = { folderPrefixes, activeFilter, tagId: sweepTagId };
 
     // What's on screen now (never fetched again while it is), and what's
     // been shown since the tag was picked (not fetched again unless every
@@ -88,23 +88,21 @@ export default function SweepView({
     const seen = useRef(new Set<number>());
     useEffect(() => {
         seen.current = new Set(visible.current);
-    }, [sweepTagId]);
+    }, [sweepTagId, activeFilterKey]);
 
     const fetchFile = useCallback(async (): Promise<DbFile | null> => {
-        const { folderPrefixes, activeTags, tagMode, tagId } = filters.current;
-        const tagList = activeTags.size > 0 ? [...activeTags] : null;
+        const { folderPrefixes, activeFilter, tagId } = filters.current;
         const onScreen = visible.current;
         let file = await window.api.getRandomFile(
             folderPrefixes,
-            tagList,
-            tagMode,
+            activeFilter,
             [...new Set([...seen.current, ...onScreen])],
             tagId,
         );
         // Seen them all: start over, but never repeat what's on screen.
         if (!file && seen.current.size > 0) {
             seen.current = new Set(onScreen);
-            file = await window.api.getRandomFile(folderPrefixes, tagList, tagMode, onScreen, tagId);
+            file = await window.api.getRandomFile(folderPrefixes, activeFilter, onScreen, tagId);
         }
         if (file) seen.current.add(file.id);
         return file;

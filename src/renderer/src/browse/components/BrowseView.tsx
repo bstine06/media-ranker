@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
     DbFile,
+    FilterNode,
     DbFolderMetadata,
     DbTag,
     View,
@@ -151,7 +152,7 @@ export default function BrowseView({
         handleFolderMetadataChanged,
         showUnsorted,
     } = useFolders();
-    const { refreshTags, activeTags, tagMode } = useTags();
+    const { refreshTags, activeFilter } = useTags();
     const {
         tileSize,
         browseSortMode: sortMode,
@@ -169,7 +170,7 @@ export default function BrowseView({
             setToPlace(0);
             return;
         }
-        const pool = { folderPrefixes: [activeFolder], tagList: null, tagMode: "or" as const };
+        const pool = { folderPrefixes: [activeFolder], filter: null };
         window.api
             .countPlacementCandidates(pool, pool, PLACEMENT_MATCHES)
             .then(setToPlace)
@@ -184,18 +185,18 @@ export default function BrowseView({
 
     //get files on mount, clear browseScroll
     useEffect(() => {
-        getFilesForFolder(activeFolder, activeTags, tagMode, showUnsorted);
+        getFilesForFolder(activeFolder, activeFilter, showUnsorted);
         setBrowseScrollIndex(null);
-    }, [rootPath, activeFolder, activeTags, tagMode, showUnsorted]);
+    }, [rootPath, activeFolder, activeFilter, showUnsorted]);
 
     // The launch-time catch-up scan can add, move or drop files in bulk
     // without per-file events: reload the list once it's done.
     useEffect(() => {
         return window.api.onLibraryScanned((result) => {
             if (result)
-                getFilesForFolder(activeFolder, activeTags, tagMode, showUnsorted);
+                getFilesForFolder(activeFolder, activeFilter, showUnsorted);
         });
-    }, [activeFolder, activeTags, tagMode, showUnsorted]);
+    }, [activeFolder, activeFilter, showUnsorted]);
 
     const handleDelete = async () => {
         if (!deleting) return;
@@ -247,8 +248,7 @@ export default function BrowseView({
     const getFilesForFolder = useCallback(
         async (
             folder: string | null,
-            tags: Set<number>,
-            tagMode: "and" | "or",
+            filter: FilterNode | null,
             unsorted = false,
         ) => {
             setActiveFolder(folder);
@@ -259,11 +259,8 @@ export default function BrowseView({
                   : await window.api.getAllActiveFiles();
 
             //filter on tags
-            if (tags.size > 0) {
-                const tagMatchFileIds = await window.api.getFileIdsByTags(
-                    Array.from(tags),
-                    tagMode,
-                );
+            if (filter) {
+                const tagMatchFileIds = await window.api.getFileIdsByFilter(filter);
                 const tagMatchSet = new Set(tagMatchFileIds);
                 const filteredResult = result.filter((f) => {
                     return tagMatchSet.has(f.id);
@@ -509,7 +506,7 @@ export default function BrowseView({
     // New folder / filters: start with nothing selected.
     useEffect(() => {
         clearSelection();
-    }, [rootPath, activeFolder, activeTags, tagMode, showUnsorted, clearSelection]);
+    }, [rootPath, activeFolder, activeFilter, showUnsorted, clearSelection]);
 
     // Files that leave the view (moved, deleted) drop out of the selection.
     useEffect(() => {
@@ -584,7 +581,7 @@ export default function BrowseView({
             if (reloadTimer) clearTimeout(reloadTimer);
             reloadTimer = setTimeout(() => {
                 reloadTimer = null;
-                getFilesForFolder(activeFolder, activeTags, tagMode, showUnsorted);
+                getFilesForFolder(activeFolder, activeFilter, showUnsorted);
             }, 100);
         };
 
@@ -604,7 +601,7 @@ export default function BrowseView({
                 // tag filter on, just reload. Same for a file moving into view
                 // from elsewhere (it isn't in the list to update).
                 if (
-                    (activeTags.size > 0 || !inView(oldRelativePath)) &&
+                    (activeFilter != null || !inView(oldRelativePath)) &&
                     inView(relativePath)
                 ) {
                     reload();
@@ -647,7 +644,7 @@ export default function BrowseView({
             handleUpdated();
             if (reloadTimer) clearTimeout(reloadTimer);
         };
-    }, [rootPath, activeFolder, showUnsorted, activeTags, tagMode, getFilesForFolder]);
+    }, [rootPath, activeFolder, showUnsorted, activeFilter, getFilesForFolder]);
 
     const resolver: SlotResolver = useCallback(
         async (dir, cursor) => {

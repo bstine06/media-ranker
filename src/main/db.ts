@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { basename, join } from "path";
 import { statSync } from "fs";
-import { tagFilterSql } from "./tagFilter";
+import { filterSql, validateFilter, replaceTagInFilter, type FilterNode } from "./tagFilter";
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -205,6 +205,24 @@ export function initDb(rootPath: string): Database.Database {
             rejected   INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (file_id, tag_id)
+        );
+
+        -- Saved tag filters ("feeds"), as JSON trees (see tagFilter.ts).
+        CREATE TABLE IF NOT EXISTS feeds (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL UNIQUE,
+            tree        TEXT    NOT NULL,
+            order_index INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
+
+        -- Filters applied recently, newest first by used_at: either a saved
+        -- feed (feed_id) or an unsaved tree. See feeds.ts.
+        CREATE TABLE IF NOT EXISTS feed_history (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            feed_id INTEGER REFERENCES feeds(id) ON DELETE CASCADE,
+            tree    TEXT,
+            used_at TEXT    NOT NULL DEFAULT (datetime('now'))
         );
 
         CREATE INDEX IF NOT EXISTS idx_files_hash        ON files(content_hash);
@@ -1054,6 +1072,8 @@ export function mergeTags(sourceId: number, targetId: number): MergeTagsResult {
                  seconds  = max(seconds, excluded.seconds),
                  rejected = max(rejected, excluded.rejected)`,
         ).run(targetId, sourceId);
+        // Saved and recent filters follow the merge.
+        rewriteFilterTag(db, sourceId, targetId);
         db.prepare(`DELETE FROM tags WHERE id = ?`).run(sourceId); // cascades
         rebuildTagImplied();
         // A file may now have the target both as its own and inherited.
@@ -1146,6 +1166,28 @@ export function reorderTags(categoryId: number | null, tagIds: number[]): void {
             if (!listed.has(id)) set.run(categoryId, i++, id);
         }
     })();
+}
+
+// Tag `from` becomes `to` in every saved feed and recent filter (a merge).
+function rewriteFilterTag(db: Database.Database, from: number, to: number): void {
+    for (const table of ["feeds", "feed_history"]) {
+        const rows = db
+            .prepare(`SELECT id, tree FROM ${table} WHERE tree IS NOT NULL`)
+            .all() as { id: number; tree: string }[];
+        for (const r of rows) {
+            let tree: FilterNode | null;
+            try {
+                tree = validateFilter(JSON.parse(r.tree));
+            } catch {
+                continue;
+            }
+            if (!tree) continue;
+            const next = JSON.stringify(replaceTagInFilter(tree, from, to));
+            if (next !== r.tree) {
+                db.prepare(`UPDATE ${table} SET tree = ? WHERE id = ?`).run(next, r.id);
+            }
+        }
+    }
 }
 
 export function deleteTag(tagId: number): void {
@@ -1605,11 +1647,8 @@ export function getTagCoverage(): {
 }
 
 // Ids of files passing a tag filter (see tagFilter.ts), any status.
-export function getFileIdsByTags(
-    tagIds: number[],
-    mode: "and" | "or",
-): number[] {
-    const filter = tagFilterSql(tagIds, mode);
+export function getFileIdsByFilter(tree: FilterNode | null): number[] {
+    const filter = filterSql(tree);
     if (!filter) return [];
     const rows = getDb()
         .prepare(`SELECT f.id FROM files f WHERE ${filter.sql}`)
@@ -1836,12 +1875,11 @@ export function updateFileFolderAndPath(
     if (moved) dropTagsCoveredByInheritance({ fileId: moved.id });
 }
 
-export function getActiveFilesByTags(
-    tagIds: number[],
-    mode: "and" | "or",
+export function getActiveFilesByFilter(
+    tree: FilterNode | null,
     folderPath?: string,
 ): DbFile[] {
-    const filter = tagFilterSql(tagIds, mode);
+    const filter = filterSql(tree);
     if (!filter) return [];
     const folderClause = folderPath ? `AND f.path LIKE ? ESCAPE '\\'` : "";
     const folderParams = folderPath ? [folderLikePattern(folderPath)] : [];

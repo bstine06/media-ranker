@@ -12,13 +12,8 @@ import { useFolders, type Lane } from "@renderer/contexts/FolderContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { CompareIcon } from "./icons/CompareIcon";
 import { TagIcon } from "./icons/TagIcon";
-import {
-    UNTAGGED,
-    missingCategory,
-    missingCategoryId,
-    filterLabel,
-    isSpecialFilter,
-} from "@renderer/lib/tagFilters";
+import { filterKey } from "@renderer/lib/tagFilters";
+import FilterBuilder from "./FilterBuilder";
 
 // Makes an element a drop target for files dragged from Browse / the media
 // player / Finder. dragenter/leave also fire for child elements, so track
@@ -259,146 +254,52 @@ function UnsortedItem({
     );
 }
 
-function TagFilterSection({
-}: {
-}): JSX.Element {
-    const [search, setSearch] = useState("");
-    const [focused, setFocused] = useState(false);
-    const { allTags, allCategories, activeTags, tagMode, toggleTag, setTagMode } =
-        useTags();
-
-    const q = search.trim().toLowerCase();
-    // Tags matching the search, then "no <category>" for matching categories
-    // (files missing a tag from it, e.g. ones still needing a subject).
-    const suggestions: { id: number; label: string; special: boolean }[] = q
-        ? [
-              ...allTags
-                  .filter((t) => t.name.toLowerCase().includes(q))
-                  .map((t) => ({ id: t.id, label: t.name, special: false })),
-              ...allCategories
-                  .filter((c) => c.name.toLowerCase().includes(q))
-                  .map((c) => ({
-                      id: missingCategory(c.id),
-                      label: `no ${c.name}`,
-                      special: true,
-                  })),
-          ]
-        : [];
-    const untaggedOn = activeTags.has(UNTAGGED);
-
-    // A filter's category icon: the tag's category, or for "no <category>"
-    // that category. None for untagged or uncategorized tags.
-    const categoryOf = (id: number) => {
-        const catId = missingCategoryId(id);
-        if (catId != null) return allCategories.find((c) => c.id === catId) ?? null;
-        return allTags.find((t) => t.id === id)?.category ?? null;
-    };
-    const icon = (id: number, onLight = false) => {
-        const cat = categoryOf(id);
-        if (!cat) return null;
-        return (
-            <span
-                // On a light pill some category colors (white, yellow) vanish:
-                // a dark backing keeps them visible.
-                className={`text-[10px] leading-none ${
-                    onLight ? "rounded-full bg-neutral-900 px-1 py-0.5" : ""
-                }`}
-                style={{ color: cat.color }}
-            >
-                {cat.icon}
-            </span>
-        );
-    };
+// The tag filter: a button opening the filter builder (FilterBuilder.tsx),
+// which is where the filter is made and changed. Here only whether one is
+// on (and the saved feed's name, if it came from one), and a way to clear it.
+function TagFilterSection(): JSX.Element {
+    const { filter, filterBroken, loadedFeed, clearFilter } = useTags();
+    const [open, setOpen] = useState(false);
+    const edited = loadedFeed != null && filterKey(loadedFeed.tree) !== filterKey(filter);
 
     return (
         <div className="px-2 mb-3 mt-1">
-            <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs px-1 font-semibold uppercase tracking-widest text-neutral-500">
-                    Tags
-                </p>
-                <div className="flex items-center gap-1">
+            <p className="text-xs px-1 mb-1.5 font-semibold uppercase tracking-widest text-neutral-500">
+                Tags
+            </p>
+            <div className="flex items-center gap-1">
+                <button
+                    onClick={() => setOpen(true)}
+                    title="Build or change the tag filter"
+                    className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors ${
+                        filter
+                            ? filterBroken
+                                ? "bg-red-950 text-red-300"
+                                : "bg-neutral-200 text-neutral-900"
+                            : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                    }`}
+                >
+                    <span className="truncate">
+                        {!filter
+                            ? "Filter…"
+                            : filterBroken
+                              ? "Filter needs fixing"
+                              : loadedFeed
+                                ? loadedFeed.name + (edited ? " (edited)" : "")
+                                : "Filter on"}
+                    </span>
+                </button>
+                {filter && (
                     <button
-                        onClick={() => toggleTag({ id: UNTAGGED })}
-                        title="Only files with no tags at all (their own or their folder's)"
-                        className={`text-[10px] rounded px-1.5 py-0.5 transition-colors ${
-                            untaggedOn
-                                ? "bg-neutral-200 text-neutral-900"
-                                : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
-                        }`}
+                        onClick={clearFilter}
+                        title="Turn the filter off"
+                        className="rounded px-1.5 py-1 text-xs text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200"
                     >
-                        UNTAGGED
+                        ×
                     </button>
-                    {activeTags.size >= 2 && (
-                        <button
-                            onClick={() =>
-                                setTagMode(tagMode === "and" ? "or" : "and")
-                            }
-                            className="text-[10px] rounded px-1.5 py-0.5 bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
-                        >
-                            {tagMode.toUpperCase()}
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {activeTags.size > 0 && (
-                <div className="flex flex-wrap gap-1 mb-1.5">
-                    {[...activeTags].map((tagId) => {
-                        const label = filterLabel(tagId, allTags, allCategories);
-                        if (!label) return null;
-                        return (
-                            <button
-                                key={tagId}
-                                onClick={() => toggleTag({ id: tagId })}
-                                className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900 text-xs ${
-                                    isSpecialFilter(tagId) ? "italic" : ""
-                                }`}
-                            >
-                                {icon(tagId, true)}
-                                {label}
-                                <span className="opacity-50 hover:opacity-100">
-                                    ×
-                                </span>
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
-
-            <div className="relative">
-                <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    onFocus={() => setFocused(true)}
-                    onBlur={() => setTimeout(() => setFocused(false), 150)}
-                    placeholder="Filter by tag or category…"
-                    className="w-full rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors"
-                />
-                {focused && suggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full mt-1 bg-neutral-900 border border-neutral-700 rounded-md overflow-hidden z-10 shadow-lg max-h-40 overflow-y-auto">
-                        {suggestions.slice(0, 20).map((item) => (
-                            <button
-                                key={item.id}
-                                onMouseDown={() => {
-                                    toggleTag({ id: item.id });
-                                    setSearch("");
-                                }}
-                                className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
-                                    item.special ? "italic" : ""
-                                } ${
-                                    activeTags.has(item.id)
-                                        ? "text-white bg-neutral-700"
-                                        : "text-neutral-300 hover:bg-neutral-800"
-                                }`}
-                            >
-                                <span className="w-3 text-center">{icon(item.id)}</span>
-                                {item.label}
-                            </button>
-                        ))}
-                    </div>
                 )}
             </div>
+            {open && <FilterBuilder onClose={() => setOpen(false)} />}
         </div>
     );
 }
@@ -1350,8 +1251,7 @@ export default function Sidebar({
             
 
 
-            <TagFilterSection
-            />
+            <TagFilterSection />
             <div className="flex gap-1 p-3 shrink-0 bg-neutral-950/40 rounded-2xl">
                 <NavItem
                     title={"Browse"}

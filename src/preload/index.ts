@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import { DbFile, DbFolder, DbTag, DbTagCategory, getAllTagCategories } from "@main/db";
 import type { PoolFilter } from "@main/elo";
+import type { FilterNode } from "@main/tagFilter";
 
 export interface FolderNode {
     name: string;
@@ -294,11 +295,28 @@ const api = {
 
     getAllTags: (): Promise<DbTag[]> => ipcRenderer.invoke("get-all-tags"),
 
-    getFileIdsByTags: (tags: number[], mode: "and" | "or"): Promise<number[]> =>
-        ipcRenderer.invoke("get-file-ids-by-tags", tags, mode),
+    getFileIdsByFilter: (filter: FilterNode | null): Promise<number[]> =>
+        ipcRenderer.invoke("get-file-ids-by-filter", filter),
 
-    getFilesByTags: (tagIds: number[], mode: "and" | "or", folderPath?: string): Promise<DbFile[]> =>
-        ipcRenderer.invoke("get-files-by-tags", tagIds, mode, folderPath),
+    getFilesByFilter: (filter: FilterNode | null, folderPath?: string): Promise<DbFile[]> =>
+        ipcRenderer.invoke("get-files-by-tags", filter, folderPath),
+
+    // ── Feeds (saved tag filters) and recent filters ──────────────────
+    listFeeds: () => ipcRenderer.invoke("feeds:list"),
+    createFeed: (name: string, tree: FilterNode) =>
+        ipcRenderer.invoke("feeds:create", name, tree),
+    updateFeed: (id: number, tree: FilterNode) =>
+        ipcRenderer.invoke("feeds:update", id, tree),
+    renameFeed: (id: number, name: string) =>
+        ipcRenderer.invoke("feeds:rename", id, name),
+    deleteFeed: (id: number) => ipcRenderer.invoke("feeds:delete", id),
+    getFeedHistory: () => ipcRenderer.invoke("feeds:history"),
+    pushFeedHistory: (entry: { feedId: number } | { tree: FilterNode }) =>
+        ipcRenderer.invoke("feeds:push-history", entry),
+    feedsUsing: (ref: { tagId: number } | { categoryId: number }) =>
+        ipcRenderer.invoke("feeds:using", ref),
+    countFilter: (filter: FilterNode | null, folderPrefixes: string[] | null) =>
+        ipcRenderer.invoke("feeds:count", filter, folderPrefixes),
 
     addTagToFolder: (folderRelPath: string, tag: string): Promise<void> =>
         ipcRenderer.invoke("add-tag-to-folder", folderRelPath, tag),
@@ -315,16 +333,14 @@ const api = {
     // ── Scroll ────────────────────────────────────────────────────────
     getRandomFile: (
         folderPrefixes: string[] | null,
-        tagList: number[] | null,
-        tagMode: "and" | "or",
+        filter: FilterNode | null,
         excludeIds: number[] = [],
         withoutTagId: number | null = null,
     ): Promise<unknown | null> =>
         ipcRenderer.invoke(
             "get-random-file",
             folderPrefixes,
-            tagList,
-            tagMode,
+            filter,
             excludeIds,
             withoutTagId,
         ),
@@ -332,10 +348,9 @@ const api = {
     // ── Comparisons ────────────────────────────────────────────────────────
     getPair: (
         folderPrefixes: string[] | null,
-        tagList: number[] | null,
-        tagMode: "and" | "or",
+        filter: FilterNode | null,
     ): Promise<[unknown, unknown] | null> =>
-        ipcRenderer.invoke("get-pair", folderPrefixes, tagList, tagMode),
+        ipcRenderer.invoke("get-pair", folderPrefixes, filter),
 
     getLanePair: (
         laneA: unknown,
@@ -367,16 +382,14 @@ const api = {
     getChallenger: (
         kingId: number,
         folderPrefixes: string[] | null,
-        tagList: number[] | null,
-        tagMode: "and" | "or",
+        filter: FilterNode | null,
         recentIds: number[] = [],
     ): Promise<unknown | null> =>
         ipcRenderer.invoke(
             "get-challenger",
             kingId,
             folderPrefixes,
-            tagList,
-            tagMode,
+            filter,
             recentIds,
         ),
 

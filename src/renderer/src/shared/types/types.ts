@@ -87,11 +87,39 @@ export function isDbTag(value: any): value is DbTag {
 export function isDbTagArray(value: any): value is DbTag[] {
     return Array.isArray(value) && value.every(isDbTag);
 }
+/** Where a tag-count item counts from: every tag, uncategorized ones, or a category id. */
+export type CountFrom = "all" | "uncategorized" | number;
+
+/**
+ * The tag filter, as a tree (mirrors main/tagFilter.ts). A group joins its
+ * items with one word, AND or OR; any node can be WITHOUT (inverted).
+ */
+export type FilterNode =
+    | { kind: "group"; op: "and" | "or"; items: FilterNode[]; without?: boolean }
+    | { kind: "tag"; id: number; without?: boolean }
+    | { kind: "count"; op: "<" | "=" | ">"; n: number; from: CountFrom; without?: boolean };
+
+export type FilterGroup = Extract<FilterNode, { kind: "group" }>;
+
+/** A saved filter. */
+export interface Feed {
+    id: number;
+    name: string;
+    tree: FilterNode;
+}
+
+/** A recently applied filter: a saved feed (feedId, name) or an unsaved tree. */
+export interface FeedHistoryEntry {
+    id: number;
+    feedId: number | null;
+    name: string | null;
+    tree: FilterNode;
+}
+
 /** What one side of Compare draws its files from. */
 export interface PoolFilter {
     folderPrefixes: string[] | null;
-    tagList: number[] | null;
-    tagMode: "and" | "or";
+    filter: FilterNode | null;
 }
 
 export interface ComparisonResult {

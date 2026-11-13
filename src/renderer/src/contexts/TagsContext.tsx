@@ -2,10 +2,18 @@ import {
     DbTag,
     DbTagCategory,
     DbTagWithCategory,
+    Feed,
+    FilterNode,
     TagImplication,
     TagUsage,
 } from "@renderer/shared/types/types";
-import { missingCategory } from "@renderer/lib/tagFilters";
+import {
+    canonical,
+    filterIsBroken,
+    filterKey,
+    pruneFilter,
+    replaceTag,
+} from "@renderer/lib/tagFilters";
 import {
     createContext,
     useContext,
@@ -22,13 +30,24 @@ interface Tags {
     /** Tag links: "kitten" (tag_id) implies "cat" (implies_id). */
     implications: TagImplication[];
 
-    // Filtering state (unchanged)
-    activeTags: Set<number>;
-    tagMode: "and" | "or";
-    /** Also takes the special filters in lib/tagFilters.ts ({ id: UNTAGGED }). */
-    toggleTag: (tag: Pick<DbTag, "id">) => void;
-    setTagMode: (mode: "and" | "or") => void;
-    clearTags: () => void;
+    // The tag filter (a tree, see lib/tagFilters.ts), edited in the filter
+    // builder and applied when it closes.
+    /** The applied filter as built: empty groups dropped, may be broken. */
+    filter: FilterNode | null;
+    /** What views filter by: `filter`, or null when it's broken. */
+    activeFilter: FilterNode | null;
+    /** filterKey(activeFilter), for effect dependencies. */
+    activeFilterKey: string;
+    /** The applied filter refers to a deleted tag or category, so it's off. */
+    filterBroken: boolean;
+    /** The saved feed the filter came from (its saved version), if any. */
+    loadedFeed: Feed | null;
+    /** Applies a filter (and records it in the recent filters). `feed` is the
+     *  saved feed it was loaded from, kept to tell when it's been edited. */
+    applyFilter: (tree: FilterNode | null, feed: Feed | null) => void;
+    /** Keeps the loaded feed's name and saved version current after a save or rename. */
+    setLoadedFeed: (feed: Feed | null) => void;
+    clearFilter: () => void;
     resetTags: () => void;
 
     // Refresh
@@ -89,11 +108,14 @@ const TagsContext = createContext<Tags>({
     allTags: [],
     allCategories: [],
     implications: [],
-    activeTags: new Set(),
-    tagMode: "or",
-    toggleTag: () => {},
-    setTagMode: () => {},
-    clearTags: () => {},
+    filter: null,
+    activeFilter: null,
+    activeFilterKey: "",
+    filterBroken: false,
+    loadedFeed: null,
+    applyFilter: () => {},
+    setLoadedFeed: () => {},
+    clearFilter: () => {},
     resetTags: () => {},
     refreshTags: async () => {},
     createTag: async () => {},
@@ -116,8 +138,8 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     const [allTags, setAllTags] = useState<DbTag[]>([]);
     const [allCategories, setAllCategories] = useState<DbTagCategory[]>([]);
     const [implications, setImplications] = useState<TagImplication[]>([]);
-    const [activeTags, setActiveTags] = useState<Set<number>>(new Set());
-    const [tagMode, setTagMode] = useState<"and" | "or">("or");
+    const [filter, setFilter] = useState<FilterNode | null>(null);
+    const [loadedFeed, setLoadedFeed] = useState<Feed | null>(null);
 
     const refreshTags = useCallback(async () => {
         const [tags, categories, links] = await Promise.all([
@@ -164,22 +186,36 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
 
     // --- Filtering ---
 
-    const toggleTag = useCallback((tag: Pick<DbTag, "id">) => {
-        setActiveTags((prev) => {
-            const next = new Set(prev);
-            next.has(tag.id) ? next.delete(tag.id) : next.add(tag.id);
-            return next;
-        });
+    const applyFilter = useCallback((tree: FilterNode | null, feed: Feed | null) => {
+        const pruned = pruneFilter(tree);
+        const next = pruned ? canonical(pruned) : null;
+        setFilter(next);
+        setLoadedFeed(feed);
+        if (!next) return;
+        // An unedited saved feed goes in the history as itself; anything
+        // else as the filter it is.
+        const unedited = feed && filterKey(feed.tree) === filterKey(next);
+        void window.api.pushFeedHistory(unedited ? { feedId: feed.id } : { tree: next });
     }, []);
 
-    const clearTags = useCallback(() => setActiveTags(new Set()), []);
+    const clearFilter = useCallback(() => {
+        setFilter(null);
+        setLoadedFeed(null);
+    }, []);
+
+    const filterBroken = useMemo(
+        () => filterIsBroken(filter, allTags, allCategories),
+        [filter, allTags, allCategories],
+    );
+    const activeFilter = filterBroken ? null : filter;
+    const activeFilterKey = useMemo(() => filterKey(activeFilter), [activeFilter]);
 
     const resetTags = useCallback(() => {
         setAllTags([]);
         setAllCategories([]);
         setImplications([]);
-        setActiveTags(new Set());
-        setTagMode("or");
+        setFilter(null);
+        setLoadedFeed(null);
     }, []);
 
     // --- Tag CRUD ---
@@ -210,14 +246,11 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
             const result = await window.api.mergeTags(sourceId, targetId);
             if (!result.ok) return result;
             await refreshTags();
-            // A filter on the merged-away tag now means the target.
-            setActiveTags((prev) => {
-                if (!prev.has(sourceId)) return prev;
-                const next = new Set(prev);
-                next.delete(sourceId);
-                next.add(targetId);
-                return next;
-            });
+            // The filter follows the merge (main rewrites saved feeds).
+            setFilter((prev) => (prev ? replaceTag(prev, sourceId, targetId) : prev));
+            setLoadedFeed((prev) =>
+                prev ? { ...prev, tree: replaceTag(prev.tree, sourceId, targetId) } : prev,
+            );
             return result;
         },
         [refreshTags],
@@ -248,11 +281,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
         setImplications((prev) =>
             prev.filter((l) => l.tag_id !== id && l.implies_id !== id),
         );
-        setActiveTags((prev) => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-        });
+        // A filter using it is now broken (see filterBroken).
     }, []);
 
     const reorderTags = useCallback(
@@ -320,14 +349,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
             ),
         );
         setAllCategories((prev) => prev.filter((c) => c.id !== id));
-        // Drop a "no <category>" filter for it.
-        setActiveTags((prev) => {
-            const special = missingCategory(id);
-            if (!prev.has(special)) return prev;
-            const next = new Set(prev);
-            next.delete(special);
-            return next;
-        });
+        // A filter counting tags in it is now broken (see filterBroken).
     }, []);
 
     return (
@@ -336,11 +358,14 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
                 allTags: allTagsWithCategory,
                 allCategories,
                 implications,
-                activeTags,
-                tagMode,
-                toggleTag,
-                setTagMode,
-                clearTags,
+                filter,
+                activeFilter,
+                activeFilterKey,
+                filterBroken,
+                loadedFeed,
+                applyFilter,
+                setLoadedFeed,
+                clearFilter,
                 resetTags,
                 refreshTags,
                 createTag,

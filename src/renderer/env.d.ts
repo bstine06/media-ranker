@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview } from "./src/shared/types/types";
 
 export {};
 
@@ -122,22 +122,32 @@ declare global {
                 tag: string,
             ) => Promise<void>;
             getMostUsedTags: (folderId?: number) => Promise<DbTag[]>;
-            getFileIdsByTags: (
-                tags: number[],
-                mode: "and" | "or",
-            ) => Promise<number[]>;
+            getFileIdsByFilter: (filter: FilterNode | null) => Promise<number[]>;
+            listFeeds: () => Promise<Feed[]>;
+            createFeed: (name: string, tree: FilterNode) => Promise<{ feed: Feed } | { error: string }>;
+            /** Overwrites a saved feed's filter. */
+            updateFeed: (id: number, tree: FilterNode) => Promise<void>;
+            renameFeed: (id: number, name: string) => Promise<{ ok: true } | { error: string }>;
+            deleteFeed: (id: number) => Promise<void>;
+            getFeedHistory: () => Promise<FeedHistoryEntry[]>;
+            pushFeedHistory: (entry: { feedId: number } | { tree: FilterNode }) => Promise<void>;
+            /** Names of saved feeds that use a tag or category. */
+            feedsUsing: (ref: { tagId: number } | { categoryId: number }) => Promise<string[]>;
+            /** Active files matching a filter: library-wide, and within the folders (null if none). */
+            countFilter: (
+                filter: FilterNode | null,
+                folderPrefixes: string[] | null,
+            ) => Promise<{ matches: number; total: number; inFolders: number | null }>;
             getRandomFile: (
                 folderPrefixes: string[] | null,
-                tagList: number[] | null,
-                tagMode: "and" | "or",
+                filter: FilterNode | null,
                 excludeIds?: number[],
                 /** Only files without this tag (Sweep). */
                 withoutTagId?: number | null,
             ) => Promise<import("./types").DbFile | null>;
             getPair: (
                 folderPrefixes: string[] | null,
-                tagList: number[] | null,
-                tagMode: "and" | "or",
+                filter: FilterNode | null,
             ) => Promise<
                 [import("./types").DbFile, import("./types").DbFile] | null
             >;
@@ -166,8 +176,7 @@ declare global {
             getChallenger: (
                 kingId: number,
                 folderPrefixes: string[] | null,
-                tagList: number[] | null,
-                tagMode: "and" | "or",
+                filter: FilterNode | null,
                 recentIds?: number[],
             ) => Promise<DbFile | null>;
             getFolderMetadata: (

@@ -1,11 +1,10 @@
 import { getDb, folderLikePattern } from "./db";
 import type { DbFile } from "./db";
-import { tagFilterSql } from "./tagFilter";
+import { filterSql, type FilterNode } from "./tagFilter";
 
 export function getRandomFile(
     folderPrefixes: string[] | null,
-    tagList: number[] | null,
-    tagMode: "and" | "or" = "or",
+    filter: FilterNode | null,
     excludeIds: number[] = [],
     /** Sweep: only files that don't have this tag (own or inherited). */
     withoutTagId: number | null = null,
@@ -36,7 +35,7 @@ export function getRandomFile(
         params.push(withoutTagId);
     }
 
-    const tagFilter = tagFilterSql(tagList, tagMode);
+    const tagFilter = filterSql(filter);
     if (tagFilter) {
         conditions.push(tagFilter.sql);
         params.push(...tagFilter.params);
