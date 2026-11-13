@@ -867,6 +867,9 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
             if (!pickingRef.current) {
                 // A dialog over the view (Settings, a confirm) keeps its keys.
                 if (isTyping() || document.querySelector("[data-modal]")) return;
+                // Only over media (a target): elsewhere the keys are the
+                // page's (T types, Tab moves focus).
+                if (!targetRef.current) return;
                 const claim = () => {
                     e.preventDefault();
                     e.stopImmediatePropagation();
