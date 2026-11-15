@@ -108,6 +108,25 @@ declare global {
             getRelatedTags: (tagId: number) => Promise<{ id: number; n: number }[]>;
             /** Sweep: time each file was on screen with this tag up. */
             addTagCheckSeconds: (tagId: number, entries: { fileId: number; seconds: number }[]) => Promise<void>;
+            /** Sweep pass: the files a pass goes through for a tag
+             *  (unordered). needs-firm leaves out yes, hard no, pass no. */
+            getPassFiles: (
+                folderPrefixes: string[] | null,
+                filter: FilterNode | null,
+                tagId: number,
+                which: "needs-firm" | "all",
+            ) => Promise<DbFile[]>;
+            /** Sweep pass: how many files each tag's pass would have. */
+            getPassCounts: (
+                folderPrefixes: string[] | null,
+                filter: FilterNode | null,
+                tagIds: number[],
+                which: "needs-firm" | "all",
+            ) => Promise<Record<number, number>>;
+            /** Sweep pass: these files (order kept) that still need a firm answer. */
+            prunePassList: (tagId: number, fileIds: number[]) => Promise<number[]>;
+            /** Active files in a scope. */
+            countScope: (folderPrefixes: string[] | null, filter: FilterNode | null) => Promise<number>;
             /** What per-tag coverage is worked out from (threshold applied
              *  in the renderer), over the library or a scope. */
             getTagCoverage: (

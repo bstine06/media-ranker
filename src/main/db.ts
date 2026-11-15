@@ -1599,7 +1599,7 @@ export function addTagCheckSeconds(
 
 // Conditions limiting files (alias f) to a scope: folders and/or a tag
 // filter, as Sweep and Browse use them. Active files only.
-function scopeSql(
+export function scopeSql(
     folderPrefixes: string[] | null,
     filter: FilterNode | null,
 ): { sql: string; params: unknown[] } {

@@ -125,6 +125,7 @@ import {
 import { rotateTrackedFile, previousVersionPath } from "./rotate";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
+import { getPassFiles, getPassCounts, prunePassList, countScope, type PassWhich } from "./pass";
 import {
     loadSavedRootPath,
     saveRootPath,
@@ -715,6 +716,25 @@ function registerIpcHandlers(): void {
         "add-tag-check-seconds",
         (_event, tagId: number, entries: { fileId: number; seconds: number }[]) =>
             addTagCheckSeconds(tagId, entries),
+    );
+
+    // -- Sweep pass mode
+    const passWhich = (w: unknown): PassWhich => (w === "all" ? "all" : "needs-firm");
+    ipcMain.handle(
+        "get-pass-files",
+        (_event, folderPrefixes: string[] | null, filter: unknown, tagId: number, which: unknown) =>
+            getPassFiles(folderPrefixes, validateFilter(filter), tagId, passWhich(which)),
+    );
+    ipcMain.handle(
+        "get-pass-counts",
+        (_event, folderPrefixes: string[] | null, filter: unknown, tagIds: number[], which: unknown) =>
+            getPassCounts(folderPrefixes, validateFilter(filter), tagIds, passWhich(which)),
+    );
+    ipcMain.handle("prune-pass-list", (_event, tagId: number, fileIds: number[]) =>
+        prunePassList(tagId, fileIds),
+    );
+    ipcMain.handle("count-scope", (_event, folderPrefixes: string[] | null, filter: unknown) =>
+        countScope(folderPrefixes, validateFilter(filter)),
     );
 
     ipcMain.handle(

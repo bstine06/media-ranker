@@ -291,6 +291,23 @@ const api = {
         entries: { fileId: number; seconds: number }[],
     ): Promise<void> => ipcRenderer.invoke("add-tag-check-seconds", tagId, entries),
 
+    getPassFiles: (
+        folderPrefixes: string[] | null,
+        filter: FilterNode | null,
+        tagId: number,
+        which: "needs-firm" | "all",
+    ) => ipcRenderer.invoke("get-pass-files", folderPrefixes, filter, tagId, which),
+    getPassCounts: (
+        folderPrefixes: string[] | null,
+        filter: FilterNode | null,
+        tagIds: number[],
+        which: "needs-firm" | "all",
+    ) => ipcRenderer.invoke("get-pass-counts", folderPrefixes, filter, tagIds, which),
+    prunePassList: (tagId: number, fileIds: number[]): Promise<number[]> =>
+        ipcRenderer.invoke("prune-pass-list", tagId, fileIds),
+    countScope: (folderPrefixes: string[] | null, filter: FilterNode | null): Promise<number> =>
+        ipcRenderer.invoke("count-scope", folderPrefixes, filter),
+
     getTagCoverage: (folderPrefixes: string[] | null = null, filter: FilterNode | null = null) =>
         ipcRenderer.invoke("get-tag-coverage", folderPrefixes, filter),
 

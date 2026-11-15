@@ -9,6 +9,7 @@ import type {
 import MediaTile from "./MediaTile";
 import { useStatus } from "../../contexts/StatusContext";
 import { SortMode } from "../types/browserTypes";
+import { SORTS, sortFiles } from "@renderer/lib/sorts";
 import BrowseRow from "./BrowseRow";
 import MetadataView from "./MetadataView";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -23,57 +24,6 @@ import FolderTagPanel from "./FolderTagPanel";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
 import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
 import { usePlacement, PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
-
-// ─── Sorting ──────────────────────────────────────────────────────────────────
-
-// Each sort's natural order ("down"); the up arrow reverses it.
-const SORTS: Record<
-    SortMode,
-    {
-        label: string;
-        title: string;
-        icon: string; // heroicons path
-        compare: (a: DbFile, b: DbFile) => number;
-        order: { down: string; up: string };
-    }
-> = {
-    alphabetical: {
-        label: "A-Z",
-        title: "Sort by name",
-        icon: "M3 4.5h14.25M3 9h9.75M3 13.5h9.75M3 18h9.75",
-        compare: (a, b) => a.filename.localeCompare(b.filename),
-        order: { down: "A to Z", up: "Z to A" },
-    },
-    rank: {
-        label: "Rank",
-        title: "Sort by rank",
-        icon: "M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12",
-        compare: (a, b) => b.elo_score - a.elo_score,
-        order: { down: "Best first", up: "Worst first" },
-    },
-    compared: {
-        label: "Compared",
-        title: "Sort by how often each file has been compared (the least compared need ranking most)",
-        icon: "M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5",
-        compare: (a, b) => a.comparison_count - b.comparison_count,
-        order: { down: "Fewest comparisons first", up: "Most comparisons first" },
-    },
-    added: {
-        label: "Added",
-        title: "Sort by when each file was added to the library",
-        icon: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z",
-        // "YYYY-MM-DD HH:MM:SS" strings sort chronologically.
-        compare: (a, b) => b.date_indexed.localeCompare(a.date_indexed),
-        order: { down: "Newest first", up: "Oldest first" },
-    },
-    fileSize: {
-        label: "Size",
-        title: "Sort by file size",
-        icon: "M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5",
-        compare: (a, b) => b.size - a.size,
-        order: { down: "Largest first", up: "Smallest first" },
-    },
-};
 
 // ─── BrowseView ───────────────────────────────────────────────────────────────
 
@@ -488,15 +438,10 @@ export default function BrowseView({
         // Keep the selection so the same files can be dragged/moved next.
     };
 
-    const sortedFiles = useMemo(() => {
-        const sort = SORTS[sortMode] ?? SORTS.alphabetical;
-        return [...files].sort((a, b) => {
-            // "down" is each sort's natural order; "up" reverses it. Ties
-            // fall back to the filename so the order is stable.
-            const d = sort.compare(a, b) || a.filename.localeCompare(b.filename);
-            return sortDirection === "down" ? d : -d;
-        });
-    }, [files, sortMode, sortDirection]);
+    const sortedFiles = useMemo(
+        () => sortFiles(files, sortMode, sortDirection),
+        [files, sortMode, sortDirection],
+    );
 
     const selectedFiles = useMemo(
         () => sortedFiles.filter((f) => selectedIds.has(f.id)),
