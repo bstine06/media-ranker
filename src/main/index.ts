@@ -88,7 +88,6 @@ import {
 import {
     recordComparison,
     getChallenger,
-    getLanePair,
     refitPair,
     getWeightedPair,
     type PoolFilter,
@@ -833,13 +832,6 @@ function registerIpcHandlers(): void {
             filter: unknown,
         ) => {
             return getWeightedPair(folderPrefixes, validateFilter(filter));
-        },
-    );
-
-    ipcMain.handle(
-        "get-lane-pair",
-        (_event, laneA: PoolFilter, laneB: PoolFilter) => {
-            return getLanePair(pool(laneA), pool(laneB));
         },
     );
 

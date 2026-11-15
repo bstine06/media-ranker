@@ -133,9 +133,11 @@ export default function CompareView({
         placementRef.current = st;
         setPlacing(st);
     };
-    const { rootPath, laneFolderPrefixes, setActiveFolder } = useFolders();
-    // Each side's folders come from the sidebar's L / R checkboxes.
-    const laneKey = JSON.stringify(laneFolderPrefixes);
+    const { rootPath, folderPrefixes, setActiveFolder } = useFolders();
+    // Both sides draw from the sidebar's ticked collections (the shared
+    // selection). Kept per side because a king's challengers, refits and
+    // placement still think in sides.
+    const laneKey = JSON.stringify({ a: folderPrefixes, b: folderPrefixes });
 
     // Next pair, fetched + preloaded in the background. Tagged with the filter
     // state it was fetched under so it's discarded if filters change.
@@ -175,16 +177,7 @@ export default function CompareView({
             });
 
             const fetchNext = async (): Promise<[DbFile, DbFile] | null> => {
-                if (!k) {
-                    // Same folders on both sides: the usual single-pool pick.
-                    if (JSON.stringify(lanes.a) === JSON.stringify(lanes.b)) {
-                        return window.api.getPair(lanes.a, activeFilter);
-                    }
-                    return window.api.getLanePair(
-                        laneFilter("a"),
-                        laneFilter("b"),
-                    );
-                }
+                if (!k) return window.api.getPair(lanes.a, activeFilter);
                 // Challengers come from the lane opposite the king.
                 const pool = laneFilter(k.side === "a" ? "b" : "a");
                 const challenger = await window.api.getChallenger(
@@ -742,7 +735,7 @@ export default function CompareView({
         const onKey = (e: KeyboardEvent) => {
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             // Leave keys alone only while typing. A focused checkbox (the
-            // sidebar's L / R boxes) or button shouldn't swallow hotkeys.
+            // sidebar's collection boxes) or button shouldn't swallow hotkeys.
             if (isTyping()) return;
 
             const controls =
@@ -848,11 +841,11 @@ export default function CompareView({
     }
 
     if (!pair) {
-        if (laneFolderPrefixes.a || laneFolderPrefixes.b) {
+        if (folderPrefixes) {
             return (
                 <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
-                    Not enough files to compare in the folders checked for
-                    each side (L / R in the sidebar).
+                    Not enough files to compare in the collections ticked in
+                    the sidebar.
                 </div>
             );
         }

@@ -154,11 +154,6 @@ declare global {
             ) => Promise<
                 [import("./types").DbFile, import("./types").DbFile] | null
             >;
-            /** A pair with the left file from laneA's pool, the right from laneB's. */
-            getLanePair: (
-                laneA: PoolFilter,
-                laneB: PoolFilter,
-            ) => Promise<[DbFile, DbFile] | null>;
             /** Keeps the sides of a pair that still fit their filters, replacing the rest. */
             refitPair: (
                 ids: [number, number],

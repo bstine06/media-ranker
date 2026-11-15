@@ -5,11 +5,8 @@ import {
     useState,
     useCallback,
     useEffect,
-    useRef,
 } from "react";
 
-/** A side of Compare: a = left, b = right. */
-export type Lane = "a" | "b";
 
 interface FolderContextValue {
     // Structure
@@ -35,10 +32,6 @@ interface FolderContextValue {
 
     // Compare's per-side folder checkboxes (session only). Same rules as
     // checkedFolders: none or all checked means no folder limit.
-    laneChecked: Record<Lane, Set<string>>;
-    toggleLaneFolder: (lane: Lane, path: string) => void;
-    toggleLaneAll: (lane: Lane) => void;
-    laneFolderPrefixes: Record<Lane, string[] | null>; // derived
 
     // Folder metadata to prompt changes throughout app
     folderMetaVersion: number;
@@ -62,10 +55,6 @@ const FolderContext = createContext<FolderContextValue>({
     checkAll: () => {},
     setAllChecked: () => {},
     folderPrefixes: null,
-    laneChecked: { a: new Set(), b: new Set() },
-    toggleLaneFolder: () => {},
-    toggleLaneAll: () => {},
-    laneFolderPrefixes: { a: null, b: null },
     folderMetaVersion: 0,
     handleFolderMetadataChanged: () => {},
     resetFolders: () => {}
@@ -97,13 +86,6 @@ function removeFromSet(prev: Set<string>, path: string): Set<string> {
         if (p === path || p.startsWith(path + "/")) next.delete(p);
     }
     return next;
-}
-
-function mapLanes(
-    lanes: Record<Lane, Set<string>>,
-    fn: (set: Set<string>) => Set<string>,
-): Record<Lane, Set<string>> {
-    return { a: fn(lanes.a), b: fn(lanes.b) };
 }
 
 function rebaseChildren(
@@ -156,10 +138,6 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
     const [checkedFolders, setCheckedFolders] = useState<Set<string>>(
         new Set(),
     );
-    const [laneChecked, setLaneChecked] = useState<
-        Record<Lane, Set<string>>
-    >({ a: new Set(), b: new Set() });
-    const lanesInitializedRef = useRef(false);
     const [folderMetaVersion, setFolderMetaVersion] = useState(0);
     
     const handleFolderMetadataChanged = useCallback(() => {
@@ -193,11 +171,6 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
                 setCheckedFolders((prev) =>
                     renameInSet(prev, oldRelativePath, relativePath),
                 );
-                setLaneChecked((prev) =>
-                    mapLanes(prev, (set) =>
-                        renameInSet(set, oldRelativePath, relativePath),
-                    ),
-                );
             }),
 
             window.api.onFolderRemoved(({ relativePath }) => {
@@ -208,9 +181,6 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
                     prev === relativePath ? null : prev,
                 );
                 setCheckedFolders((prev) => removeFromSet(prev, relativePath));
-                setLaneChecked((prev) =>
-                    mapLanes(prev, (set) => removeFromSet(set, relativePath)),
-                );
             }),
 
             window.api.onFolderAdded(({ relativePath }) => {
@@ -249,11 +219,6 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
             }
             return prev;
         });
-        if (!lanesInitializedRef.current) {
-            lanesInitializedRef.current = true;
-            const all = getAllPaths(folders);
-            setLaneChecked({ a: new Set(all), b: new Set(all) });
-        }
     }, []);
 
     const toggleFolder = useCallback((path: string, allPaths: string[]) => {
@@ -270,38 +235,8 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
 
     const setAllChecked = useCallback((paths: string[]) => {
         setCheckedFolders(new Set(paths));
-        // A new folder made while a lane had everything checked joins it.
-        setLaneChecked((prev) =>
-            mapLanes(prev, (set) =>
-                paths.every((p) => set.has(p) || !folders.some((f) => f.relativePath === p))
-                    ? new Set(paths)
-                    : set,
-            ),
-        );
-    }, [folders]);
-
-    const toggleLaneFolder = useCallback((lane: Lane, path: string) => {
-        setLaneChecked((prev) => {
-            const next = new Set(prev[lane]);
-            if (next.has(path)) next.delete(path);
-            else next.add(path);
-            return { ...prev, [lane]: next };
-        });
     }, []);
 
-    const toggleLaneAll = useCallback(
-        (lane: Lane) => {
-            const allPaths = getAllPaths(folders);
-            setLaneChecked((prev) => {
-                const allChecked = allPaths.every((p) => prev[lane].has(p));
-                return {
-                    ...prev,
-                    [lane]: allChecked ? new Set() : new Set(allPaths),
-                };
-            });
-        },
-        [folders],
-    );
 
     const resetFolders = useCallback(() => {
         setRootPath(null);
@@ -309,8 +244,6 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
         setActiveFolder(null);
         setShowUnsorted(false);
         setCheckedFolders(new Set());
-        setLaneChecked({ a: new Set(), b: new Set() });
-        lanesInitializedRef.current = false;
 
     }, []);
 
@@ -320,12 +253,6 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
         checkedFolders.size === 0 || checkedFolders.size === allPaths.length
             ? null
             : [...checkedFolders];
-    const lanePrefixes = (set: Set<string>): string[] | null =>
-        set.size === 0 || allPaths.every((p) => set.has(p)) ? null : [...set];
-    const laneFolderPrefixes = {
-        a: lanePrefixes(laneChecked.a),
-        b: lanePrefixes(laneChecked.b),
-    };
 
     return (
         <FolderContext.Provider
@@ -343,10 +270,6 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
                 checkAll,
                 setAllChecked,
                 folderPrefixes,
-                laneChecked,
-                toggleLaneFolder,
-                toggleLaneAll,
-                laneFolderPrefixes,
                 folderMetaVersion,
                 handleFolderMetadataChanged,
                 resetFolders

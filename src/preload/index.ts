@@ -353,12 +353,6 @@ const api = {
     ): Promise<[unknown, unknown] | null> =>
         ipcRenderer.invoke("get-pair", folderPrefixes, filter),
 
-    getLanePair: (
-        laneA: unknown,
-        laneB: unknown,
-    ): Promise<[unknown, unknown] | null> =>
-        ipcRenderer.invoke("get-lane-pair", laneA, laneB),
-
     refitPair: (
         ids: [number, number],
         laneA: unknown,

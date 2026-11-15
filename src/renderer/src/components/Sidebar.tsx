@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DbFile, DbTag, FolderNode, View } from "../shared/types/types";
 import NavItem from "./NavItem";
@@ -8,7 +8,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "./icons/FolderIcon";
-import { useFolders, type Lane } from "@renderer/contexts/FolderContext";
+import { useFolders } from "@renderer/contexts/FolderContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { CompareIcon } from "./icons/CompareIcon";
 import { TagIcon } from "./icons/TagIcon";
@@ -59,13 +59,10 @@ function FolderItem({
     onToggleFolder,
     folderMetaVersion,
     onDropFiles,
-    lanes,
 }: {
     node: FolderNode;
     activeFolder: string | null;
     isFilterable: boolean;
-    /** Compare: a left and a right checkbox instead of the single filter one. */
-    lanes?: { checked: Record<Lane, boolean>; onToggle: (lane: Lane) => void };
     checkedFolders: Set<string>;
     onSelectFolder: (relativePath: string) => void;
     onToggleFolder: (relativePath: string, allPaths: string[]) => void;
@@ -101,33 +98,19 @@ function FolderItem({
             {...dropHandlers}
         >
             <span className="mr-1 w-4" />
-            {lanes ? (
-                <LaneCheckboxes
-                    checked={lanes.checked}
-                    onToggle={lanes.onToggle}
+            {isFilterable && (
+                <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() =>
+                        onToggleFolder(node.relativePath, [node.relativePath])
+                    }
+                    className="mr-2 shrink-0 accent-white cursor-pointer"
+                    onClick={(e) => e.stopPropagation()}
                 />
-            ) : (
-                isFilterable && (
-                    <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() =>
-                            onToggleFolder(node.relativePath, [node.relativePath])
-                        }
-                        className="mr-2 shrink-0 accent-white cursor-pointer"
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                )
             )}
             <button
                 onClick={() => {
-                    if (lanes) {
-                        // Name toggles both sides together.
-                        const both = lanes.checked.a && lanes.checked.b;
-                        if (lanes.checked.a === both) lanes.onToggle("a");
-                        if (lanes.checked.b === both) lanes.onToggle("b");
-                        return;
-                    }
                     if (isFilterable)
                         onToggleFolder(node.relativePath, [node.relativePath]);
                     else onSelectFolder(node.relativePath);
@@ -137,7 +120,7 @@ function FolderItem({
                         ? isActive
                             ? "text-white font-medium"
                             : "text-neutral-400 hover:text-white"
-                        : (lanes ? lanes.checked.a || lanes.checked.b : isChecked)
+                        : isChecked
                           ? "text-white"
                           : "text-neutral-300"
                 }`}
@@ -157,36 +140,6 @@ function FolderItem({
                 </div>
             </button>
         </div>
-    );
-}
-
-// Compare's left / right folder checkboxes for one row.
-function LaneCheckboxes({
-    checked,
-    indeterminate,
-    onToggle,
-}: {
-    checked: Record<Lane, boolean>;
-    indeterminate?: Record<Lane, boolean>;
-    onToggle: (lane: Lane) => void;
-}): JSX.Element {
-    return (
-        <span className="mr-2 flex shrink-0 items-center gap-1.5">
-            {(["a", "b"] as const).map((lane) => (
-                <input
-                    key={lane}
-                    type="checkbox"
-                    title={lane === "a" ? "Left side" : "Right side"}
-                    checked={checked[lane]}
-                    ref={(el) => {
-                        if (el) el.indeterminate = !!indeterminate?.[lane];
-                    }}
-                    onChange={() => onToggle(lane)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="shrink-0 accent-white cursor-pointer"
-                />
-            ))}
-        </span>
     );
 }
 
@@ -689,7 +642,6 @@ export default function Sidebar({
     };
     const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion, refreshFolders, setAllChecked } = useFolders();
     const { showUnsorted, setShowUnsorted } = useFolders();
-    const { laneChecked, toggleLaneFolder, toggleLaneAll } = useFolders();
     const { alwaysShowUnsorted } = useSettings();
 
     // Count of files sitting directly in the library folder; refreshed when
@@ -887,10 +839,20 @@ export default function Sidebar({
         if (await createFolderNamed(newFolderName)) cancelCreateFolder();
     };
 
-    const isFilterable = !view.startsWith("browse") && view!=="tag-manager";
+    // Everywhere but Browse, collections tick: the one shared selection
+    // (Sweep, Compare, Tag Manager's coverage). Browse opens one instead.
+    const isFilterable = !view.startsWith("browse");
     const isSearching = search.trim().length > 0;
 
-    const sortedFolders = folders.sort((f1, f2) => f1.name.toLowerCase() < f2.name.toLowerCase() ? -1 : 1);
+    // Ticked collections first, so it's easy to see what's selected among
+    // hundreds; then by name.
+    const ticked = (path: string) => isFilterable && checkedFolders.has(path);
+    const sortedFolders = folders.sort((f1, f2) => {
+        const t1 = ticked(f1.relativePath);
+        const t2 = ticked(f2.relativePath);
+        if (t1 !== t2) return t1 ? -1 : 1;
+        return f1.name.toLowerCase() < f2.name.toLowerCase() ? -1 : 1;
+    });
 
     const visibleFolders = isSearching
         ? folders.filter((n) =>
@@ -909,16 +871,6 @@ export default function Sidebar({
     const someChecked = allPaths.some((p) => checkedFolders.has(p));
     const isIndeterminate = someChecked && !allChecked;
 
-    // Compare picks each side's folders separately.
-    const laneMode = view === "compare";
-    const laneAll = {
-        a: allPaths.every((p) => laneChecked.a.has(p)),
-        b: allPaths.every((p) => laneChecked.b.has(p)),
-    };
-    const laneSome = {
-        a: allPaths.some((p) => laneChecked.a.has(p)),
-        b: allPaths.some((p) => laneChecked.b.has(p)),
-    };
 
     const handleShowInFolder = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -1104,32 +1056,10 @@ export default function Sidebar({
                         </p>
                     )}
 
-                    {laneMode && (
-                        <div
-                            className="flex items-center text-[10px] font-medium uppercase text-neutral-500"
-                            title="Which folders each side of Compare draws from"
-                        >
-                            <span className="mr-1 w-4" />
-                            <span className="flex gap-1.5">
-                                <span className="w-[13px] text-center">L</span>
-                                <span className="w-[13px] text-center">R</span>
-                            </span>
-                        </div>
-                    )}
-
                     {!isSearching && (
                         <FileDropRow onDropFiles={(paths) => handleDropOnFolder("", paths)}>
                             <span className="mr-1 w-4" />
-                            {laneMode ? (
-                                <LaneCheckboxes
-                                    checked={laneAll}
-                                    indeterminate={{
-                                        a: laneSome.a && !laneAll.a,
-                                        b: laneSome.b && !laneAll.b,
-                                    }}
-                                    onToggle={toggleLaneAll}
-                                />
-                            ) : isFilterable && (
+                            {isFilterable && (
                                 <input
                                     type="checkbox"
                                     checked={allChecked}
@@ -1143,12 +1073,6 @@ export default function Sidebar({
                             )}
                             <button
                                 onClick={() => {
-                                    if (laneMode) {
-                                        const both = laneAll.a && laneAll.b;
-                                        if (laneAll.a === both) toggleLaneAll("a");
-                                        if (laneAll.b === both) toggleLaneAll("b");
-                                        return;
-                                    }
                                     if (isFilterable) {
                                         checkAll();
                                         return;
@@ -1160,11 +1084,7 @@ export default function Sidebar({
                                 className={`flex-1 truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
                                     !isFilterable && activeFolder === null && !showUnsorted
                                         ? "text-white font-medium"
-                                        : laneMode
-                                          ? laneAll.a && laneAll.b
-                                              ? "text-white"
-                                              : "text-neutral-300"
-                                          : isFilterable && allChecked
+                                        : isFilterable && allChecked
                                           ? "text-white"
                                           : isFilterable && someChecked
                                             ? "text-neutral-300"
@@ -1193,9 +1113,15 @@ export default function Sidebar({
 
                     <div className="overflow-y-auto flex-1 min-h-0">
                         {visibleFolders.length > 0 ? (
-                            visibleFolders.map((node) => (
+                            visibleFolders.map((node, i) => (
+                                <Fragment key={node.relativePath}>
+                                {/* A subtle line between the ticked collections and the rest. */}
+                                {i > 0 &&
+                                    ticked(visibleFolders[i - 1].relativePath) &&
+                                    !ticked(node.relativePath) && (
+                                        <div className="mx-4 my-1 border-t border-neutral-700/70" />
+                                    )}
                                 <FolderItem
-                                    key={node.relativePath}
                                     node={node}
                                     activeFolder={activeFolder}
                                     isFilterable={isFilterable}
@@ -1209,19 +1135,8 @@ export default function Sidebar({
                                     onDropFiles={(paths) =>
                                         handleDropOnFolder(node.relativePath, paths)
                                     }
-                                    lanes={
-                                        laneMode
-                                            ? {
-                                                  checked: {
-                                                      a: laneChecked.a.has(node.relativePath),
-                                                      b: laneChecked.b.has(node.relativePath),
-                                                  },
-                                                  onToggle: (lane) =>
-                                                      toggleLaneFolder(lane, node.relativePath),
-                                              }
-                                            : undefined
-                                    }
                                 />
+                                </Fragment>
                             ))
                         ) : (
                             !offerCreate && (
