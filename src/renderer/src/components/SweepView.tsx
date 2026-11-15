@@ -41,7 +41,7 @@ import SingleFileView from "./SingleFileView";
 //          pointer's lane is the one the keys act on)
 //   G  open in file view    R  rotate left    K  to Compare (king)
 //   F  full screen (Esc leaves it)
-//   H  hide menus
+//   H  hide the pointer and menus (the pointer does nothing until it's back)
 
 const INTERVALS = [15, 30, 60, 120, 300];
 
@@ -312,7 +312,8 @@ function SweepStrip({
     rootPath: string;
     active: boolean;
     tag: DbTagWithCategory | null;
-    /** H: just the files, no pointer or hints (the keys still work). */
+    /** H: just the files, no pointer or hints. The strip's keys still work;
+     *  the pointer's don't (nothing is tagged or rerolled while it's away). */
     contentOnly: boolean;
     speed: number;
     onSpeed: (speed: number) => void;
@@ -1503,7 +1504,7 @@ const STRIP_HINTS: [string, string][] = [
     ["R", "rotate left"],
     ["K", "send to Compare (king)"],
     ["F", "full screen"],
-    ["H", "hide the pointer and menus"],
+    ["H", "hide the pointer and menus (no tagging until it's back; Tab also brings it back)"],
 ];
 
 function KeyHints({ hints }: { hints: [string, string][] }): JSX.Element {

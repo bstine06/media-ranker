@@ -161,7 +161,8 @@ interface TagPointerValue {
     /** Tags offered in the pointer, and the rest (Tab+3 reaches them). */
     offeredTags: DbTagWithCategory[];
     excludedTags: DbTagWithCategory[];
-    /** H: put away (no pointer drawn, nothing counted; keys still work). */
+    /** H: put away. No pointer drawn, nothing counted, nothing tagged, no
+     *  rerolls (random pauses). Tab / T / right click bring it back. */
     hidden: boolean;
     /** The tag a press applies: the one on screen (the old one mid-roll). */
     applyTag: DbTagWithCategory | null;
@@ -398,15 +399,16 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
 
     // Reroll on the interval, counted from the last pick, while a surface
     // is up. `deadline` is when it'll fire, for the countdown bar. The
-    // picker pauses it; cancelling resumes where it was, picking starts a
-    // full countdown.
+    // picker and putting the pointer away (H) pause it: the tag never
+    // changes out of sight. Cancelling the picker or coming back resumes
+    // where it was; picking starts a full countdown.
     const [deadline, setDeadline] = useState<number | null>(null);
     const deadlineRef = useRef<number | null>(null);
     deadlineRef.current = deadline;
     const pausedLeft = useRef<number | null>(null);
     useEffect(() => {
-        if (!sweepRandom || !enabled || picking) {
-            if (picking && deadlineRef.current != null) {
+        if (!sweepRandom || !enabled || picking || hidden) {
+            if ((picking || hidden) && deadlineRef.current != null) {
                 pausedLeft.current = Math.max(1000, deadlineRef.current - Date.now());
             }
             setDeadline(null);
@@ -417,7 +419,7 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
         setDeadline(Date.now() + ms);
         const t = setTimeout(reroll, ms);
         return () => clearTimeout(t);
-    }, [sweepRandom, enabled, picking, sweepInterval, rolledAt, reroll]);
+    }, [sweepRandom, enabled, picking, hidden, sweepInterval, rolledAt, reroll]);
 
     const pickTag = useCallback(
         (t: DbTagWithCategory) => {
@@ -501,6 +503,9 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
         confirmed.current = new Set();
     }, [tag?.id]);
     const toggleTagOn = useCallback(async (file: DbFile): Promise<FlashKind | null> => {
+        // Put away (H): no tagging by any route (Space, a click on a tile),
+        // since the tag can't be seen.
+        if (hiddenRef.current) return null;
         const t = applyTagRef.current;
         if (!t) return null;
         const current = await window.api.getTags(file.id);
@@ -658,6 +663,8 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
 
     const openPicker = useCallback(() => {
         if (pickingRef.current) return;
+        // Opening it (Tab / T, right click) brings a put-away pointer back.
+        if (hiddenRef.current) setHidden(false);
         setQuery("");
         setSearchMode(false);
         setCursor(0);
@@ -874,6 +881,10 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
                     e.preventDefault();
                     e.stopImmediatePropagation();
                 };
+                // Put away (H), the pointer does nothing: Space and ` are
+                // still caught (so they don't fall through to the view)
+                // but tag nothing and roll nothing. Tab / T bring it back
+                // and open the picker; H brings it back as it was.
                 if (isHoldKey(e.code)) {
                     claim();
                     if (e.repeat) return;
@@ -881,10 +892,10 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
                     openPicker();
                 } else if (e.code === "Space") {
                     claim();
-                    if (!e.repeat) actions.current.toggleTarget();
+                    if (!e.repeat && !hiddenRef.current) actions.current.toggleTarget();
                 } else if (e.code === "Backquote") {
                     claim();
-                    if (!e.repeat) actions.current.reroll();
+                    if (!e.repeat && !hiddenRef.current) actions.current.reroll();
                 } else if (e.code === "KeyH") {
                     claim();
                     if (!e.repeat) setHidden((h) => !h);
