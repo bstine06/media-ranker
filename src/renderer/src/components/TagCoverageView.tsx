@@ -164,12 +164,12 @@ const GRID =
 export default function TagCoverageView({
     coverage: libraryCoverage,
     onEditTag,
-    onSweepTag,
+    onPassTag,
 }: {
     /** The whole library's coverage (the Selection view reads its own). */
     coverage: TagCoverage | null;
     onEditTag: (tagId: number) => void;
-    onSweepTag: (tagId: number) => void;
+    onPassTag: (tagId: number) => void;
 }) {
     const { allTags, activeFilter, loadedFeed, filter } = useTags();
     const { folderPrefixes } = useFolders();
@@ -277,9 +277,9 @@ export default function TagCoverageView({
                 setMenuFor(null);
                 onEditTag(r.tag.id);
             }}
-            onSweep={() => {
+            onPass={() => {
                 setMenuFor(null);
-                onSweepTag(r.tag.id);
+                onPassTag(r.tag.id);
             }}
         />
     );
@@ -390,7 +390,7 @@ function CoverageRow({
     onToggleMenu,
     onCloseMenu,
     onEdit,
-    onSweep,
+    onPass,
 }: {
     row: Row;
     files: number;
@@ -398,7 +398,7 @@ function CoverageRow({
     onToggleMenu: () => void;
     onCloseMenu: () => void;
     onEdit: () => void;
-    onSweep: () => void;
+    onPass: () => void;
 }) {
     const ref = useRef<HTMLDivElement>(null);
 
@@ -458,10 +458,10 @@ function CoverageRow({
                         Edit tag
                     </button>
                     <button
-                        onClick={onSweep}
+                        onClick={onPass}
                         className="px-3 py-1 text-left text-xs text-neutral-300 hover:bg-neutral-800 transition-colors"
                     >
-                        Sweep with this tag
+                        Pass with this tag
                     </button>
                 </div>
             )}

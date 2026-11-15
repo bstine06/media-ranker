@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { SortMode, ViewMode } from "@renderer/browse/types/browserTypes";
+import type { PassOrder } from "@renderer/lib/sorts";
 
 export type SortDirection = "up" | "down";
 
@@ -59,6 +60,11 @@ interface Settings {
     /** Coverage tab: the whole library, or the current folders + filter. */
     coverageScope: "library" | "selection";
     setCoverageScope: (scope: "library" | "selection") => void;
+    /** Sweep pass: the order files come in (Browse's sorts, or shuffled). */
+    passOrder: PassOrder;
+    setPassOrder: (order: PassOrder) => void;
+    passDirection: SortDirection;
+    setPassDirection: (direction: SortDirection) => void;
     setCoverageSeconds: (seconds: number) => void;
 }
 
@@ -104,6 +110,10 @@ const SettingsContext = createContext<Settings>({
     coverageSeconds: 6,
     coverageScope: "library",
     setCoverageScope: () => {},
+    passOrder: "alphabetical",
+    setPassOrder: () => {},
+    passDirection: "down",
+    setPassDirection: () => {},
     setCoverageSeconds: () => {},
 });
 
@@ -209,6 +219,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const [coverageScope, setCoverageScope] = useState<"library" | "selection">(() =>
         savedOneOf("coverageScope", ["library", "selection"], "library"),
     );
+    const [passOrder, setPassOrder] = useState<PassOrder>(() =>
+        savedOneOf(
+            "passOrder",
+            ["alphabetical", "rank", "fileSize", "added", "compared", "shuffled"],
+            "alphabetical",
+        ),
+    );
+    const [passDirection, setPassDirection] = useState<SortDirection>(() =>
+        savedOneOf("passDirection", ["up", "down"], "down"),
+    );
 
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
@@ -271,6 +291,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     sweepAllLanes,
                     coverageSeconds,
                     coverageScope,
+                    passOrder,
+                    passDirection,
                 })
                 .catch(() => {});
         }, 300);
@@ -297,6 +319,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         sweepAllLanes,
         coverageSeconds,
         coverageScope,
+        passOrder,
+        passDirection,
     ]);
 
     return (
@@ -344,6 +368,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 setCoverageSeconds,
                 coverageScope,
                 setCoverageScope,
+                passOrder,
+                setPassOrder,
+                passDirection,
+                setPassDirection,
             }}
         >
             {children}

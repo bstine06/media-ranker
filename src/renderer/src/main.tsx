@@ -12,6 +12,7 @@ import { KingOfHillProvider } from "./contexts/KingOfHillContext";
 import { PlacementProvider } from "./contexts/PlacementContext";
 import { RankProvider } from "./contexts/RankContext";
 import { TagPointerProvider } from "./contexts/TagPointerContext";
+import { PassProvider } from "./contexts/PassContext";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
@@ -25,7 +26,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                                     <PlacementProvider>
                                         <RankProvider>
                                             <TagPointerProvider>
-                                                <App />
+                                                <PassProvider>
+                                                    <App />
+                                                </PassProvider>
                                             </TagPointerProvider>
                                         </RankProvider>
                                     </PlacementProvider>

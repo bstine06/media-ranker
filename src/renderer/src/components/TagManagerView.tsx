@@ -9,6 +9,7 @@ import {
     View,
 } from "@renderer/shared/types/types";
 import { useSettings } from "@renderer/contexts/SettingsContext";
+import { usePass } from "@renderer/contexts/PassContext";
 import TagCoverageView, { TagCoverageSummary, useTagCoverage } from "./TagCoverageView";
 import ConfirmDialog from "./ConfirmDialog";
 import React, { useEffect, useMemo, useState } from "react";
@@ -962,7 +963,7 @@ export default function TagManagerView({
 }): JSX.Element {
     const { allTags, allCategories, tagMap, refreshTags, updateTag, updateCategory, reorderTags } =
         useTags();
-    const { setSweepTagId, setSweepRandom } = useSettings();
+    const { openLobby } = usePass();
     const [tab, setTab] = useState<"tags" | "coverage">("tags");
     const coverage = useTagCoverage(active);
     // The tag a dragged tag would be dropped in front of.
@@ -1086,10 +1087,10 @@ export default function TagManagerView({
 
     // From the Coverage tab: sweep for this tag (random off, or it'd be
     // rerolled away).
-    const sweepTag = (tagId: number) => {
-        setSweepRandom(false);
-        setSweepTagId(tagId);
+    // Coverage's "Pass with this tag": the pass lobby, over Sweep, with it.
+    const passTag = (tagId: number) => {
         setView("sweep");
+        openLobby([tagId]);
     };
 
     const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -1137,7 +1138,7 @@ export default function TagManagerView({
                 <TagCoverageView
                     coverage={coverage}
                     onEditTag={editTag}
-                    onSweepTag={sweepTag}
+                    onPassTag={passTag}
                 />
             )}
 

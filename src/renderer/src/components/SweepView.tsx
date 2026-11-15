@@ -15,6 +15,8 @@ import {
 import { PointerLabel } from "./TagPointer";
 import { preloadImage } from "@renderer/lib/imageCache";
 import { stepVideo, toMediaUrl, toThumbnailUrl, volumeLevel } from "@renderer/lib/media";
+import PassLobby from "./PassLobby";
+import { usePass } from "@renderer/contexts/PassContext";
 import SingleFileView from "./SingleFileView";
 
 // Sweep: tag one tag at a time, over files that don't have it yet. The tag
@@ -176,8 +178,10 @@ export default function SweepView({
     }, [active, inspected, fullscreen, setFullscreen, pickingRef]);
 
     // The sweep stays mounted (and paused) under the single file view, so
-    // closing it comes back to the same spot.
-    const sweeping = active && !inspected;
+    // closing it comes back to the same spot. It pauses under the pass
+    // lobby too (nothing counted, no pointer).
+    const { lobby } = usePass();
+    const sweeping = active && !inspected && !lobby;
 
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden bg-neutral-950">
@@ -189,7 +193,14 @@ export default function SweepView({
                     onClose={() => setInspected(null)}
                 />
             )}
-            <div className={inspected ? "hidden" : "relative flex flex-1 flex-col overflow-hidden"}>
+            {/* The pass lobby takes the strip's place (the strip stays
+                mounted, paused, so closing it comes back to the same spot). */}
+            {lobby && !inspected && <PassLobby />}
+            <div
+                className={
+                    inspected || lobby ? "hidden" : "relative flex flex-1 flex-col overflow-hidden"
+                }
+            >
                 {/* No toolbar in full screen: just the strip. */}
                 {!contentOnly && !fullscreen && (
                     <SweepToolbar
