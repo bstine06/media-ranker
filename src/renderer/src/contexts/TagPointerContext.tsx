@@ -25,9 +25,8 @@ import { byTagOrder } from "@renderer/lib/tagGroups";
 //   `  new random tag (and, with Random on, a new one every interval)
 //   H  put the pointer away (no pointer, nothing counted) / bring it back
 // Coverage: while a tag is up, time a file is really looked at with it
-// counts toward a "no" (see sweep coverage). Sweep's lanes report their own
-// time; elsewhere it's the file under the cursor, at most VISIT_CAP_S a
-// visit, since those files hold still instead of passing by.
+// counts toward a "no" (see sweep coverage). Only Sweep counts it (its lanes
+// report their own time); the other views count nothing.
 
 /** Offered in the tag pointer: on itself, and its category (if any) too. */
 export function inTagPointer(t: DbTagWithCategory): boolean {
@@ -70,16 +69,9 @@ const CHECK_FLUSH_MS = 5000;
  *  many different files have gone by without one, and at least this long
  *  has passed. Generous on purpose: a missed "no" gets collected another
  *  time, a wrong one makes coverage look further along than it is. Counted
- *  in files, so it scales with Sweep's speed, lanes and tile widths. Where
- *  files hold still (the cursor surfaces), the time alone drops it. */
+ *  in files, so it scales with Sweep's speed, lanes and tile widths. */
 const IDLE_FILES = 30;
 const IDLE_MIN_MS = 20000;
-/** Off Sweep: most seconds one look at a file (one hover, one tag) counts. */
-const VISIT_CAP_S = 10;
-/** Off Sweep: after Q / E (scrubbing), nothing counts for this long. */
-const SCRUB_QUIET_MS = 1000;
-/** Off Sweep: how often the file under the cursor is timed (ms). */
-const HOVER_TICK_MS = 200;
 
 /**
  * The picker's search: tags matching `q`, best first, at most 8. Forgiving,
@@ -777,10 +769,6 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
     useEffect(() => {
         flushSeen();
     }, [tag?.id, flushSeen]);
-    // Off Sweep: the last Q / E, and the current look at the file under
-    // the cursor (one hover, one tag).
-    const lastScrubAt = useRef(0);
-    const visit = useRef<{ fileId: number; tagId: number; seconds: number } | null>(null);
     // Declared before the keys below, and registered first with stable
     // dependencies, so it sees every key even when the picker stops one.
     useEffect(() => {
@@ -798,53 +786,14 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
             my = e.screenY;
             confirmInput();
         };
-        const onKey = (e: KeyboardEvent) => {
-            if (["KeyQ", "KeyE", "ArrowLeft", "ArrowRight"].includes(e.code)) {
-                lastScrubAt.current = Date.now();
-            }
-            confirmInput();
-        };
+        const onKey = () => confirmInput();
         const opts = { capture: true } as const;
         window.addEventListener("keydown", onKey, opts);
         window.addEventListener("mousedown", confirmInput, opts);
         window.addEventListener("wheel", confirmInput, opts);
         window.addEventListener("mousemove", onMove, opts);
-        // The file under the cursor (off Sweep): counts while looked at, up
-        // to VISIT_CAP_S a look. With files holding still, the lean-back
-        // guard goes by time alone.
-        let last = performance.now();
-        const hoverTimer = setInterval(() => {
-            const now = performance.now();
-            const dt = (now - last) / 1000;
-            last = now;
-            const t = targetRef.current;
-            const tagId = checkTagId.current;
-            if (!t || t.ownPointer || tagId == null) {
-                if (!t || t.ownPointer) visit.current = null;
-                return;
-            }
-            const v = visit.current;
-            if (!v || v.fileId !== t.file.id || v.tagId !== tagId) {
-                visit.current = { fileId: t.file.id, tagId, seconds: 0 };
-            }
-            if (!document.hasFocus() || document.hidden) return;
-            if (Date.now() - lastScrubAt.current < SCRUB_QUIET_MS) return;
-            if (Date.now() - lastInput.current >= IDLE_MIN_MS) {
-                if (!idle.current) {
-                    dropPending();
-                    idle.current = true;
-                }
-                return;
-            }
-            const look = visit.current!;
-            const add = Math.min(dt, VISIT_CAP_S - look.seconds);
-            if (add <= 0) return;
-            look.seconds += add;
-            addSeen(t.file.id, add);
-        }, HOVER_TICK_MS);
         return () => {
             clearInterval(flushTimer);
-            clearInterval(hoverTimer);
             window.removeEventListener("blur", flushSeen);
             window.removeEventListener("keydown", onKey, opts);
             window.removeEventListener("mousedown", confirmInput, opts);
@@ -853,9 +802,8 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
             // Leaving: whatever was real got confirmed by the input that left.
             dropPending();
             flushSeen();
-            visit.current = null;
         };
-    }, [enabled, flushSeen, confirmInput, dropPending, addSeen]);
+    }, [enabled, flushSeen, confirmInput, dropPending]);
 
     // ── Keys ─────────────────────────────────────────────────────────────
     // Caught first (capture) and kept from everything else: the views' own
