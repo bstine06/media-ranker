@@ -109,8 +109,11 @@ declare global {
             /** Sweep: time each file was on screen with this tag up. */
             addTagCheckSeconds: (tagId: number, entries: { fileId: number; seconds: number }[]) => Promise<void>;
             /** What per-tag coverage is worked out from (threshold applied
-             *  in the renderer). */
-            getTagCoverage: () => Promise<TagCoverageRaw>;
+             *  in the renderer), over the library or a scope. */
+            getTagCoverage: (
+                folderPrefixes?: string[] | null,
+                filter?: FilterNode | null,
+            ) => Promise<TagCoverageRaw>;
             getAllTags: () => Promise<DbTag[]>;
             addTagToFolder: (
                 folderRelPath: string,

@@ -291,7 +291,8 @@ const api = {
         entries: { fileId: number; seconds: number }[],
     ): Promise<void> => ipcRenderer.invoke("add-tag-check-seconds", tagId, entries),
 
-    getTagCoverage: () => ipcRenderer.invoke("get-tag-coverage"),
+    getTagCoverage: (folderPrefixes: string[] | null = null, filter: FilterNode | null = null) =>
+        ipcRenderer.invoke("get-tag-coverage", folderPrefixes, filter),
 
     getAllTags: (): Promise<DbTag[]> => ipcRenderer.invoke("get-all-tags"),
 

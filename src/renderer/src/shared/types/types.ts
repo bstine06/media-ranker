@@ -158,14 +158,16 @@ export interface TagImplicationPreview {
 
 /** What coverage is worked out from (see getTagCoverage). */
 export interface TagCoverageRaw {
-    /** Library files (active) — the whole for every tag's share. */
+    /** Active files in scope (the library, or a selection) — the whole
+     *  for every tag's share. */
     files: number;
     tags: {
         tagId: number;
         /** Files that have the tag. */
         yes: number;
-        /** Files it was taken off (and isn't back on). */
-        rejected: number;
+        /** Untagged files with a firm no: the tag was taken off, or they
+         *  were stepped past in a pass. */
+        firmNo: number;
         /** The other untagged files with Sweep time: [whole seconds, files],
          *  seconds capped at the threshold's max (30). */
         seen: [number, number][];
@@ -173,10 +175,10 @@ export interface TagCoverageRaw {
 }
 
 /** How many files have been checked for each tag, at the current
- *  seconds threshold. */
+ *  seconds threshold. no = firmNo + seen. */
 export interface TagCoverage {
     files: number;
-    tags: { tagId: number; yes: number; no: number }[];
+    tags: { tagId: number; yes: number; firmNo: number; seen: number; no: number }[];
 }
 
 export interface TagUsage {

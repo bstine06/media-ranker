@@ -718,7 +718,11 @@ function registerIpcHandlers(): void {
             addTagCheckSeconds(tagId, entries),
     );
 
-    ipcMain.handle("get-tag-coverage", () => getTagCoverage());
+    ipcMain.handle(
+        "get-tag-coverage",
+        (_event, folderPrefixes: string[] | null = null, filter: unknown = null) =>
+            getTagCoverage(folderPrefixes, validateFilter(filter)),
+    );
 
     ipcMain.handle("get-all-tags", () => {
         return getAllTags();

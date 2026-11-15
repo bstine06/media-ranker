@@ -1,32 +1,48 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
     DbTagWithCategory,
+    FilterNode,
     TagCoverage,
     TagCoverageRaw,
 } from "@renderer/shared/types/types";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
+import { useFolders } from "@renderer/contexts/FolderContext";
+import { filterKey } from "@renderer/lib/tagFilters";
 import { SliderInput } from "./Sidebar";
+import { ScopeSummary } from "./ScopeSummary";
 import { inTagPointer } from "@renderer/contexts/TagPointerContext";
 
 // Tag coverage: how much of the library has been checked for each tag.
-// A file is checked for a tag when it's a yes (has the tag) or a no (the
-// tag was taken off it, or it sat on screen long enough with the
-// tag up — the seconds are a setting). Share = checked ÷ library files.
+// A file is checked for a tag when it's a yes (has the tag) or a no: firm
+// (the tag was taken off it, or it was stepped past in a pass) or seen (it
+// sat on screen in Sweep long enough with the tag up — the seconds are a
+// setting). Share = checked ÷ library files.
 
 
-/** Coverage for every tag at the current seconds threshold. Read while
- *  `active` (and again when the tags change); the threshold is applied
- *  here, so moving it updates straight away. Null until the first read. */
-export function useTagCoverage(active: boolean): TagCoverage | null {
+/** A set of files coverage can be limited to (null: the whole library). */
+export type CoverageScope = { folderPrefixes: string[] | null; filter: FilterNode | null } | null;
+
+/** Coverage for every tag at the current seconds threshold, over the
+ *  library or a scope. Read while `active` (and again when the tags or the
+ *  scope change); the threshold is applied here, so moving it updates
+ *  straight away. Null until the first read. */
+export function useTagCoverage(active: boolean, scope: CoverageScope = null): TagCoverage | null {
     const { coverageSeconds } = useSettings();
     const { allTags } = useTags();
     const [raw, setRaw] = useState<TagCoverageRaw | null>(null);
+    const scopeKey = scope
+        ? JSON.stringify([scope.folderPrefixes, filterKey(scope.filter)])
+        : "";
+    const scopeRef = useRef(scope);
+    scopeRef.current = scope;
     useEffect(() => {
         if (!active) return;
         let gone = false;
+        const sc = scopeRef.current;
+        setRaw(null);
         window.api
-            .getTagCoverage()
+            .getTagCoverage(sc?.folderPrefixes ?? null, sc?.filter ?? null)
             .then((c) => {
                 if (!gone) setRaw(c);
             })
@@ -34,18 +50,18 @@ export function useTagCoverage(active: boolean): TagCoverage | null {
         return () => {
             gone = true;
         };
-    }, [active, allTags]);
+    }, [active, allTags, scopeKey]);
     return useMemo(() => {
         if (!raw) return null;
         return {
             files: raw.files,
-            tags: raw.tags.map((t) => ({
-                tagId: t.tagId,
-                yes: t.yes,
-                no:
-                    t.rejected +
-                    t.seen.reduce((s, [sec, n]) => (sec >= coverageSeconds ? s + n : s), 0),
-            })),
+            tags: raw.tags.map((t) => {
+                const seen = t.seen.reduce(
+                    (s, [sec, n]) => (sec >= coverageSeconds ? s + n : s),
+                    0,
+                );
+                return { tagId: t.tagId, yes: t.yes, firmNo: t.firmNo, seen, no: t.firmNo + seen };
+            }),
         };
     }, [raw, coverageSeconds]);
 }
@@ -61,12 +77,30 @@ function pctText(checked: number, files: number): string {
 
 const num = (n: number) => n.toLocaleString();
 
-function Bar({ share, className = "" }: { share: number; className?: string }) {
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+
+/** Two shades: solid for firm answers (yes, or a firm no), lighter after
+ *  it for seen (a no from Sweep time only). Shares of the whole. */
+function Bar({
+    firm,
+    seen,
+    className = "",
+}: {
+    firm: number;
+    seen: number;
+    className?: string;
+}) {
+    const f = clamp01(firm);
+    const s = clamp01(Math.min(seen, 1 - f));
     return (
-        <div className={`relative h-1.5 rounded bg-neutral-800 ${className}`}>
+        <div className={`relative h-1.5 overflow-hidden rounded bg-neutral-800 ${className}`}>
             <div
-                className="absolute inset-y-0 left-0 rounded bg-neutral-300"
-                style={{ width: `${Math.min(1, Math.max(0, share)) * 100}%` }}
+                className="absolute inset-y-0 left-0 bg-neutral-300"
+                style={{ width: `${f * 100}%` }}
+            />
+            <div
+                className="absolute inset-y-0 bg-neutral-500"
+                style={{ left: `${f * 100}%`, width: `${s * 100}%` }}
             />
         </div>
     );
@@ -93,7 +127,8 @@ export function TagCoverageSummary({
                 <>
                     <div className="flex items-center gap-3">
                         <Bar
-                            share={coverage.files ? (row.yes + row.no) / coverage.files : 0}
+                            firm={coverage.files ? (row.yes + row.firmNo) / coverage.files : 0}
+                            seen={coverage.files ? row.seen / coverage.files : 0}
                             className="flex-1"
                         />
                         <span className="text-sm text-neutral-200 tabular-nums">
@@ -101,7 +136,7 @@ export function TagCoverageSummary({
                         </span>
                     </div>
                     <p className="text-[11px] text-neutral-500 tabular-nums">
-                        {num(row.yes)} tagged · {num(row.no)} no ·{" "}
+                        {num(row.yes)} tagged · {num(row.firmNo)} no · {num(row.seen)} seen ·{" "}
                         {num(Math.max(0, coverage.files - row.yes - row.no))} not checked yet
                     </p>
                 </>
@@ -115,25 +150,51 @@ export function TagCoverageSummary({
 type Row = {
     tag: DbTagWithCategory;
     yes: number;
-    no: number;
+    firmNo: number;
+    seen: number;
+    /** yes + firmNo + seen */
     checked: number;
+    /** yes + firmNo */
+    firm: number;
 };
 
-const GRID = "grid grid-cols-[minmax(8rem,14rem)_minmax(6rem,1fr)_3rem_4.5rem_4.5rem_7rem] items-center gap-x-4";
+const GRID =
+    "grid grid-cols-[minmax(8rem,14rem)_minmax(6rem,1fr)_3rem_4.5rem_4rem_4rem_7rem] items-center gap-x-4";
 
 export default function TagCoverageView({
-    coverage,
+    coverage: libraryCoverage,
     onEditTag,
     onSweepTag,
 }: {
+    /** The whole library's coverage (the Selection view reads its own). */
     coverage: TagCoverage | null;
     onEditTag: (tagId: number) => void;
     onSweepTag: (tagId: number) => void;
 }) {
-    const { allTags } = useTags();
-    const { coverageSeconds, setCoverageSeconds } = useSettings();
-    // Lowest coverage first unless flipped.
+    const { allTags, activeFilter, loadedFeed, filter } = useTags();
+    const { folderPrefixes } = useFolders();
+    const { coverageSeconds, setCoverageSeconds, coverageScope, setCoverageScope } = useSettings();
+    // Selection = the current folders + tag filter. With neither, it's the
+    // whole library, so the switch is off and Library shows.
+    const hasSelection = folderPrefixes != null || activeFilter != null;
+    const bySelection = coverageScope === "selection" && hasSelection;
+    const selectionCoverage = useTagCoverage(
+        bySelection,
+        bySelection ? { folderPrefixes, filter: activeFilter } : null,
+    );
+    const coverage = bySelection ? selectionCoverage : libraryCoverage;
+    const feedName =
+        loadedFeed && filterKey(loadedFeed.tree) === filterKey(filter) ? loadedFeed.name : null;
+    // Sorted by % checked (or % firm), lowest first unless flipped.
+    const [sortBy, setSortBy] = useState<"checked" | "firm">("checked");
     const [lowestFirst, setLowestFirst] = useState(true);
+    const sortOn = (by: "checked" | "firm") => {
+        if (by === sortBy) setLowestFirst((v) => !v);
+        else {
+            setSortBy(by);
+            setLowestFirst(true);
+        }
+    };
     // The row whose menu is open.
     const [menuFor, setMenuFor] = useState<number | null>(null);
 
@@ -144,22 +205,64 @@ export default function TagCoverageView({
         const rows: Row[] = allTags.map((tag) => {
             const r = byId.get(tag.id);
             const yes = r?.yes ?? 0;
-            const no = r?.no ?? 0;
-            return { tag, yes, no, checked: yes + no };
+            const firmNo = r?.firmNo ?? 0;
+            const seen = r?.seen ?? 0;
+            return { tag, yes, firmNo, seen, checked: yes + firmNo + seen, firm: yes + firmNo };
         });
         const dir = lowestFirst ? 1 : -1;
-        rows.sort((a, b) => dir * (a.checked - b.checked) || a.tag.name.localeCompare(b.tag.name));
+        rows.sort(
+            (a, b) =>
+                dir * (a[sortBy] - b[sortBy]) ||
+                dir * (a.checked - b.checked) ||
+                a.tag.name.localeCompare(b.tag.name),
+        );
         const swept = rows.filter((r) => inTagPointer(r.tag));
         const off = rows.filter((r) => !inTagPointer(r.tag));
-        // Library total: every checked file/tag pair over every pair, tag
-        // pointer tags only (the average of their shares).
+        // Total: every checked file/tag pair over every pair, tag pointer
+        // tags only (the average of their shares).
         const checked = swept.reduce((s, r) => s + r.checked, 0);
+        const firm = swept.reduce((s, r) => s + r.firm, 0);
         const pairs = swept.length * files;
-        return { swept, off, total: { checked, pairs } };
-    }, [allTags, coverage, lowestFirst, files]);
+        return { swept, off, total: { checked, firm, pairs } };
+    }, [allTags, coverage, sortBy, lowestFirst, files]);
+
+    const scopeSwitch = (
+        <div className="flex items-center gap-1 rounded-md bg-neutral-900 p-0.5">
+            {(["library", "selection"] as const).map((sc) => {
+                const on = sc === "selection" ? bySelection : !bySelection;
+                const disabled = sc === "selection" && !hasSelection;
+                return (
+                    <button
+                        key={sc}
+                        disabled={disabled}
+                        onClick={() => setCoverageScope(sc)}
+                        title={
+                            disabled
+                                ? "Select collections or turn on a tag filter to see coverage for them"
+                                : undefined
+                        }
+                        className={`rounded px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                            on
+                                ? "bg-neutral-700 text-neutral-100"
+                                : disabled
+                                  ? "cursor-default text-neutral-700"
+                                  : "text-neutral-500 hover:text-neutral-300"
+                        }`}
+                    >
+                        {sc === "library" ? "Library" : "Selection"}
+                    </button>
+                );
+            })}
+        </div>
+    );
 
     if (!coverage) {
-        return <div className="p-5 text-sm text-neutral-600">Counting…</div>;
+        return (
+            <div className="flex flex-1 flex-col">
+                <div className="px-5 pt-4">{scopeSwitch}</div>
+                <div className="p-5 text-sm text-neutral-600">Counting…</div>
+            </div>
+        );
     }
 
     const renderRow = (r: Row) => (
@@ -183,17 +286,29 @@ export default function TagCoverageView({
 
     return (
         <div className="flex flex-1 flex-col overflow-y-auto">
-            <div className="px-5 pt-5 pb-4 border-b border-neutral-800">
+            <div className="px-5 pt-4 pb-4 border-b border-neutral-800">
+                <div className="mb-3">{scopeSwitch}</div>
+                {bySelection && (
+                    <div className="mb-3">
+                        <ScopeSummary
+                            folderPrefixes={folderPrefixes}
+                            filter={activeFilter}
+                            feedName={feedName}
+                            files={files}
+                        />
+                    </div>
+                )}
                 <div className="flex items-baseline justify-between gap-4">
                     <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-                        Library coverage
+                        {bySelection ? "Selection coverage" : "Library coverage"}
                     </span>
                     <span className="text-2xl font-semibold text-neutral-100 tabular-nums">
                         {pctText(total.checked, total.pairs)}
                     </span>
                 </div>
                 <Bar
-                    share={total.pairs ? total.checked / total.pairs : 0}
+                    firm={total.pairs ? total.firm / total.pairs : 0}
+                    seen={total.pairs ? (total.checked - total.firm) / total.pairs : 0}
                     className="mt-2 h-2"
                 />
                 <p className="mt-2 text-[11px] text-neutral-600 tabular-nums">
@@ -215,16 +330,33 @@ export default function TagCoverageView({
                     className={`${GRID} px-2 py-1.5 text-[10px] uppercase tracking-wider text-neutral-600`}
                 >
                     <span>Tag</span>
-                    <button
-                        onClick={() => setLowestFirst((v) => !v)}
-                        title="Sort by coverage"
-                        className="text-left uppercase tracking-wider hover:text-neutral-300 transition-colors"
-                    >
-                        Coverage {lowestFirst ? "↑" : "↓"}
-                    </button>
+                    <span className="flex items-center gap-3">
+                        {(["checked", "firm"] as const).map((by) => (
+                            <button
+                                key={by}
+                                onClick={() => sortOn(by)}
+                                title={
+                                    by === "checked"
+                                        ? "Sort by % checked (firm answers + seen)"
+                                        : "Sort by % firm (yes, or a firm no): what a pass would help most"
+                                }
+                                className={`uppercase tracking-wider transition-colors ${
+                                    sortBy === by ? "text-neutral-300" : "hover:text-neutral-300"
+                                }`}
+                            >
+                                {by === "checked" ? "Checked" : "Firm"}
+                                {sortBy === by && (lowestFirst ? " ↑" : " ↓")}
+                            </button>
+                        ))}
+                    </span>
                     <span className="text-right">%</span>
                     <span className="text-right">Tagged</span>
-                    <span className="text-right">No</span>
+                    <span className="text-right" title="Firm noes: the tag was taken off, or stepped past in a pass">
+                        No
+                    </span>
+                    <span className="text-right" title="On screen in Sweep long enough with the tag up (soft)">
+                        Seen
+                    </span>
                     <span className="text-right">Not checked</span>
                 </div>
 
@@ -290,7 +422,7 @@ function CoverageRow({
         };
     }, [menuOpen, onCloseMenu]);
 
-    const { tag, yes, no, checked } = row;
+    const { tag, yes, firmNo, seen, checked, firm } = row;
     const color = tag.category?.color ?? "#888";
     return (
         <div ref={ref} className="relative">
@@ -306,12 +438,13 @@ function CoverageRow({
                     </span>
                     <span className="truncate">{tag.name}</span>
                 </span>
-                <Bar share={files ? checked / files : 0} />
+                <Bar firm={files ? firm / files : 0} seen={files ? seen / files : 0} />
                 <span className="text-right text-neutral-200 tabular-nums">
                     {pctText(checked, files)}
                 </span>
                 <span className="text-right text-neutral-500 tabular-nums">{num(yes)}</span>
-                <span className="text-right text-neutral-500 tabular-nums">{num(no)}</span>
+                <span className="text-right text-neutral-500 tabular-nums">{num(firmNo)}</span>
+                <span className="text-right text-neutral-500 tabular-nums">{num(seen)}</span>
                 <span className="text-right text-neutral-500 tabular-nums">
                     {num(Math.max(0, files - checked))}
                 </span>

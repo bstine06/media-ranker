@@ -56,6 +56,9 @@ interface Settings {
     /** Tag coverage: seconds a file must be on screen in Sweep with a tag up
      *  (and not tagged) to count as a no for that tag. */
     coverageSeconds: number;
+    /** Coverage tab: the whole library, or the current folders + filter. */
+    coverageScope: "library" | "selection";
+    setCoverageScope: (scope: "library" | "selection") => void;
     setCoverageSeconds: (seconds: number) => void;
 }
 
@@ -99,6 +102,8 @@ const SettingsContext = createContext<Settings>({
     sweepAllLanes: false,
     toggleSweepAllLanes: () => {},
     coverageSeconds: 6,
+    coverageScope: "library",
+    setCoverageScope: () => {},
     setCoverageSeconds: () => {},
 });
 
@@ -201,6 +206,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const toggleSweepAllLanes = useCallback(() => setSweepAllLanes((v) => !v), []);
     // Max 30: getTagCoverage groups Sweep time up to 30 s.
     const [coverageSeconds, setCoverageSeconds] = useState(() => savedNum("coverageSeconds", 6, 1, 30));
+    const [coverageScope, setCoverageScope] = useState<"library" | "selection">(() =>
+        savedOneOf("coverageScope", ["library", "selection"], "library"),
+    );
 
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
@@ -262,6 +270,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     sweepScrubHold,
                     sweepAllLanes,
                     coverageSeconds,
+                    coverageScope,
                 })
                 .catch(() => {});
         }, 300);
@@ -287,6 +296,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         sweepScrubHold,
         sweepAllLanes,
         coverageSeconds,
+        coverageScope,
     ]);
 
     return (
@@ -332,6 +342,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 toggleSweepAllLanes,
                 coverageSeconds,
                 setCoverageSeconds,
+                coverageScope,
+                setCoverageScope,
             }}
         >
             {children}

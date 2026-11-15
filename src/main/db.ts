@@ -197,12 +197,15 @@ export function initDb(rootPath: string): Database.Database {
         -- How much each file has been checked for each tag, for coverage.
         -- seconds: time on screen in Sweep with that tag up (the threshold
         -- for a "no" is applied when reading). rejected: the user removed
-        -- that tag from the file. A yes isn't stored: it's having the tag.
+        -- that tag from the file. passed: stepped past it untagged in a
+        -- Sweep pass. rejected and passed are firm noes; seconds are soft.
+        -- A yes isn't stored: it's having the tag.
         CREATE TABLE IF NOT EXISTS tag_checks (
             file_id    INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
             tag_id     INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
             seconds    REAL    NOT NULL DEFAULT 0,
             rejected   INTEGER NOT NULL DEFAULT 0,
+            passed     INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (file_id, tag_id)
         );
@@ -625,6 +628,15 @@ function runMigrations(db: Database.Database): void {
     }
     if (!comparisonCols.has("loser_score_before")) {
         db.exec(`ALTER TABLE comparisons ADD COLUMN loser_score_before REAL`);
+    }
+
+    // Migration 8: a third kind of check, the pass no (stepped past a file
+    // untagged in a Sweep pass). Kept apart from rejected so it can be
+    // counted differently later without losing anything.
+    if (!new Set(
+        (db.prepare(`PRAGMA table_info(tag_checks)`).all() as { name: string }[]).map((c) => c.name),
+    ).has("passed")) {
+        db.exec(`ALTER TABLE tag_checks ADD COLUMN passed INTEGER NOT NULL DEFAULT 0`);
     }
 }
 
@@ -1065,12 +1077,13 @@ export function mergeTags(sourceId: number, targetId: number): MergeTagsResult {
         // Checks move too; where both have one, the larger counts (a merge
         // shouldn't add up to a "no" nobody made).
         db.prepare(
-            `INSERT INTO tag_checks (file_id, tag_id, seconds, rejected, updated_at)
-             SELECT file_id, ?, seconds, rejected, updated_at
+            `INSERT INTO tag_checks (file_id, tag_id, seconds, rejected, passed, updated_at)
+             SELECT file_id, ?, seconds, rejected, passed, updated_at
              FROM tag_checks WHERE tag_id = ?
              ON CONFLICT (file_id, tag_id) DO UPDATE SET
                  seconds  = max(seconds, excluded.seconds),
-                 rejected = max(rejected, excluded.rejected)`,
+                 rejected = max(rejected, excluded.rejected),
+                 passed   = max(passed, excluded.passed)`,
         ).run(targetId, sourceId);
         // Saved and recent filters follow the merge.
         rewriteFilterTag(db, sourceId, targetId);
@@ -1584,20 +1597,45 @@ export function addTagCheckSeconds(
     })();
 }
 
-// Coverage: for each tag, what's needed to count the library files settled
-// yes or no. Yes: the file has the tag (own or inherited). No: the user took
-// the tag off the file, or it was on screen in Sweep with the tag up for at
-// least the threshold (a setting, 1–30 s). The threshold is applied in the
-// renderer, so Sweep time comes grouped by whole second (capped at 30): a
-// file counts as a no at threshold T when its bucket is ≥ T. Yes beats no.
-// Only active files count.
-export function getTagCoverage(): {
+// Conditions limiting files (alias f) to a scope: folders and/or a tag
+// filter, as Sweep and Browse use them. Active files only.
+function scopeSql(
+    folderPrefixes: string[] | null,
+    filter: FilterNode | null,
+): { sql: string; params: unknown[] } {
+    const conds = [`f.status = 'active'`];
+    const params: unknown[] = [];
+    if (folderPrefixes && folderPrefixes.length > 0) {
+        conds.push(`(${folderPrefixes.map(() => "f.path LIKE ? ESCAPE '\\'").join(" OR ")})`);
+        params.push(...folderPrefixes.map(folderLikePattern));
+    }
+    const tagFilter = filterSql(filter);
+    if (tagFilter) {
+        conds.push(tagFilter.sql);
+        params.push(...tagFilter.params);
+    }
+    return { sql: conds.join(" AND "), params };
+}
+
+// Coverage: for each tag, what's needed to count files settled yes or no,
+// over the library or a scope (folders and/or a tag filter). Yes: the file
+// has the tag (own or inherited). Firm no: the user took the tag off the
+// file, or stepped past it untagged in a pass. Seen (a soft no): neither,
+// but it was on screen in Sweep with the tag up for at least the threshold
+// (a setting, 1–30 s). The threshold is applied in the renderer, so Sweep
+// time comes grouped by whole second (capped at 30): a file counts as seen
+// at threshold T when its bucket is ≥ T. Yes beats no; firm beats seen.
+export function getTagCoverage(
+    folderPrefixes: string[] | null = null,
+    filter: FilterNode | null = null,
+): {
     files: number;
-    tags: { tagId: number; yes: number; rejected: number; seen: [number, number][] }[];
+    tags: { tagId: number; yes: number; firmNo: number; seen: [number, number][] }[];
 } {
     const db = getDb();
+    const scope = scopeSql(folderPrefixes, filter);
     const files = (
-        db.prepare(`SELECT COUNT(*) AS n FROM files WHERE status = 'active'`).get() as {
+        db.prepare(`SELECT COUNT(*) AS n FROM files f WHERE ${scope.sql}`).get(...scope.params) as {
             n: number;
         }
     ).n;
@@ -1605,31 +1643,33 @@ export function getTagCoverage(): {
         .prepare(
             `SELECT e.tag_id AS tagId, COUNT(DISTINCT e.file_id) AS n
              FROM file_effective_tags e
-             JOIN files f ON f.id = e.file_id AND f.status = 'active'
+             JOIN files f ON f.id = e.file_id
+             WHERE ${scope.sql}
              GROUP BY e.tag_id`,
         )
-        .all() as { tagId: number; n: number }[];
-    // Untagged checks: rejected ones, else bucketed by seconds.
+        .all(...scope.params) as { tagId: number; n: number }[];
+    // Untagged checks: firm noes, else bucketed by seconds.
     const checks = db
         .prepare(
             `SELECT c.tag_id AS tagId,
-                    CASE WHEN c.rejected = 1 THEN -1
+                    CASE WHEN c.rejected = 1 OR c.passed = 1 THEN -1
                          ELSE CAST(MIN(c.seconds, 30) AS INTEGER) END AS bucket,
                     COUNT(*) AS n
              FROM tag_checks c
-             JOIN files f ON f.id = c.file_id AND f.status = 'active'
-             WHERE (c.rejected = 1 OR c.seconds >= 1)
+             JOIN files f ON f.id = c.file_id
+             WHERE ${scope.sql}
+               AND (c.rejected = 1 OR c.passed = 1 OR c.seconds >= 1)
                AND NOT EXISTS (
                    SELECT 1 FROM file_effective_tags e
                    WHERE e.file_id = c.file_id AND e.tag_id = c.tag_id)
              GROUP BY c.tag_id, bucket`,
         )
-        .all() as { tagId: number; bucket: number; n: number }[];
+        .all(...scope.params) as { tagId: number; bucket: number; n: number }[];
     const yesBy = new Map(yes.map((r) => [r.tagId, r.n]));
-    const rejectedBy = new Map<number, number>();
+    const firmNoBy = new Map<number, number>();
     const seenBy = new Map<number, [number, number][]>();
     for (const r of checks) {
-        if (r.bucket < 0) rejectedBy.set(r.tagId, r.n);
+        if (r.bucket < 0) firmNoBy.set(r.tagId, r.n);
         else seenBy.set(r.tagId, [...(seenBy.get(r.tagId) ?? []), [r.bucket, r.n]]);
     }
     const tagIds = (db.prepare(`SELECT id FROM tags`).all() as { id: number }[]).map(
@@ -1640,7 +1680,7 @@ export function getTagCoverage(): {
         tags: tagIds.map((tagId) => ({
             tagId,
             yes: yesBy.get(tagId) ?? 0,
-            rejected: rejectedBy.get(tagId) ?? 0,
+            firmNo: firmNoBy.get(tagId) ?? 0,
             seen: seenBy.get(tagId) ?? [],
         })),
     };
