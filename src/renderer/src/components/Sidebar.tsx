@@ -9,7 +9,7 @@ import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "./icons/FolderIcon";
 import { useFolders } from "@renderer/contexts/FolderContext";
-import { usePass } from "@renderer/contexts/PassContext";
+import { usePass, tagPosition } from "@renderer/contexts/PassContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { CompareIcon } from "./icons/CompareIcon";
 import { TagIcon } from "./icons/TagIcon";
@@ -146,7 +146,9 @@ function FolderItem({
 
 // Sweep's nav button: a popover to choose free sweep or a pass.
 function SweepNav({ active, onOpen }: { active: boolean; onOpen: () => void }): JSX.Element {
-    const { openLobby, closeLobby } = usePass();
+    const { openLobby, closeLobby, run, runActive, lobby, resumeRun, leaveRun } = usePass();
+    const unfinished = run && run.t < run.tags.length ? run : null;
+    const inRun = active && !!unfinished && runActive && !lobby;
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
     // A click elsewhere or Escape closes it.
@@ -196,11 +198,28 @@ function SweepNav({ active, onOpen }: { active: boolean; onOpen: () => void }): 
                     {choice("Free sweep", "Random and endless, for leaning back", () => {
                         onOpen();
                         closeLobby();
+                        leaveRun();
                     })}
                     {choice("New pass", "Go through a set of files, one tag at a time", () => {
                         onOpen();
                         openLobby();
                     })}
+                    {unfinished &&
+                        choice(
+                            inRun ? "Resume pass (current)" : "Resume pass",
+                            (() => {
+                                const tp = tagPosition(unfinished);
+                                const tr = unfinished.tags[unfinished.t];
+                                return `tag ${tp?.n ?? 1} of ${tp?.of ?? 1}${tp?.rest ? " (rest)" : ""} · ${Math.max(
+                                    0,
+                                    unfinished.pos + 1,
+                                )} / ${tr.files?.length ?? 0}`;
+                            })(),
+                            () => {
+                                onOpen();
+                                resumeRun();
+                            },
+                        )}
                 </div>
             )}
         </div>

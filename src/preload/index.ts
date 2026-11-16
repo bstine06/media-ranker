@@ -305,6 +305,15 @@ const api = {
     ) => ipcRenderer.invoke("get-pass-counts", folderPrefixes, filter, tagIds, which),
     prunePassList: (tagId: number, fileIds: number[]): Promise<number[]> =>
         ipcRenderer.invoke("prune-pass-list", tagId, fileIds),
+    setPassNo: (fileId: number, tagId: number): Promise<void> =>
+        ipcRenderer.invoke("set-pass-no", fileId, tagId),
+    clearPassNo: (fileId: number, tagId: number): Promise<void> =>
+        ipcRenderer.invoke("clear-pass-no", fileId, tagId),
+    getFirmNoes: (
+        tagId: number,
+        fileIds: number[],
+    ): Promise<{ fileId: number; hard: boolean; pass: boolean }[]> =>
+        ipcRenderer.invoke("get-firm-noes", tagId, fileIds),
     countScope: (folderPrefixes: string[] | null, filter: FilterNode | null): Promise<number> =>
         ipcRenderer.invoke("count-scope", folderPrefixes, filter),
 

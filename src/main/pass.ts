@@ -82,3 +82,53 @@ export function countScope(folderPrefixes: string[] | null, filter: FilterNode |
         }
     ).n;
 }
+
+/** 3 in a pass: stepped past the file untagged, a firm no. Skipped if the
+ *  file has the tag after all (yes wins), or is gone. */
+export function setPassNo(fileId: number, tagId: number): void {
+    getDb()
+        .prepare(
+            `INSERT INTO tag_checks (file_id, tag_id, passed)
+             SELECT ?, ?, 1
+             WHERE EXISTS (SELECT 1 FROM files WHERE id = ?)
+               AND EXISTS (SELECT 1 FROM tags WHERE id = ?)
+               AND NOT EXISTS (SELECT 1 FROM file_effective_tags e
+                               WHERE e.file_id = ? AND e.tag_id = ?)
+             ON CONFLICT (file_id, tag_id)
+             DO UPDATE SET passed = 1, updated_at = datetime('now')`,
+        )
+        .run(fileId, tagId, fileId, tagId, fileId, tagId);
+}
+
+/** 2 in a pass (skip): no pass no for this file. A hard no (rejected) and
+ *  Sweep seconds are left alone. */
+export function clearPassNo(fileId: number, tagId: number): void {
+    getDb()
+        .prepare(
+            `UPDATE tag_checks SET passed = 0, updated_at = datetime('now')
+             WHERE file_id = ? AND tag_id = ? AND passed = 1`,
+        )
+        .run(fileId, tagId);
+}
+
+/** Of these files, the ones with a firm no for the tag (and not tagged:
+ *  yes wins), and which kind: hard (taken off by hand), pass (stepped past
+ *  in a pass), or both. For the run's "no" markers. */
+export function getFirmNoes(
+    tagId: number,
+    fileIds: number[],
+): { fileId: number; hard: boolean; pass: boolean }[] {
+    if (fileIds.length === 0) return [];
+    const rows = getDb()
+        .prepare(
+            `SELECT c.file_id AS fileId, c.rejected AS hard, c.passed AS pass
+             FROM tag_checks c
+             WHERE c.tag_id = ?
+               AND c.file_id IN (SELECT value FROM json_each(?))
+               AND (c.rejected = 1 OR c.passed = 1)
+               AND NOT EXISTS (SELECT 1 FROM file_effective_tags e
+                               WHERE e.file_id = c.file_id AND e.tag_id = c.tag_id)`,
+        )
+        .all(tagId, JSON.stringify(fileIds)) as { fileId: number; hard: number; pass: number }[];
+    return rows.map((r) => ({ fileId: r.fileId, hard: r.hard === 1, pass: r.pass === 1 }));
+}

@@ -125,6 +125,16 @@ declare global {
             ) => Promise<Record<number, number>>;
             /** Sweep pass: these files (order kept) that still need a firm answer. */
             prunePassList: (tagId: number, fileIds: number[]) => Promise<number[]>;
+            /** Sweep pass: 3 records a pass no (skipped if the file has the tag). */
+            setPassNo: (fileId: number, tagId: number) => Promise<void>;
+            /** Sweep pass: 2 (skip) clears a pass no. */
+            clearPassNo: (fileId: number, tagId: number) => Promise<void>;
+            /** Sweep pass: which of these files have a firm no for the tag
+             *  (untagged only), hard (removed by hand) and/or pass. */
+            getFirmNoes: (
+                tagId: number,
+                fileIds: number[],
+            ) => Promise<{ fileId: number; hard: boolean; pass: boolean }[]>;
             /** Active files in a scope. */
             countScope: (folderPrefixes: string[] | null, filter: FilterNode | null) => Promise<number>;
             /** What per-tag coverage is worked out from (threshold applied

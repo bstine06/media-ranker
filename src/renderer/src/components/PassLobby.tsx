@@ -22,7 +22,7 @@ const orderLabel = (o: PassOrder) => (o === "shuffled" ? "Shuffled" : SORTS[o].t
 const num = (n: number) => n.toLocaleString();
 
 export default function PassLobby(): JSX.Element | null {
-    const { lobby, updateLobby, closeLobby } = usePass();
+    const { lobby, updateLobby, closeLobby, startRun } = usePass();
     const { tagMap, activeFilter, loadedFeed, filter } = useTags();
     const { folderPrefixes } = useFolders();
     const { passOrder, setPassOrder, passDirection, setPassDirection } = useSettings();
@@ -236,9 +236,14 @@ export default function PassLobby(): JSX.Element | null {
                         Cancel
                     </button>
                     <button
-                        disabled
-                        title="Starting a run comes in the next build step"
-                        className="cursor-default rounded bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-600"
+                        onClick={() => void startRun()}
+                        disabled={tags.length === 0}
+                        title={tags.length === 0 ? "Add a tag first" : undefined}
+                        className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                            tags.length === 0
+                                ? "cursor-default bg-neutral-800 text-neutral-600"
+                                : "bg-neutral-200 text-neutral-900 hover:bg-white"
+                        }`}
                     >
                         Start
                     </button>

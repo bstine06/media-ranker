@@ -198,6 +198,22 @@ interface TagPointerValue {
     addSeen: (fileId: number, seconds: number) => void;
     // ── Surfaces ──
     registerSurface: () => () => void;
+    // ── Pass mode ──
+    /** A Sweep pass is running: its tag replaces the carried one, the
+     *  picker only reorders the job's tags, and nothing random happens. */
+    passMode: PassPointer | null;
+    setPassMode: (p: PassPointer | null) => void;
+}
+
+/** What a running pass hands the pointer. */
+export interface PassPointer {
+    /** The tag being passed on (null: on the end card). */
+    tagId: number | null;
+    /** The job's tags still to come, in order. */
+    upcoming: number[];
+    /** Picked in the picker: that tag comes up now, the current one goes
+     *  to the end of the queue. */
+    onPick: (tagId: number) => void;
 }
 
 const TagPointerContext = createContext<TagPointerValue | null>(null);
@@ -310,7 +326,20 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
 
     const offeredTags = useMemo(() => everyTag.filter(inTagPointer), [everyTag]);
     const excludedTags = useMemo(() => everyTag.filter((t) => !inTagPointer(t)), [everyTag]);
-    const tag = sweepTagId != null ? (tagMap.get(sweepTagId) ?? null) : null;
+
+    // A running pass: its tag is carried instead of Sweep's, and there's
+    // no randomness (no `, no rerolls), no H, no Tab+1/2/3.
+    const [passMode, setPassModeState] = useState<PassPointer | null>(null);
+    const passRef = useRef<PassPointer | null>(null);
+    passRef.current = passMode;
+
+    const tag = passMode
+        ? passMode.tagId != null
+            ? (tagMap.get(passMode.tagId) ?? null)
+            : null
+        : sweepTagId != null
+          ? (tagMap.get(sweepTagId) ?? null)
+          : null;
 
     // ── Surfaces ─────────────────────────────────────────────────────────
     const [surfaces, setSurfaces] = useState(0);
@@ -323,6 +352,11 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
     const [hidden, setHidden] = useState(false);
     const hiddenRef = useRef(false);
     hiddenRef.current = hidden;
+    // The pointer is always on in a pass.
+    const setPassMode = useCallback((p: PassPointer | null) => {
+        if (p) setHidden(false);
+        setPassModeState(p);
+    }, []);
 
     const [picking, setPicking] = useState(false);
     const pickingRef = useRef(false);
@@ -366,6 +400,7 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
     // Counts rerolls, so the pointer can play its roll animation.
     const [rollSeq, setRollSeq] = useState(0);
     const reroll = useCallback(() => {
+        if (passRef.current) return;
         const pool = offeredTags.filter((t) => t.id !== sweepTagId);
         if (pool.length === 0) return;
         if (sweepTagId != null) tagHistory.current.push(sweepTagId);
@@ -376,8 +411,8 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
 
     // Random on with nothing (or a deleted tag) to carry: pick one now.
     useEffect(() => {
-        if (sweepRandom && !tag && offeredTags.length > 0) reroll();
-    }, [sweepRandom, tag, offeredTags.length, reroll]);
+        if (sweepRandom && !passMode && !tag && offeredTags.length > 0) reroll();
+    }, [sweepRandom, passMode, tag, offeredTags.length, reroll]);
 
     // Random toggled or the interval changed: count from now.
     const firstRandom = useRef(true);
@@ -399,7 +434,7 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
     deadlineRef.current = deadline;
     const pausedLeft = useRef<number | null>(null);
     useEffect(() => {
-        if (!sweepRandom || !enabled || picking || hidden) {
+        if (!sweepRandom || passMode || !enabled || picking || hidden) {
             if ((picking || hidden) && deadlineRef.current != null) {
                 pausedLeft.current = Math.max(1000, deadlineRef.current - Date.now());
             }
@@ -411,10 +446,16 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
         setDeadline(Date.now() + ms);
         const t = setTimeout(reroll, ms);
         return () => clearTimeout(t);
-    }, [sweepRandom, enabled, picking, hidden, sweepInterval, rolledAt, reroll]);
+    }, [sweepRandom, passMode, enabled, picking, hidden, sweepInterval, rolledAt, reroll]);
 
     const pickTag = useCallback(
         (t: DbTagWithCategory) => {
+            // In a pass, picking reorders the job (the run decides the tag).
+            const pass = passRef.current;
+            if (pass) {
+                if (t.id !== pass.tagId) pass.onPick(t.id);
+                return;
+            }
             pausedLeft.current = null;
             if (sweepTagId != null && sweepTagId !== t.id) tagHistory.current.push(sweepTagId);
             setSweepTagId(t.id);
@@ -427,6 +468,12 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
     // one and any since deleted: the picker's history stack. Read while
     // rendering (it only changes with the tag).
     const pastTags = (() => {
+        // In a pass, the "history" is the job's tags still to come.
+        if (passMode) {
+            return passMode.upcoming
+                .map((id) => tagMap.get(id))
+                .filter((t): t is DbTagWithCategory => !!t);
+        }
         const out: DbTagWithCategory[] = [];
         const seenIds = new Set<number>(sweepTagId != null ? [sweepTagId] : []);
         const h = tagHistory.current;
@@ -645,12 +692,23 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
     }, [listMode, categoryList, related, tag, excludedRanked]);
     // Results open above the pointer when it's in the lower half.
     const [resultsAbove, setResultsAbove] = useState(false);
+    const passTags = useMemo(
+        () =>
+            passMode
+                ? passMode.upcoming
+                      .map((id) => tagMap.get(id))
+                      .filter((t): t is DbTagWithCategory => !!t)
+                : [],
+        [passMode, tagMap],
+    );
     const matches = useMemo(() => {
+        // In a pass, search finds only the job's tags still to come.
+        if (passMode) return searchTags(query.trim(), passTags);
         if (listMode !== "excluded") return searchTags(query.trim(), offeredTags);
         // Tab+3: the excluded tags, best suggestions first, until typing.
         if (!query.trim()) return excludedRanked.slice(0, 8);
         return searchTags(query.trim(), excludedTags);
-    }, [query, offeredTags, excludedTags, excludedRanked, listMode]);
+    }, [query, offeredTags, excludedTags, excludedRanked, listMode, passMode, passTags]);
     useEffect(() => setHighlight(0), [query]);
 
     const openPicker = useCallback(() => {
@@ -823,8 +881,10 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
                 // A dialog over the view (Settings, a confirm) keeps its keys.
                 if (isTyping() || document.querySelector("[data-modal]")) return;
                 // Only over media (a target): elsewhere the keys are the
-                // page's (T types, Tab moves focus).
-                if (!targetRef.current) return;
+                // page's (T types, Tab moves focus). In a pass, Tab works on
+                // a tag card too (to pick the next tag).
+                const pass = passRef.current;
+                if (!targetRef.current && !(pass && isHoldKey(e.code))) return;
                 const claim = () => {
                     e.preventDefault();
                     e.stopImmediatePropagation();
@@ -836,6 +896,8 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
                 if (isHoldKey(e.code)) {
                     claim();
                     if (e.repeat) return;
+                    // A one-tag job (or its last tag): nothing to pick.
+                    if (pass && pass.upcoming.length === 0) return;
                     heldKeys.current.add(e.code);
                     openPicker();
                 } else if (e.code === "Space") {
@@ -843,10 +905,11 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
                     if (!e.repeat && !hiddenRef.current) actions.current.toggleTarget();
                 } else if (e.code === "Backquote") {
                     claim();
-                    if (!e.repeat && !hiddenRef.current) actions.current.reroll();
+                    if (!e.repeat && !hiddenRef.current && !pass) actions.current.reroll();
                 } else if (e.code === "KeyH") {
                     claim();
-                    if (!e.repeat) setHidden((h) => !h);
+                    // The pointer is always on in a pass.
+                    if (!e.repeat && !pass) setHidden((h) => !h);
                 }
                 return;
             }
@@ -867,7 +930,8 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
                 e.code === "Digit1" ? "category" : e.code === "Digit2" ? "related" : e.code === "Digit3" ? "excluded" : null;
             if (listKey && heldKeys.current.size > 0) {
                 // Tab (or T) held + 1 / 2 / 3: open that list, or step down it.
-                if (e.repeat) return;
+                // Not in a pass: its picker only holds the job's tags.
+                if (e.repeat || passRef.current) return;
                 cancelDouble();
                 if (listKey === "excluded" && mode === "excluded" && searching) {
                     step(1);
@@ -1018,6 +1082,8 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
         checkTagId,
         addSeen,
         registerSurface,
+        passMode,
+        setPassMode,
     };
 
     return <TagPointerContext.Provider value={value}>{children}</TagPointerContext.Provider>;

@@ -16,6 +16,7 @@ import { PointerLabel } from "./TagPointer";
 import { preloadImage } from "@renderer/lib/imageCache";
 import { stepVideo, toMediaUrl, toThumbnailUrl, volumeLevel } from "@renderer/lib/media";
 import PassLobby from "./PassLobby";
+import PassRun from "./PassRun";
 import { usePass } from "@renderer/contexts/PassContext";
 import SingleFileView from "./SingleFileView";
 
@@ -180,8 +181,9 @@ export default function SweepView({
     // The sweep stays mounted (and paused) under the single file view, so
     // closing it comes back to the same spot. It pauses under the pass
     // lobby too (nothing counted, no pointer).
-    const { lobby } = usePass();
-    const sweeping = active && !inspected && !lobby;
+    const { lobby, run, runActive } = usePass();
+    const passing = !!run && runActive && !lobby;
+    const sweeping = active && !inspected && !lobby && !passing;
 
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden bg-neutral-950">
@@ -196,9 +198,23 @@ export default function SweepView({
             {/* The pass lobby takes the strip's place (the strip stays
                 mounted, paused, so closing it comes back to the same spot). */}
             {lobby && !inspected && <PassLobby />}
+            {/* A running pass, in the strip's place (kept mounted under the
+                file view so G comes back to the same file). */}
+            {passing && rootPath && (
+                <div className={inspected ? "hidden" : "flex flex-1 flex-col overflow-hidden"}>
+                    <PassRun
+                        active={active && !inspected}
+                        rootPath={rootPath}
+                        onInspect={setInspected}
+                        onCompare={toCompare}
+                    />
+                </div>
+            )}
             <div
                 className={
-                    inspected || lobby ? "hidden" : "relative flex flex-1 flex-col overflow-hidden"
+                    inspected || lobby || passing
+                        ? "hidden"
+                        : "relative flex flex-1 flex-col overflow-hidden"
                 }
             >
                 {/* No toolbar in full screen: just the strip. */}

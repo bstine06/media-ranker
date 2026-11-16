@@ -125,7 +125,16 @@ import {
 import { rotateTrackedFile, previousVersionPath } from "./rotate";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
-import { getPassFiles, getPassCounts, prunePassList, countScope, type PassWhich } from "./pass";
+import {
+    getPassFiles,
+    getPassCounts,
+    prunePassList,
+    countScope,
+    setPassNo,
+    clearPassNo,
+    getFirmNoes,
+    type PassWhich,
+} from "./pass";
 import {
     loadSavedRootPath,
     saveRootPath,
@@ -732,6 +741,15 @@ function registerIpcHandlers(): void {
     );
     ipcMain.handle("prune-pass-list", (_event, tagId: number, fileIds: number[]) =>
         prunePassList(tagId, fileIds),
+    );
+    ipcMain.handle("set-pass-no", (_event, fileId: number, tagId: number) =>
+        setPassNo(fileId, tagId),
+    );
+    ipcMain.handle("clear-pass-no", (_event, fileId: number, tagId: number) =>
+        clearPassNo(fileId, tagId),
+    );
+    ipcMain.handle("get-firm-noes", (_event, tagId: number, fileIds: number[]) =>
+        getFirmNoes(tagId, fileIds),
     );
     ipcMain.handle("count-scope", (_event, folderPrefixes: string[] | null, filter: unknown) =>
         countScope(folderPrefixes, validateFilter(filter)),
