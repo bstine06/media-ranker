@@ -1480,7 +1480,7 @@ function StripTile({
                 />
             )}
             {/* Tag feedback: thin top and bottom edges flash, soft white for
-                added, soft red for an inherited tag that can't change here. */}
+                added, violet for an inherited tag that can't change here. */}
             {flash && (
                 <React.Fragment key={flash.n}>
                     {["top-0", "bottom-0"].map((edge) => (
@@ -1491,7 +1491,7 @@ function StripTile({
                                     ? "bg-white/80"
                                     : flash.kind === "already"
                                       ? "bg-amber-300/90"
-                                      : "bg-red-400/80"
+                                      : "bg-violet-400/85"
                             }`}
                             style={{
                                 // "Already on here": amber, blinking twice.

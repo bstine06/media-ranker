@@ -42,7 +42,7 @@ function stackSlotStyle(slot: number): React.CSSProperties {
 /**
  * A toggle's feedback over a piece of media, the same as Sweep's tiles: a
  * thin bar along the top and bottom. White: added. Amber, blinking twice:
- * it was already on (press again to take it off). Red: it can't be changed
+ * it was already on (press again to take it off). Violet: it can't be changed
  * here (inherited).
  */
 export function MediaFlash({ flash }: { flash: MediaFlashState }): JSX.Element | null {
@@ -57,7 +57,7 @@ export function MediaFlash({ flash }: { flash: MediaFlashState }): JSX.Element |
                             ? "bg-white/80"
                             : flash.kind === "already"
                               ? "bg-amber-300/90"
-                              : "bg-red-400/80"
+                              : "bg-violet-400/85"
                     }`}
                     style={{
                         animation:
