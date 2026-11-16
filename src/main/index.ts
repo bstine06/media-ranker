@@ -1245,6 +1245,27 @@ function fileStream(
     });
 }
 
+// media:// serves the library's files. Registered as a privileged scheme
+// (before the app is ready) so Web Audio can read videos' sound: without
+// CORS support, a video routed through Web Audio plays silence. stream:
+// keeps range requests (seeking) working for video.
+protocol.registerSchemesAsPrivileged([
+    {
+        scheme: "media",
+        privileges: {
+            standard: true,
+            secure: true,
+            supportFetchAPI: true,
+            stream: true,
+            corsEnabled: true,
+        },
+    },
+]);
+
+// Any page may read media:// responses (the app's own pages only; it's a
+// local scheme), so <video crossOrigin> can feed Web Audio.
+const CORS_HEADERS = { "Access-Control-Allow-Origin": "*" };
+
 app.whenReady().then(() => {
     protocol.handle("media", async (request) => {
         // Drop any ?query: it only versions the URL (so a rotated file isn't
@@ -1283,6 +1304,7 @@ app.whenReady().then(() => {
                         "Accept-Ranges": "bytes",
                         "Content-Length": String(chunkSize),
                         "Content-Type": contentType,
+                        ...CORS_HEADERS,
                     },
                 });
             } else {
@@ -1292,12 +1314,13 @@ app.whenReady().then(() => {
                         "Content-Length": String(fileSize),
                         "Content-Type": contentType,
                         "Accept-Ranges": "bytes",
+                        ...CORS_HEADERS,
                     },
                 });
             }
         } catch (err) {
             console.error("protocol error:", err);
-            return new Response("Not found", { status: 404 });
+            return new Response("Not found", { status: 404, headers: CORS_HEADERS });
         }
     });
 
