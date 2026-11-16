@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { SortMode, ViewMode } from "@renderer/browse/types/browserTypes";
 import type { PassOrder } from "@renderer/lib/sorts";
+import { isMixed, setAway } from "@renderer/lib/audioMix";
 
 export type SortDirection = "up" | "down";
 
@@ -24,6 +25,13 @@ interface Settings {
     toggleShowLibraryRank: () => void;
     /** Compare: play both sides' audio, not just the focused side's. */
     compareBothAudio: boolean;
+    /** Sweep (X): every video on screen heard, not just the pointer's. */
+    sweepAllAudio: boolean;
+    toggleSweepAllAudio: () => void;
+    /** Free sweep skips files with a firm answer for the tag (tagged, hard
+     *  no, pass no); off, it shows everything. */
+    sweepSkipAnswered: boolean;
+    toggleSweepSkipAnswered: () => void;
     toggleCompareBothAudio: () => void;
     /** Browse's sort, direction and grid/rows choice, kept between sessions. */
     browseSortMode: SortMode;
@@ -86,6 +94,10 @@ const SettingsContext = createContext<Settings>({
     showLibraryRank: true,
     toggleShowLibraryRank: () => {},
     compareBothAudio: false,
+    sweepAllAudio: false,
+    toggleSweepAllAudio: () => {},
+    sweepSkipAnswered: true,
+    toggleSweepSkipAnswered: () => {},
     toggleCompareBothAudio: () => {},
     browseSortMode: "alphabetical",
     setBrowseSortMode: () => {},
@@ -188,6 +200,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const [compareBothAudio, setCompareBothAudio] = useState(() => savedBool("compareBothAudio", false));
+    const [sweepAllAudio, setSweepAllAudio] = useState(() => savedBool("sweepAllAudio", false));
+    const toggleSweepAllAudio = useCallback(() => setSweepAllAudio((a) => !a), []);
+    const [sweepSkipAnswered, setSweepSkipAnswered] = useState(() => savedBool("sweepSkipAnswered", true));
+    const toggleSweepSkipAnswered = useCallback(() => setSweepSkipAnswered((a) => !a), []);
     const toggleCompareBothAudio = useCallback(() => {
         setCompareBothAudio((b) => !b);
     }, []);
@@ -237,19 +253,23 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
     // When the app loses focus (switching apps, dragging a file out into
     // another app), pause every playing video; when it comes back, resume
-    // only the ones we paused. Videos the user paused stay paused.
+    // only the ones we paused. Videos the user paused stay paused. Sweep's
+    // and Pass's lanes (their sound in the mixer) keep playing instead, with
+    // their sound faded out until the window is back.
     useEffect(() => {
         if (!pauseWhenUnfocused) return;
         const pausedByBlur = new Set<HTMLVideoElement>();
         const onBlur = () => {
+            setAway(true);
             document.querySelectorAll("video").forEach((v) => {
-                if (!v.paused) {
+                if (!v.paused && !isMixed(v)) {
                     pausedByBlur.add(v);
                     v.pause();
                 }
             });
         };
         const onFocus = () => {
+            setAway(false);
             pausedByBlur.forEach((v) => {
                 if (v.isConnected) v.play().catch(() => {});
             });
@@ -279,6 +299,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     alwaysShowUnsorted,
                     showLibraryRank,
                     compareBothAudio,
+                    sweepAllAudio,
+                    sweepSkipAnswered,
                     browseSortMode,
                     browseSortDirection,
                     browseViewMode,
@@ -307,6 +329,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         alwaysShowUnsorted,
         showLibraryRank,
         compareBothAudio,
+        sweepAllAudio,
+        sweepSkipAnswered,
         browseSortMode,
         browseSortDirection,
         browseViewMode,
@@ -343,6 +367,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 showLibraryRank,
                 toggleShowLibraryRank,
                 compareBothAudio,
+                sweepAllAudio,
+                toggleSweepAllAudio,
+                sweepSkipAnswered,
+                toggleSweepSkipAnswered,
                 toggleCompareBothAudio,
                 browseSortMode,
                 setBrowseSortMode,

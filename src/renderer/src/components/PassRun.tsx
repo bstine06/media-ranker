@@ -23,8 +23,9 @@ import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useFileTags } from "@renderer/hooks/useFileTags";
 import { isTyping } from "@renderer/lib/keys";
-import { stepVideo, toMediaUrl, toThumbnailUrl, volumeLevel } from "@renderer/lib/media";
-import { PointerLabel } from "./TagPointer";
+import { stepVideo } from "@renderer/lib/media";
+import { PointerLabel, MediaFlash } from "./TagPointer";
+import { LaneMedia, measureAspect } from "./lane";
 import { TagPill } from "./TagPill";
 
 // A Sweep pass, running: one lane that only moves when you step. The
@@ -43,18 +44,6 @@ const NEIGHBOURS = 6;
 /** The strip under the lane. */
 const STRIP_PX = 30;
 
-async function measureAspect(file: DbFile): Promise<number> {
-    const fallback = file.media_type === "video" ? 16 / 9 : 1;
-    const path = await window.api.getThumbnailPath(file.content_hash);
-    if (!path) return fallback;
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () =>
-            resolve(img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : fallback);
-        img.onerror = () => resolve(fallback);
-        img.src = toThumbnailUrl(path);
-    });
-}
 
 /** A step glides the whole strip, like Sweep's moving lane: the tiles sit
  *  edge to edge in one row and only the row moves. */
@@ -339,6 +328,9 @@ export default function PassRun({
 
     // ── Videos (Q / E scrub the current one) ──
     const currentVideo = useRef<HTMLVideoElement | null>(null);
+    const setCurrentVideo = useCallback((el: HTMLVideoElement | null) => {
+        currentVideo.current = el;
+    }, []);
 
     // ── Keys ──
     const state = useRef({ current, tagId, tagged: !!onFile });
@@ -488,7 +480,7 @@ export default function PassRun({
                                         rootPath={rootPath}
                                         current={isCurrent}
                                         onShape={onShape}
-                                        videoRef={isCurrent ? currentVideo : undefined}
+                                        onVideo={isCurrent ? setCurrentVideo : undefined}
                                     />
                                     {/* A firm no: a steady red ring round the media (easy
                                         to catch as it slides away), and the badge saying so. */}
@@ -507,7 +499,7 @@ export default function PassRun({
                                         className="pointer-events-none absolute inset-x-0"
                                         style={{ top: curTop, height: curH }}
                                     >
-                                        <EdgeFlash key={tileFlash.n} kind={tileFlash.kind} />
+                                        <MediaFlash flash={{ kind: tileFlash.kind, n: tileFlash.n }} />
                                     </div>
                                 )}
                             </div>
@@ -523,7 +515,7 @@ export default function PassRun({
                         className="pointer-events-none absolute inset-x-0 top-0 z-10"
                         style={{ height: laneH }}
                     >
-                        <EdgeFlash kind="skip" />
+                        <MediaFlash flash={{ kind: "skip", n: laneFlash }} />
                     </div>
                 )}
 
@@ -579,119 +571,35 @@ export default function PassRun({
     );
 }
 
-/** The thin top and bottom edges flashing: white added, amber already on,
- *  violet can't change here, blue skipped. */
-function EdgeFlash({ kind }: { kind: FlashKind | "skip" }): JSX.Element {
-    const color =
-        kind === "on"
-            ? "bg-white/80"
-            : kind === "already"
-              ? "bg-amber-300/90"
-              : kind === "skip"
-                ? "bg-sky-400/90"
-                : "bg-violet-400/85";
-    return (
-        <>
-            {["top-0", "bottom-0"].map((edge) => (
-                <div
-                    key={edge}
-                    className={`pointer-events-none absolute inset-x-0 z-10 ${edge} h-[3px] ${color}`}
-                    style={{
-                        animation:
-                            kind === "already"
-                                ? "sweep-flash-twice 900ms ease-out forwards"
-                                : "sweep-flash 900ms ease-out forwards",
-                    }}
-                />
-            ))}
-        </>
-    );
-}
-
 function PassTile({
     item,
     run,
     rootPath,
     current,
     onShape,
-    videoRef,
+    onVideo,
 }: {
     item: PassItem;
     run: Run;
     rootPath: string;
     current: boolean;
     onShape: (fileId: number, aspect: number) => void;
-    videoRef?: React.MutableRefObject<HTMLVideoElement | null>;
+    onVideo?: (el: HTMLVideoElement | null) => void;
 }): JSX.Element {
     if (item.kind === "file") {
+        const id = item.file.id;
         return (
-            <PassMedia
+            <LaneMedia
                 file={item.file}
                 rootPath={rootPath}
-                current={current}
-                onShape={onShape}
-                videoRef={videoRef}
+                audible={current}
+                play
+                onShape={(aspect) => onShape(id, aspect)}
+                onVideo={onVideo}
             />
         );
     }
     return <PassCard item={item} run={run} current={current} />;
-}
-
-function PassMedia({
-    file,
-    rootPath,
-    current,
-    onShape,
-    videoRef,
-}: {
-    file: DbFile;
-    rootPath: string;
-    current: boolean;
-    onShape: (fileId: number, aspect: number) => void;
-    videoRef?: React.MutableRefObject<HTMLVideoElement | null>;
-}): JSX.Element {
-    const { volume } = useSettings();
-    const ref = useRef<HTMLVideoElement | null>(null);
-    const url = toMediaUrl(rootPath, file.path, file.content_hash);
-    useEffect(() => {
-        if (ref.current) ref.current.volume = volumeLevel(volume);
-    }, [volume]);
-    useEffect(() => {
-        if (!videoRef) return;
-        videoRef.current = ref.current;
-        return () => {
-            if (videoRef.current === ref.current) videoRef.current = null;
-        };
-    }, [videoRef, url]);
-    if (file.media_type === "video") {
-        return (
-            <video
-                ref={ref}
-                src={url}
-                className="h-full w-full object-cover"
-                onLoadedMetadata={(e) => {
-                    const v = e.currentTarget;
-                    if (v.videoWidth && v.videoHeight) onShape(file.id, v.videoWidth / v.videoHeight);
-                }}
-                muted={!current}
-                autoPlay
-                loop
-                playsInline
-                preload="metadata"
-            />
-        );
-    }
-    return (
-        <img
-            src={url}
-            className="h-full w-full object-cover"
-            draggable={false}
-            onLoad={(e) => {
-                const img = e.currentTarget;
-                if (img.naturalWidth && img.naturalHeight) onShape(file.id, img.naturalWidth / img.naturalHeight);
-            }}
-        />
-    );
 }
 
 /** A tag card (or the end card): a stop in the lane, not a file. */

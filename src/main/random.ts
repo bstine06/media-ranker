@@ -6,7 +6,8 @@ export function getRandomFile(
     folderPrefixes: string[] | null,
     filter: FilterNode | null,
     excludeIds: number[] = [],
-    /** Sweep: only files that don't have this tag (own or inherited). */
+    /** Sweep: only files without a firm answer for this tag: not tagged
+     *  (own or inherited), no hard no (taken off), no pass no. */
     withoutTagId: number | null = null,
 ): DbFile | null {
     const db = getDb();
@@ -31,8 +32,10 @@ export function getRandomFile(
     if (withoutTagId != null) {
         conditions.push(
             `f.id NOT IN (SELECT file_id FROM file_effective_tags WHERE tag_id = ?)`,
+            `f.id NOT IN (SELECT file_id FROM tag_checks
+                          WHERE tag_id = ? AND (rejected = 1 OR passed = 1))`,
         );
-        params.push(withoutTagId);
+        params.push(withoutTagId, withoutTagId);
     }
 
     const tagFilter = filterSql(filter);

@@ -10,6 +10,7 @@ import { useTags } from "./contexts/TagsContext";
 import { useFolders } from "./contexts/FolderContext";
 import ScrollView from "./components/ScrollView";
 import CompareView from "./components/CompareView";
+import PassView from "./components/PassView";
 import SweepView from "./components/SweepView";
 import TagManagerView from "./components/TagManagerView";
 import { CursorPointer } from "./components/TagPointer";
@@ -210,6 +211,20 @@ export default function App(): JSX.Element {
                     >
                         <SweepView
                             active={view === "sweep"}
+                            setView={setView}
+                            immersive={immersive}
+                            setImmersive={setImmersive}
+                        />
+                    </div>
+                    <div
+                        className={
+                            view === "pass"
+                                ? "flex flex-1 flex-col overflow-hidden"
+                                : "hidden"
+                        }
+                    >
+                        <PassView
+                            active={view === "pass"}
                             setView={setView}
                             immersive={immersive}
                             setImmersive={setImmersive}

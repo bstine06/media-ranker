@@ -1087,9 +1087,9 @@ export default function TagManagerView({
 
     // From the Coverage tab: sweep for this tag (random off, or it'd be
     // rerolled away).
-    // Coverage's "Pass with this tag": the pass lobby, over Sweep, with it.
+    // Coverage's "Pass with this tag": the pass lobby, with it added.
     const passTag = (tagId: number) => {
-        setView("sweep");
+        setView("pass");
         openLobby([tagId]);
     };
 

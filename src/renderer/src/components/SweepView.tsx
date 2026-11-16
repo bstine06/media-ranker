@@ -14,11 +14,14 @@ import {
 } from "@renderer/contexts/TagPointerContext";
 import { PointerLabel } from "./TagPointer";
 import { preloadImage } from "@renderer/lib/imageCache";
-import { stepVideo, toMediaUrl, toThumbnailUrl, volumeLevel } from "@renderer/lib/media";
-import PassLobby from "./PassLobby";
-import PassRun from "./PassRun";
-import { usePass } from "@renderer/contexts/PassContext";
+import { stepVideo, toMediaUrl } from "@renderer/lib/media";
+import { LaneMedia, measureAspect, useLaneFullscreen } from "./lane";
+import { MediaFlash } from "./TagPointer";
 import SingleFileView from "./SingleFileView";
+import { TagPill } from "./TagPill";
+import { ScopeSummary } from "./ScopeSummary";
+import { usePass } from "@renderer/contexts/PassContext";
+import { filterKey } from "@renderer/lib/tagFilters";
 
 // Sweep: tag one tag at a time, over files that don't have it yet. The tag
 // can be picked at random and rerolled on an interval.
@@ -43,6 +46,7 @@ import SingleFileView from "./SingleFileView";
 //   + / −  add a lane below / remove the bottom one (1 to 3 lanes; the
 //          pointer's lane is the one the keys act on)
 //   G  open in file view    R  rotate left    K  to Compare (king)
+//   X  hear every video on screen (mixed, no clipping) / just the pointer's
 //   F  full screen (Esc leaves it)
 //   H  hide the pointer and menus (the pointer does nothing until it's back)
 
@@ -69,7 +73,10 @@ export default function SweepView({
         setSweepInterval,
         sweepSpeed,
         setSweepSpeed,
+        sweepSkipAnswered,
+        toggleSweepSkipAnswered,
     } = useSettings();
+    const { openLobby } = usePass();
     const { tag, reroll, pickingRef, hidden } = useTagPointer();
     const { crown } = useKingOfHill();
 
@@ -78,43 +85,63 @@ export default function SweepView({
     const [inspected, setInspected] = useState<DbFile | null>(null);
 
     // Latest filters for fetching, without re-creating the layout.
-    const filters = useRef({ folderPrefixes, activeFilter, tagId: sweepTagId });
-    filters.current = { folderPrefixes, activeFilter, tagId: sweepTagId };
+    // Skipping answered files: only files without a firm answer for the tag.
+    // Off: every file.
+    const poolTagId = sweepSkipAnswered ? sweepTagId : null;
+    const filters = useRef({ folderPrefixes, activeFilter, tagId: poolTagId });
+    filters.current = { folderPrefixes, activeFilter, tagId: poolTagId };
 
-    // What's on screen now (never fetched again while it is), and what's
-    // been shown since the tag was picked (not fetched again unless every
-    // file has been).
-    const visible = useRef<number[]>([]);
-    const setVisible = useCallback((ids: number[]) => {
-        visible.current = ids;
+    // No file twice at once, in any lane (the sound doubled; no use for
+    // tagging either). What every lane has loaded (on screen or not) and
+    // what's on screen or about to be; what's been shown since the tag was
+    // picked (not fetched again unless every file has been); and files just
+    // fetched that a lane hasn't added yet.
+    const visible = useRef<{ loaded: number[]; near: number[] }>({ loaded: [], near: [] });
+    const setVisible = useCallback((v: { loaded: number[]; near: number[] }) => {
+        visible.current = v;
+        for (const id of v.loaded) reserved.current.delete(id);
     }, []);
     const seen = useRef(new Set<number>());
+    const reserved = useRef(new Set<number>());
     useEffect(() => {
-        seen.current = new Set(visible.current);
-    }, [sweepTagId, activeFilterKey]);
+        seen.current = new Set(visible.current.loaded);
+        reserved.current = new Set();
+    }, [poolTagId, activeFilterKey]);
 
-    const fetchFile = useCallback(async (): Promise<DbFile | null> => {
-        const { folderPrefixes, activeFilter, tagId } = filters.current;
-        const onScreen = visible.current;
-        let file = await window.api.getRandomFile(
-            folderPrefixes,
-            activeFilter,
-            [...new Set([...seen.current, ...onScreen])],
-            tagId,
-        );
-        // Seen them all: start over, but never repeat what's on screen.
-        if (!file && seen.current.size > 0) {
-            seen.current = new Set(onScreen);
-            file = await window.api.getRandomFile(folderPrefixes, activeFilter, onScreen, tagId);
-        }
-        if (file) seen.current.add(file.id);
-        return file;
+    // One fetch at a time across lanes, so two lanes can't get the same file.
+    const queue = useRef<Promise<unknown>>(Promise.resolve());
+    const fetchFile = useCallback((): Promise<DbFile | null> => {
+        const run = async (): Promise<DbFile | null> => {
+            const { folderPrefixes, activeFilter, tagId } = filters.current;
+            const loaded = [...visible.current.loaded, ...reserved.current];
+            const get = (exclude: Iterable<number>) =>
+                window.api.getRandomFile(folderPrefixes, activeFilter, [...new Set(exclude)], tagId);
+            let file = await get([...seen.current, ...loaded]);
+            // Seen them all: start over, still nothing that's loaded.
+            if (!file && seen.current.size > 0) {
+                seen.current = new Set(loaded);
+                file = await get(loaded);
+            }
+            // Fewer files than the lanes hold: showing everything, a repeat
+            // (never one on screen or about to be). Skipping answered files,
+            // no: the lane ends on its end card instead.
+            if (!file && tagId == null) file = await get([...visible.current.near, ...reserved.current]);
+            if (file) {
+                seen.current.add(file.id);
+                reserved.current.add(file.id);
+            }
+            return file;
+        };
+        const p = queue.current.then(run, run);
+        queue.current = p.catch(() => {});
+        return p;
     }, []);
 
     // A new library starts fresh.
     useEffect(() => {
-        visible.current = [];
+        visible.current = { loaded: [], near: [] };
         seen.current = new Set();
+        reserved.current = new Set();
     }, [rootPath]);
 
     const toCompare = useCallback(
@@ -130,60 +157,20 @@ export default function SweepView({
     // pointer's hold is open; Esc lets go of that first). H (the pointer put
     // away, app-wide): content only, no pointer, toolbar or hints. Esc also
     // leaves the single file view.
-    const fullscreen = immersive;
     const contentOnly = hidden;
-    // Whether F put the window in full screen (so leaving doesn't take it
-    // out of a full screen the user chose themselves).
-    const windowFullscreenByUs = useRef(false);
-    const setFullscreen = useCallback(
-        (on: boolean) => {
-            setImmersive(on);
-            if (on) {
-                windowFullscreenByUs.current = true;
-                window.api.setFullscreen(true);
-            } else if (windowFullscreenByUs.current) {
-                windowFullscreenByUs.current = false;
-                window.api.setFullscreen(false);
-            }
-        },
-        [setImmersive],
-    );
-    // The window left full screen some other way (the green button).
-    useEffect(() => {
-        if (!immersive) windowFullscreenByUs.current = false;
-    }, [immersive]);
-    // Leaving the view leaves full screen too.
-    useEffect(() => {
-        if (!active && immersive) setFullscreen(false);
-    }, [active, immersive, setFullscreen]);
-
-    useEffect(() => {
-        if (!active) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.metaKey || e.ctrlKey || e.altKey) return;
-            if (inspected) {
-                if (e.code === "Escape") setInspected(null);
-                return;
-            }
-            if (pickingRef.current || isTyping()) return;
-            if (e.code === "KeyF" && !e.repeat) {
-                e.preventDefault();
-                setFullscreen(!fullscreen);
-            } else if (e.code === "Escape" && fullscreen) {
-                e.preventDefault();
-                setFullscreen(false);
-            }
-        };
-        window.addEventListener("keydown", onKey, true);
-        return () => window.removeEventListener("keydown", onKey, true);
-    }, [active, inspected, fullscreen, setFullscreen, pickingRef]);
+    const closeInspected = useCallback(() => setInspected(null), []);
+    const { fullscreen } = useLaneFullscreen({
+        active,
+        immersive,
+        setImmersive,
+        pickingRef,
+        inspected: !!inspected,
+        closeInspected,
+    });
 
     // The sweep stays mounted (and paused) under the single file view, so
-    // closing it comes back to the same spot. It pauses under the pass
-    // lobby too (nothing counted, no pointer).
-    const { lobby, run, runActive } = usePass();
-    const passing = !!run && runActive && !lobby;
-    const sweeping = active && !inspected && !lobby && !passing;
+    // closing it comes back to the same spot.
+    const sweeping = active && !inspected;
 
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden bg-neutral-950">
@@ -195,32 +182,13 @@ export default function SweepView({
                     onClose={() => setInspected(null)}
                 />
             )}
-            {/* The pass lobby takes the strip's place (the strip stays
-                mounted, paused, so closing it comes back to the same spot). */}
-            {lobby && !inspected && <PassLobby />}
-            {/* A running pass, in the strip's place (kept mounted under the
-                file view so G comes back to the same file). */}
-            {passing && rootPath && (
-                <div className={inspected ? "hidden" : "flex flex-1 flex-col overflow-hidden"}>
-                    <PassRun
-                        active={active && !inspected}
-                        rootPath={rootPath}
-                        onInspect={setInspected}
-                        onCompare={toCompare}
-                    />
-                </div>
-            )}
-            <div
-                className={
-                    inspected || lobby || passing
-                        ? "hidden"
-                        : "relative flex flex-1 flex-col overflow-hidden"
-                }
-            >
+            <div className={inspected ? "hidden" : "relative flex flex-1 flex-col overflow-hidden"}>
                 {/* No toolbar in full screen: just the strip. */}
                 {!contentOnly && !fullscreen && (
                     <SweepToolbar
                         tag={tag}
+                        skipAnswered={sweepSkipAnswered}
+                        onToggleSkipAnswered={toggleSweepSkipAnswered}
                         random={sweepRandom}
                         onToggleRandom={() => setSweepRandom(!sweepRandom)}
                         interval={sweepInterval}
@@ -243,6 +211,16 @@ export default function SweepView({
                         setVisible={setVisible}
                         onCompare={toCompare}
                         contentOnly={contentOnly}
+                        ending={{
+                            skipAnswered: sweepSkipAnswered,
+                            poolKey: `${poolTagId}:${activeFilterKey}:${JSON.stringify(folderPrefixes)}`,
+                            onPassTag: tag
+                                ? () => {
+                                      setView("pass");
+                                      openLobby([tag.id]);
+                                  }
+                                : null,
+                        }}
                     />
                 )}
             </div>
@@ -262,8 +240,12 @@ const POINTER_AT = 0.4;
 const BUFFER_PX = 2500;
 /** Most files kept in the row (the rest are dropped from the far end). */
 const MAX_ITEMS = 40;
-/** Videos this far (px) off screen still play, so they're moving on arrival. */
-const PLAY_MARGIN_PX = 300;
+/** Videos about to come on screen start playing this long (s) before they
+ *  arrive at the lane's speed, so they're moving on arrival; a fixed
+ *  distance meant 10+ s of off-screen playing at slow speeds. */
+const PLAY_LEAD_S = 1;
+/** …and at least this far (px) off screen (stopped or crawling). */
+const PLAY_MARGIN_MIN_PX = 60;
 /** The mouse near the edges fast-forwards (right) or rewinds (left), from
  *  the set speed where the zone starts up to BOOST_MAX ×, picking up faster
  *  the further in it goes. Fractions of the strip's width, from that edge:
@@ -297,19 +279,6 @@ interface StripItem {
 }
 
 /** A file's shape, from its thumbnail (every file has one). */
-async function measureAspect(file: DbFile): Promise<number> {
-    const fallback = file.media_type === "video" ? 16 / 9 : 1;
-    const path = await window.api.getThumbnailPath(file.content_hash);
-    if (!path) return fallback;
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () =>
-            resolve(img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : fallback);
-        img.onerror = () => resolve(fallback);
-        img.src = toThumbnailUrl(path);
-    });
-}
-
 /** Most lanes (+ adds one below, − removes the bottom one). */
 const MAX_LANES = 3;
 /** With varispeed on, each lane's speed against the set speed (the top lane
@@ -335,7 +304,10 @@ function SweepStrip({
     setVisible,
     onCompare,
     contentOnly,
+    ending,
 }: {
+    /** What a lane shows when it runs out of files. */
+    ending: LaneEnding;
     rootPath: string;
     active: boolean;
     tag: DbTagWithCategory | null;
@@ -346,10 +318,10 @@ function SweepStrip({
     onSpeed: (speed: number) => void;
     onInspect: (file: DbFile) => void;
     fetchFile: () => Promise<DbFile | null>;
-    setVisible: (ids: number[]) => void;
+    setVisible: (v: { loaded: number[]; near: number[] }) => void;
     onCompare: (file: DbFile) => void;
 }): JSX.Element {
-    const { sweepVarispeed, sweepAllLanes, sweepScrubHold } = useSettings();
+    const { sweepVarispeed, sweepAllLanes, sweepScrubHold, sweepAllAudio, toggleSweepAllAudio } = useSettings();
     const {
         picking,
         pickingRef,
@@ -446,12 +418,17 @@ function SweepStrip({
             return next;
         });
     }, []);
-    // What's on screen in every lane, so no lane fetches it again.
-    const visibleByLane = useRef<number[][]>([]);
+    // What every lane has loaded, and what's on screen (or about to be),
+    // so no lane fetches a file another already has.
+    const visibleByLane = useRef<{ loaded: number[]; near: number[] }[]>([]);
     const onLaneVisible = useCallback(
-        (i: number, ids: number[]) => {
-            visibleByLane.current[i] = ids;
-            setVisible(visibleByLane.current.slice(0, laneCountRef.current).flat());
+        (i: number, loaded: number[], near: number[]) => {
+            visibleByLane.current[i] = { loaded, near };
+            const lanes = visibleByLane.current.slice(0, laneCountRef.current).filter(Boolean);
+            setVisible({
+                loaded: lanes.flatMap((l) => l.loaded),
+                near: lanes.flatMap((l) => l.near),
+            });
         },
         [setVisible],
     );
@@ -880,6 +857,11 @@ function SweepStrip({
                     e.preventDefault();
                     if (!e.repeat && activeItem) onCompare(activeItem.file);
                     break;
+                case "KeyX":
+                    // Every video on screen heard, or just the pointer's.
+                    e.preventDefault();
+                    if (!e.repeat) toggleSweepAllAudio();
+                    break;
             }
         };
         // Letting go of 3 (or leaving the window, or the view) ends the
@@ -1006,6 +988,7 @@ function SweepStrip({
                         onActive={onLaneActive}
                         onVisible={onLaneVisible}
                         register={registerLane}
+                        ending={ending}
                     />
                 ))}
             </div>
@@ -1030,7 +1013,8 @@ function SweepStrip({
                 }`}
             >
                 {pointerMotion.dir === 1 ? (pointerMotion.boost ? "▶▶" : "▶") : pointerMotion.dir === -1 ? "◀◀" : "❚❚"}{" "}
-                {speed} px/s · 4 slower · 5 faster · {laneCount} lane{laneCount === 1 ? "" : "s"} (+ / −)
+                {speed} px/s · 4 slower · 5 faster · {laneCount} lane{laneCount === 1 ? "" : "s"} (+ / −) ·{" "}
+                {sweepAllAudio ? "all audio (X)" : "pointer's audio (X)"}
             </div>
         </div>
     );
@@ -1072,7 +1056,9 @@ function StripLane({
     onActive,
     onVisible,
     register,
+    ending,
 }: {
+    ending: LaneEnding;
     index: number;
     rootPath: string;
     active: boolean;
@@ -1105,7 +1091,7 @@ function StripLane({
     onTileClick: (item: StripItem) => void;
     onTileVideo: (key: number, el: HTMLVideoElement | null) => void;
     onActive: (lane: number, item: StripItem | undefined) => void;
-    onVisible: (lane: number, ids: number[]) => void;
+    onVisible: (lane: number, loaded: number[], near: number[]) => void;
     register: (lane: number, handle: LaneHandle | null) => void;
 }): JSX.Element {
     const rowRef = useRef<HTMLDivElement>(null);
@@ -1122,14 +1108,22 @@ function StripLane({
     const tripEpoch = useRef(-1);
     const fetching = useRef(false);
     const [exhausted, setExhausted] = useState(false);
+    // Out of files: the row ends on a card and stops there, until a file
+    // turns up again (a new tag, the toggle, filters, or answers undone).
+    const [ended, setEnded] = useState(false);
+    const endedRef = useRef(false);
+    endedRef.current = ended;
     // Width added or dropped on the left by the last change to `items`,
     // applied to the offset in the same paint so the picture doesn't jump.
     const pendingShift = useRef(0);
     const [activeIndex, setActiveIndex] = useState(-1);
     const [playing, setPlaying] = useState<[number, number]>([0, -1]);
+    // On screen (any part of it): only these are heard (X: all of them).
+    const [onScreen, setOnScreen] = useState<[number, number]>([0, -1]);
     // Last values handed to React, so frames that change nothing don't render.
     const lastActive = useRef(-1);
     const lastPlaying = useRef<[number, number]>([0, -1]);
+    const lastOnScreen = useRef<[number, number]>([0, -1]);
     const isPointerLaneRef = useRef(isPointerLane);
     isPointerLaneRef.current = isPointerLane;
     // The item last reported as active (a replaced file is a new object).
@@ -1185,8 +1179,10 @@ function StripLane({
         fetching.current = false;
         if (!item) {
             setExhausted(true);
+            setEnded(true);
             return;
         }
+        setEnded(false);
         let next = itemsRef.current;
         let shift = 0;
         if (needRight) {
@@ -1217,21 +1213,48 @@ function StripLane({
         }
     }, [items]);
 
-    // A new tag can bring files back, and so can waiting.
+    // The lane changed size (full screen, the window, lanes added or
+    // removed): tiles are as wide as the lane is tall, so they all scale.
+    // Scale the row around the pointer's resting spot, so what was on
+    // screen stays there (instead of stretching away from the row's far-off
+    // left edge and landing somewhere back in the queue).
+    const lastSize = useRef({ width, height });
+    useLayoutEffect(() => {
+        const prev = lastSize.current;
+        lastSize.current = { width, height };
+        if (prev.height <= 0 || prev.width <= 0) return;
+        if (prev.height === height && prev.width === width) return;
+        const k = height / prev.height;
+        const anchorOld = prev.width * POINTER_AT;
+        const anchorNew = width * POINTER_AT;
+        offset.current = anchorNew - (anchorOld - offset.current) * k;
+        if (rowRef.current) rowRef.current.style.transform = `translateX(${offset.current}px)`;
+        // Coverage's furthest-left marks were in the old scale: start over.
+        tripMinX.current.clear();
+    }, [width, height]);
+
+    // A new tag (or the toggle, or filters) can bring files back, and so
+    // can waiting.
     useEffect(() => {
         setExhausted(false);
-    }, [tag?.id]);
+        setEnded(false);
+    }, [tag?.id, ending.poolKey]);
     useEffect(() => {
         if (!exhausted) return;
         const t = setTimeout(() => setExhausted(false), 2000);
         return () => clearTimeout(t);
     }, [exhausted]);
 
-    // Only what's on screen (or nearly) is kept from repeating.
+    // Everything loaded here (and what's near the screen) is kept from
+    // being fetched by any lane again.
     useEffect(() => {
-        onVisible(index, items.slice(playing[0], playing[1] + 1).map((it) => it.file.id));
+        onVisible(
+            index,
+            items.map((it) => it.file.id),
+            items.slice(playing[0], playing[1] + 1).map((it) => it.file.id),
+        );
     }, [items, playing, onVisible, index]);
-    useEffect(() => () => onVisible(index, []), [onVisible, index]);
+    useEffect(() => () => onVisible(index, [], []), [onVisible, index]);
 
     // Not the pointer's lane (any more): no active file.
     useEffect(() => {
@@ -1279,6 +1302,12 @@ function StripLane({
                   : 4;
             velocities.current[index] = v + (target - v) * Math.min(1, dt * ease);
             offset.current -= velocities.current[index] * dt;
+            // Ended: the row can't run past its end card (it stops with the
+            // card at the right edge).
+            if (endedRef.current) {
+                const total = itemsRef.current.reduce((w, it) => w + widthOf(it), 0) + height;
+                offset.current = Math.max(offset.current, Math.min(0, width - total));
+            }
             if (rowRef.current) rowRef.current.style.transform = `translateX(${offset.current}px)`;
 
             const list = itemsRef.current;
@@ -1304,6 +1333,9 @@ function StripLane({
             let under = -1;
             let first = list.length;
             let lastIdx = -1;
+            let firstSeen = list.length;
+            let lastSeen = -1;
+            const margin = Math.max(PLAY_MARGIN_MIN_PX, Math.abs(velocities.current[index]) * PLAY_LEAD_S);
             list.forEach((it, i) => {
                 const w = widthOf(it);
                 const mark = marks.get(it.key);
@@ -1315,9 +1347,13 @@ function StripLane({
                     }
                 }
                 if (pointer >= x && pointer < x + w) under = i;
-                if (x + w > -PLAY_MARGIN_PX && x < width + PLAY_MARGIN_PX) {
+                if (x + w > -margin && x < width + margin) {
                     first = Math.min(first, i);
                     lastIdx = i;
+                }
+                if (x + w > 0 && x < width) {
+                    firstSeen = Math.min(firstSeen, i);
+                    lastSeen = i;
                 }
                 x += w;
             });
@@ -1332,6 +1368,11 @@ function StripLane({
             if (p[0] !== first || p[1] !== lastIdx) {
                 lastPlaying.current = [first, lastIdx];
                 setPlaying([first, lastIdx]);
+            }
+            const o = lastOnScreen.current;
+            if (o[0] !== firstSeen || o[1] !== lastSeen) {
+                lastOnScreen.current = [firstSeen, lastSeen];
+                setOnScreen([firstSeen, lastSeen]);
             }
             topUp();
             raf = requestAnimationFrame(frame);
@@ -1352,6 +1393,7 @@ function StripLane({
                         rootPath={rootPath}
                         isActive={isPointerLane && i === activeIndex}
                         play={active && i >= playing[0] && i <= playing[1]}
+                        seen={active && i >= onScreen[0] && i <= onScreen[1]}
                         flash={flashes[it.key]}
                         height={height}
                         turns={turnsOf(it.file.id)}
@@ -1360,15 +1402,59 @@ function StripLane({
                         onClick={() => onTileClick(it)}
                     />
                 ))}
+                {ended && <LaneEndCard size={height} tag={tag} ending={ending} />}
             </div>
-            {items.length === 0 && (
+            {items.length === 0 && !ended && (
                 <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-600">
-                    {exhausted
-                        ? tag
-                            ? `No files without "${tag.name}" in the current filters`
-                            : "No files in the current filters"
-                        : "Loading…"}
+                    Loading…
                 </div>
+            )}
+        </div>
+    );
+}
+
+/** What a lane shows when it runs out of files. */
+interface LaneEnding {
+    skipAnswered: boolean;
+    /** Changes when the pool might have files again. */
+    poolKey: string;
+    /** Opens the Pass lobby with the tag (null: no tag). */
+    onPassTag: (() => void) | null;
+}
+
+/** The end of a lane that ran out: a square tile after its last file. */
+function LaneEndCard({
+    size,
+    tag,
+    ending,
+}: {
+    size: number;
+    tag: DbTagWithCategory | null;
+    ending: LaneEnding;
+}): JSX.Element {
+    const { activeFilter, loadedFeed, filter } = useTags();
+    const { folderPrefixes } = useFolders();
+    const feedName =
+        loadedFeed && filterKey(loadedFeed.tree) === filterKey(filter) ? loadedFeed.name : null;
+    const firm = ending.skipAnswered && tag;
+    return (
+        <div
+            className="relative flex h-full shrink-0 flex-col items-center justify-center gap-3 overflow-hidden bg-neutral-900 p-5 text-center"
+            style={{ width: size }}
+        >
+            {tag && <TagPill tag={tag} applied />}
+            <span className="text-sm text-neutral-200">
+                {firm ? "Nothing left without a firm answer here" : "No more files here"}
+            </span>
+            <ScopeSummary folderPrefixes={folderPrefixes} filter={activeFilter} feedName={feedName} />
+            <span className="text-[11px] text-neutral-500">Tab another tag · ` random</span>
+            {firm && ending.onPassTag && (
+                <button
+                    onClick={ending.onPassTag}
+                    className="rounded bg-neutral-200 px-3 py-1 text-xs font-medium text-neutral-900 hover:bg-white"
+                >
+                    Pass this tag
+                </button>
             )}
         </div>
     );
@@ -1380,6 +1466,7 @@ function StripTile({
     rootPath,
     isActive,
     play,
+    seen,
     flash,
     height,
     turns,
@@ -1399,16 +1486,19 @@ function StripTile({
     onVideo: (key: number, el: HTMLVideoElement | null) => void;
     rootPath: string;
     isActive: boolean;
-    /** On screen (or nearly): videos play; otherwise they're paused. */
+    /** On screen or about to be: videos play; otherwise they're paused. */
     play: boolean;
+    /** Some of it on screen: with X, heard. */
+    seen: boolean;
     /** The tag was just added ("on"), was already on and a second press
      *  will remove it ("already"), or couldn't be changed ("denied"). */
     flash?: { kind: "on" | "already" | "denied"; n: number };
     onClick: () => void;
 }): JSX.Element {
-    const { volume } = useSettings();
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const url = toMediaUrl(rootPath, item.file.path, item.file.content_hash);
+    // Heard: the pointer's file, or (X) every video with any part on screen
+    // (not the ones still off screen getting a head start).
+    const { sweepAllAudio } = useSettings();
+    const audible = isActive || (sweepAllAudio && seen);
 
     // A preview turn: the tile keeps its width and the media is turned
     // inside it, zoomed to fill it. It snaps (no animation).
@@ -1423,24 +1513,6 @@ function StripTile({
         transform: turns ? `rotate(${-90 * turns}deg)` : undefined,
     };
 
-    useEffect(() => {
-        const v = videoRef.current;
-        if (!v) return;
-        if (play) v.play().catch(() => {});
-        else v.pause();
-    }, [play]);
-
-    useEffect(() => {
-        if (videoRef.current) videoRef.current.volume = volumeLevel(volume);
-    }, [volume]);
-
-    useEffect(() => {
-        const v = videoRef.current;
-        if (!v) return;
-        onVideo(item.key, v);
-        return () => onVideo(item.key, null);
-    }, [onVideo, item.key, url]);
-
     return (
         <div
             className="relative h-full shrink-0 overflow-hidden"
@@ -1450,60 +1522,17 @@ function StripTile({
             style={{ width, transition: "width 250ms ease-out" }}
             onClick={onClick}
         >
-            {item.file.media_type === "video" ? (
-                <video
-                    ref={videoRef}
-                    src={url}
-                    className="object-cover"
-                    style={mediaStyle}
-                    onLoadedMetadata={(e) => {
-                        const v = e.currentTarget;
-                        if (v.videoWidth && v.videoHeight) onShape(item.key, v.videoWidth / v.videoHeight);
-                    }}
-                    muted={!isActive}
-                    loop
-                    playsInline
-                    preload="metadata"
-                />
-            ) : (
-                <img
-                    src={url}
-                    className="object-cover"
-                    style={mediaStyle}
-                    draggable={false}
-                    onLoad={(e) => {
-                        const img = e.currentTarget;
-                        if (img.naturalWidth && img.naturalHeight) {
-                            onShape(item.key, img.naturalWidth / img.naturalHeight);
-                        }
-                    }}
-                />
-            )}
-            {/* Tag feedback: thin top and bottom edges flash, soft white for
-                added, violet for an inherited tag that can't change here. */}
-            {flash && (
-                <React.Fragment key={flash.n}>
-                    {["top-0", "bottom-0"].map((edge) => (
-                        <div
-                            key={edge}
-                            className={`pointer-events-none absolute inset-x-0 ${edge} h-[3px] ${
-                                flash.kind === "on"
-                                    ? "bg-white/80"
-                                    : flash.kind === "already"
-                                      ? "bg-amber-300/90"
-                                      : "bg-violet-400/85"
-                            }`}
-                            style={{
-                                // "Already on here": amber, blinking twice.
-                                animation:
-                                    flash.kind === "already"
-                                        ? "sweep-flash-twice 900ms ease-out forwards"
-                                        : "sweep-flash 900ms ease-out forwards",
-                            }}
-                        />
-                    ))}
-                </React.Fragment>
-            )}
+            <LaneMedia
+                file={item.file}
+                rootPath={rootPath}
+                audible={audible}
+                play={play}
+                style={mediaStyle}
+                onShape={(aspect) => onShape(item.key, aspect)}
+                onVideo={(el) => onVideo(item.key, el)}
+            />
+            {/* Tag feedback on the tile's top and bottom edges. */}
+            <MediaFlash flash={flash ?? null} />
         </div>
     );
 }
@@ -1530,6 +1559,7 @@ const STRIP_HINTS: [string, string][] = [
     ["G", "open in file view"],
     ["R", "rotate left"],
     ["K", "send to Compare (king)"],
+    ["X", "hear every video on screen / just the pointer's"],
     ["F", "full screen"],
     ["H", "hide the pointer and menus (no tagging until it's back; Tab also brings it back)"],
 ];
@@ -1594,6 +1624,8 @@ function KeyHints({ hints }: { hints: [string, string][] }): JSX.Element {
 
 function SweepToolbar({
     tag,
+    skipAnswered,
+    onToggleSkipAnswered,
     random,
     onToggleRandom,
     interval,
@@ -1603,6 +1635,8 @@ function SweepToolbar({
     onSpeed,
 }: {
     tag: DbTagWithCategory | null;
+    skipAnswered: boolean;
+    onToggleSkipAnswered: () => void;
     random: boolean;
     onToggleRandom: () => void;
     interval: number;
@@ -1626,6 +1660,25 @@ function SweepToolbar({
                 )}
                 {tag?.name ?? "pick a tag (Tab)"}
             </span>
+
+            <button
+                onClick={(e) => {
+                    onToggleSkipAnswered();
+                    e.currentTarget.blur();
+                }}
+                title={
+                    skipAnswered
+                        ? "Skipping files already answered for this tag (tagged, or a firm no). Click to show every file."
+                        : "Showing every file, answered or not. Click to skip files already answered for this tag."
+                }
+                className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    skipAnswered
+                        ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
+                        : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                }`}
+            >
+                {skipAnswered ? "Skipping answered" : "Showing everything"}
+            </button>
 
             <div className="flex items-center gap-2">
                 <button

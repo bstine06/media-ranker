@@ -7,7 +7,7 @@ import { filterKey } from "@renderer/lib/tagFilters";
 import { orderFiles, type PassOrder } from "@renderer/lib/sorts";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
 
-// Sweep pass mode: going through a fixed list of files, one tag at a time,
+// Pass mode: going through a fixed list of files, one tag at a time,
 // stepping by hand. Here: the lobby (where a run is set up) and the run.
 //
 // A run is: tag card → that tag's files → next tag card → … → end card.
@@ -175,7 +175,7 @@ export type PassItem =
     | { kind: "end" };
 
 interface PassContextValue {
-    /** The lobby, in Sweep's place, or null. */
+    /** The lobby (the Pass view's home), or null while the run shows. */
     lobby: LobbyDraft | null;
     /** Opens the lobby with these tags (e.g. Coverage's "Pass with this
      *  tag"). With an unfinished run, asks first: a new one replaces it. */
@@ -185,7 +185,7 @@ interface PassContextValue {
 
     /** The run (kept while away from it, so it can be resumed). */
     run: PassRun | null;
-    /** Showing the run in Sweep (false: away, e.g. in free sweep). */
+    /** Showing the run (false: in the lobby, or away from the Pass view). */
     runActive: boolean;
     startRun: () => Promise<void>;
     resumeRun: () => void;

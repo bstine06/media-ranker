@@ -9,7 +9,8 @@ import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "./icons/FolderIcon";
 import { useFolders } from "@renderer/contexts/FolderContext";
-import { usePass, tagPosition } from "@renderer/contexts/PassContext";
+import { usePass } from "@renderer/contexts/PassContext";
+import { PassIcon } from "./icons/PassIcon";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { CompareIcon } from "./icons/CompareIcon";
 import { TagIcon } from "./icons/TagIcon";
@@ -140,88 +141,6 @@ function FolderItem({
                     {node.name}
                 </div>
             </button>
-        </div>
-    );
-}
-
-// Sweep's nav button: a popover to choose free sweep or a pass.
-function SweepNav({ active, onOpen }: { active: boolean; onOpen: () => void }): JSX.Element {
-    const { openLobby, closeLobby, run, runActive, lobby, resumeRun, leaveRun } = usePass();
-    const unfinished = run && run.t < run.tags.length ? run : null;
-    const inRun = active && !!unfinished && runActive && !lobby;
-    const [open, setOpen] = useState(false);
-    const ref = useRef<HTMLDivElement>(null);
-    // A click elsewhere or Escape closes it.
-    useEffect(() => {
-        if (!open) return;
-        const onDown = (e: MouseEvent) => {
-            if (!ref.current?.contains(e.target as Node)) setOpen(false);
-        };
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                e.stopPropagation();
-                setOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", onDown);
-        window.addEventListener("keydown", onKey, true);
-        return () => {
-            document.removeEventListener("mousedown", onDown);
-            window.removeEventListener("keydown", onKey, true);
-        };
-    }, [open]);
-    const choice = (label: string, hint: string, onClick: () => void) => (
-        <button
-            onClick={() => {
-                setOpen(false);
-                onClick();
-            }}
-            className="flex flex-col px-3 py-1.5 text-left transition-colors hover:bg-neutral-800"
-        >
-            <span className="text-xs text-neutral-200">{label}</span>
-            <span className="text-[11px] text-neutral-500">{hint}</span>
-        </button>
-    );
-    return (
-        <div ref={ref} className="relative w-full">
-            <NavItem
-                title={"Sweep (tag one tag at a time)"}
-                icon={<SweepIcon className="w-5" />}
-                active={active || open}
-                onClick={() => setOpen((o) => !o)}
-            />
-            {open && (
-                <div
-                    data-modal
-                    className="absolute bottom-full left-1/2 z-30 mb-1 flex w-60 -translate-x-1/2 flex-col rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-xl"
-                >
-                    {choice("Free sweep", "Random and endless, for leaning back", () => {
-                        onOpen();
-                        closeLobby();
-                        leaveRun();
-                    })}
-                    {choice("New pass", "Go through a set of files, one tag at a time", () => {
-                        onOpen();
-                        openLobby();
-                    })}
-                    {unfinished &&
-                        choice(
-                            inRun ? "Resume pass (current)" : "Resume pass",
-                            (() => {
-                                const tp = tagPosition(unfinished);
-                                const tr = unfinished.tags[unfinished.t];
-                                return `tag ${tp?.n ?? 1} of ${tp?.of ?? 1}${tp?.rest ? " (rest)" : ""} · ${Math.max(
-                                    0,
-                                    unfinished.pos + 1,
-                                )} / ${tr.files?.length ?? 0}`;
-                            })(),
-                            () => {
-                                onOpen();
-                                resumeRun();
-                            },
-                        )}
-                </div>
-            )}
         </div>
     );
 }
@@ -724,6 +643,7 @@ export default function Sidebar({
         }
     };
     const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion, refreshFolders, setAllChecked } = useFolders();
+    const { openLobby } = usePass();
     const { showUnsorted, setShowUnsorted } = useFolders();
     const { alwaysShowUnsorted } = useSettings();
 
@@ -1263,7 +1183,21 @@ export default function Sidebar({
                     active={view === "compare"}
                     onClick={() => setView("compare")}
                 />
-                <SweepNav active={view === "sweep"} onOpen={() => setView("sweep")} />
+                <NavItem
+                    title={"Sweep (tag one tag at a time)"}
+                    icon={<SweepIcon className="w-5" />}
+                    active={view === "sweep"}
+                    onClick={() => setView("sweep")}
+                />
+                <NavItem
+                    title={"Pass (go through a set of files, one tag at a time)"}
+                    icon={<PassIcon className="w-5" />}
+                    active={view === "pass"}
+                    onClick={() => {
+                        setView("pass");
+                        openLobby();
+                    }}
+                />
                 <NavItem
                     title={"Tag Manager"}
                     icon={<TagIcon className="w-5"/>}

@@ -10,8 +10,8 @@ import { ScopeSummary } from "./ScopeSummary";
 import { TagPill } from "./TagPill";
 import { TagInput } from "./TagInput";
 
-// The pass lobby: set up a run before it starts, like a game lobby. It
-// takes Sweep's place in the main area (not a dialog), so the sidebar's
+// The pass lobby: set up a run before it starts, like a game lobby. It's
+// the Pass view's home (not a dialog), so the sidebar's
 // collections and tag filter stay usable while it's open: the files come
 // from that selection, shown here live. The rest is chosen here: tags in
 // order, which files, and their order.
@@ -22,7 +22,7 @@ const orderLabel = (o: PassOrder) => (o === "shuffled" ? "Shuffled" : SORTS[o].t
 const num = (n: number) => n.toLocaleString();
 
 export default function PassLobby(): JSX.Element | null {
-    const { lobby, updateLobby, closeLobby, startRun, run, resumeRun } = usePass();
+    const { lobby, updateLobby, startRun, run, resumeRun } = usePass();
     const unfinished = run && run.t < run.tags.length ? run : null;
     const tp = unfinished ? tagPosition(unfinished) : null;
     const { tagMap, activeFilter, loadedFeed, filter } = useTags();
@@ -269,12 +269,6 @@ export default function PassLobby(): JSX.Element | null {
                 </div>
 
                 <div className="flex items-center justify-end gap-2 border-t border-neutral-800 px-5 py-3">
-                    <button
-                        onClick={closeLobby}
-                        className="rounded px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200"
-                    >
-                        Cancel
-                    </button>
                     <button
                         onClick={() => void startRun()}
                         disabled={tags.length === 0}

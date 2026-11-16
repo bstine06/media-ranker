@@ -235,7 +235,8 @@ export function useTagPointerSurface(active: boolean): void {
 }
 
 /** A toggle's feedback on the media, `n` counting so each one restarts. */
-export type MediaFlashState = { kind: FlashKind; n: number } | null;
+/** "skip": a pass's 2 (no answer), flashed across its whole lane. */
+export type MediaFlashState = { kind: FlashKind | "skip"; n: number } | null;
 
 /** While the pointer shows over media, the cursor hides (the pointer's
  *  triangle stands in for it), over everything in it too. */
