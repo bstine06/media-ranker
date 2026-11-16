@@ -19,58 +19,82 @@ const NEEDS_FIRM = `
                     WHERE c.file_id = f.id AND c.tag_id = ?
                       AND (c.rejected = 1 OR c.passed = 1))`;
 
-/** The files a pass goes through for a tag (unordered; the renderer
+/** A stretch of a pass: one tag, or a pair (the upper tag optional). A
+ *  pair's files are those needing a firm answer for either tag. */
+export interface PassSlot {
+    tagId: number;
+    upperId: number | null;
+}
+
+// Needs a firm answer for the slot's tag (or either of its pair).
+function needsSql(slot: PassSlot): { sql: string; params: number[] } {
+    if (slot.upperId == null || slot.upperId === slot.tagId) {
+        return { sql: NEEDS_FIRM, params: [slot.tagId, slot.tagId] };
+    }
+    return {
+        sql: `((${NEEDS_FIRM}) OR (${NEEDS_FIRM}))`,
+        params: [slot.tagId, slot.tagId, slot.upperId, slot.upperId],
+    };
+}
+
+/** The files a pass goes through for a slot (unordered; the renderer
  *  orders them the way Browse does). */
 export function getPassFiles(
     folderPrefixes: string[] | null,
     filter: FilterNode | null,
-    tagId: number,
+    slot: PassSlot,
     which: PassWhich,
 ): DbFile[] {
     const scope = scopeSql(folderPrefixes, filter);
-    const where = which === "all" ? scope.sql : `${scope.sql} AND ${NEEDS_FIRM}`;
-    const params = which === "all" ? scope.params : [...scope.params, tagId, tagId];
+    if (which === "all") {
+        return getDb()
+            .prepare(`SELECT f.* FROM files f WHERE ${scope.sql}`)
+            .all(...scope.params) as DbFile[];
+    }
+    const need = needsSql(slot);
     return getDb()
-        .prepare(`SELECT f.* FROM files f WHERE ${where}`)
-        .all(...params) as DbFile[];
+        .prepare(`SELECT f.* FROM files f WHERE ${scope.sql} AND ${need.sql}`)
+        .all(...scope.params, ...need.params) as DbFile[];
 }
 
-/** How many files a pass would go through for each tag (the lobby's
- *  estimates). */
+/** How many files a pass would go through for each slot (the lobby's
+ *  estimates), in order. */
 export function getPassCounts(
     folderPrefixes: string[] | null,
     filter: FilterNode | null,
-    tagIds: number[],
+    slots: PassSlot[],
     which: PassWhich,
-): Record<number, number> {
+): number[] {
     const db = getDb();
     const scope = scopeSql(folderPrefixes, filter);
-    const out: Record<number, number> = {};
     if (which === "all") {
         const n = (
             db.prepare(`SELECT COUNT(*) AS n FROM files f WHERE ${scope.sql}`).get(...scope.params) as {
                 n: number;
             }
         ).n;
-        for (const id of tagIds) out[id] = n;
-        return out;
+        return slots.map(() => n);
     }
-    const stmt = db.prepare(
-        `SELECT COUNT(*) AS n FROM files f WHERE ${scope.sql} AND ${NEEDS_FIRM}`,
-    );
-    for (const id of tagIds) {
-        out[id] = (stmt.get(...scope.params, id, id) as { n: number }).n;
-    }
-    return out;
+    return slots.map((slot) => {
+        const need = needsSql(slot);
+        return (
+            db
+                .prepare(`SELECT COUNT(*) AS n FROM files f WHERE ${scope.sql} AND ${need.sql}`)
+                .get(...scope.params, ...need.params) as { n: number }
+        ).n;
+    });
 }
 
 /** Of these files (in order), the ones that still need a firm answer for
- *  the tag: coming back to a tag after a reorder drops what other tags'
+ *  the slot: coming back to a tag after a reorder drops what other tags'
  *  work answered meanwhile (e.g. an implied yes). Order is kept. */
-export function prunePassList(tagId: number, fileIds: number[]): number[] {
+export function prunePassList(slot: PassSlot, fileIds: number[]): number[] {
     if (fileIds.length === 0) return [];
-    const stmt = getDb().prepare(`SELECT 1 FROM files f WHERE f.id = ? AND f.status = 'active' AND ${NEEDS_FIRM}`);
-    return fileIds.filter((id) => stmt.get(id, tagId, tagId) !== undefined);
+    const need = needsSql(slot);
+    const stmt = getDb().prepare(
+        `SELECT 1 FROM files f WHERE f.id = ? AND f.status = 'active' AND ${need.sql}`,
+    );
+    return fileIds.filter((id) => stmt.get(id, ...need.params) !== undefined);
 }
 
 /** Active files in a scope (the lobby shows it beside the scope). */

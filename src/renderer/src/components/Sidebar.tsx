@@ -325,6 +325,8 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
         sweepAllLanes,
         toggleSweepAllLanes,
         coverageSeconds,
+        passFfFactor,
+        setPassFfFactor,
         setCoverageSeconds,
     } = useSettings();
     // A confirm opened from inside handles its own Escape.
@@ -396,6 +398,14 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         label="Sweep: scrubbing stops lanes until 3"
                         on={sweepScrubHold}
                         onToggle={toggleSweepScrubHold}
+                    />
+                    <SliderInput
+                        name="Pass: hold 4 to fast-forward at"
+                        min={2}
+                        max={10}
+                        value={passFfFactor}
+                        unit="×"
+                        onChange={setPassFfFactor}
                     />
                     <SliderInput
                         name="Tag pointer: seconds on screen to count as a no"

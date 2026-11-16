@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { DbFile, DbTag } from "@renderer/shared/types/types";
+import type { DbFile, DbTag, DbTagWithCategory } from "@renderer/shared/types/types";
 import {
     usePass,
     itemAt,
@@ -8,6 +8,7 @@ import {
     runProgress,
     tagPosition,
     snapCoverage,
+    slotTagIds,
     type CoverageSnap,
     type PassItem,
     type PassRun as Run,
@@ -21,7 +22,7 @@ import {
 } from "@renderer/contexts/TagPointerContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
-import { useFileTags } from "@renderer/hooks/useFileTags";
+import { useFileTags, publishFileTags } from "@renderer/hooks/useFileTags";
 import { isTyping } from "@renderer/lib/keys";
 import { stepVideo } from "@renderer/lib/media";
 import { PointerLabel, MediaFlash } from "./TagPointer";
@@ -37,7 +38,8 @@ import { TagPill } from "./TagPill";
 //   Space  toggle the tag on the current file   3  next (untagged: a no)
 //   2  skip: next, no answer (clears a no)      1  back
 //   Tab    pick another of the job's tags (the current one goes last)
-//   Q / E  scrub   R  rotate left   G  file view   K  to Compare   F  full screen
+//   Q / E  scrub   hold 4  fast-forward (2–10×, a setting)
+//   R  rotate left   G  file view   K  to Compare   F  full screen
 
 /** Spots drawn on each side of the current one (most are off screen). */
 const NEIGHBOURS = 6;
@@ -137,6 +139,10 @@ export default function PassRun({
     // ── The tag being passed on, and the pointer ──
     const tagId = run && run.t < run.tags.length ? run.tags[run.t].tagId : null;
     const tag = tagId != null ? (tagMap.get(tagId) ?? null) : null;
+    // A pair: the upper tag (V), answered alongside the lower one (Space).
+    const upperId = run && run.t < run.tags.length ? run.tags[run.t].upperId : null;
+    const upperTag = upperId != null ? (tagMap.get(upperId) ?? null) : null;
+    const paired = upperTag != null;
     // The job's tags still to come, each once, not the current one (its own
     // set-aside rest may be among them).
     const upcomingKey = run
@@ -144,18 +150,39 @@ export default function PassRun({
               .filter((id) => id !== tagId)
               .join(",")
         : "";
+    // Pairs' upper tags by lower tag (current and to come), for the picker.
+    const partnersKey = run
+        ? run.tags
+              .slice(run.t)
+              .filter((x) => x.upperId != null)
+              .map((x) => `${x.tagId}:${x.upperId}`)
+              .join(",")
+        : "";
     useEffect(() => {
         if (!active) return;
+        const partners: Record<number, number> = {};
+        for (const pair of partnersKey ? partnersKey.split(",") : []) {
+            const [lower, upper] = pair.split(":").map(Number);
+            if (partners[lower] == null) partners[lower] = upper;
+        }
         setPassMode({
             tagId,
             upcoming: upcomingKey ? upcomingKey.split(",").map(Number) : [],
+            partners,
             onPick: (id) => void pickTag(id),
         });
         return () => setPassMode(null);
-    }, [active, tagId, upcomingKey, pickTag, setPassMode]);
+    }, [active, tagId, upcomingKey, partnersKey, pickTag, setPassMode]);
 
     // Flashes: on the current tile (Space), and the whole lane (2: skip).
-    const [tileFlash, setTileFlash] = useState<{ key: string; kind: FlashKind; n: number } | null>(null);
+    const [tileFlash, setTileFlash] = useState<{
+        key: string;
+        kind: FlashKind;
+        n: number;
+        edges: "both" | "top" | "bottom";
+    } | null>(null);
+    const pairedRef = useRef(paired);
+    pairedRef.current = paired;
     const [laneFlash, setLaneFlash] = useState(0);
     const currentFile = current?.kind === "file" ? current.file : null;
     const currentKey = current && run ? itemKey(run, current) : "";
@@ -166,7 +193,14 @@ export default function PassRun({
         const t: PointerTarget = {
             file: currentFile,
             ownPointer: true,
-            onFlash: (kind) => setTileFlash((f) => ({ key, kind, n: (f?.n ?? 0) + 1 })),
+            // Space: the lower tag (a pair's bottom edge).
+            onFlash: (kind) =>
+                setTileFlash((f) => ({
+                    key,
+                    kind,
+                    n: (f?.n ?? 0) + 1,
+                    edges: pairedRef.current ? "bottom" : "both",
+                })),
             anchorY: () => pointerRef.current?.getBoundingClientRect().top ?? null,
         };
         setTarget(t);
@@ -175,6 +209,37 @@ export default function PassRun({
 
     const { tags: fileTags } = useFileTags(currentFile?.id ?? null);
     const onFile = tag ? (fileTags as (DbTag & { inherited?: boolean })[]).find((x) => x.id === tag.id) : undefined;
+    const onFileUpper = upperTag ? fileTags.find((x) => x.id === upperTag.id) : undefined;
+
+    // V: toggle the upper tag on the current file, the same way Space does
+    // the lower one (a tag it already had flashes amber first; inherited
+    // can't change here).
+    const upperAdded = useRef(new Set<number>());
+    const upperConfirmed = useRef(new Set<number>());
+    useEffect(() => {
+        upperAdded.current = new Set();
+        upperConfirmed.current = new Set();
+    }, [upperId]);
+    const toggleUpper = useCallback(async (file: DbFile, t: DbTag): Promise<FlashKind | null> => {
+        const tagsNow = (await window.api.getTags(file.id)) as (DbTag & { inherited?: boolean })[];
+        const has = tagsNow.find((x) => x.id === t.id);
+        const state = has ? (has.inherited ? "inherited" : "own") : null;
+        if (state === "inherited") return "denied";
+        if (state === "own" && !upperAdded.current.has(file.id) && !upperConfirmed.current.has(file.id)) {
+            upperConfirmed.current.add(file.id);
+            return "already";
+        }
+        const next =
+            state === "own" ? await window.api.removeTag(file.id, t.name) : await window.api.addTag(file.id, t.name);
+        publishFileTags(file.id, next);
+        if (state === null) {
+            upperAdded.current.add(file.id);
+            return "on";
+        }
+        upperAdded.current.delete(file.id);
+        upperConfirmed.current.delete(file.id);
+        return null;
+    }, []);
 
     // ── "No" markers: files with a firm no for their tag (hard: taken off
     // by hand; pass: stepped past with 3). Shown on the tile so a no is
@@ -209,17 +274,23 @@ export default function PassRun({
             if (loadedLists.current.has(sig)) continue;
             loadedLists.current.add(sig);
             void loadNoes(tr.tagId, tr.files.map((f) => f.id));
+            if (tr.upperId != null) void loadNoes(tr.upperId, tr.files.map((f) => f.id));
         }
     }, [run, loadNoes]);
     // The current file's tags changed (Space added or took off the tag):
     // its marker follows (taking it off is a hard no; having it, none).
     useEffect(() => {
         if (currentFile && tagId != null) void loadNoes(tagId, [currentFile.id]);
+        if (currentFile && upperId != null) void loadNoes(upperId, [currentFile.id]);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fileTags]);
 
     // ── Layout: the current spot in the middle, all the room it needs ──
-    const laneH = Math.max(0, H - STRIP_PX);
+    // The strip is two lines in a run with a pair (all run long, so the lane
+    // never changes height between stretches).
+    const hasPairs = !!run?.tags.some((x) => x.upperId != null);
+    const stripPx = STRIP_PX + (hasPairs ? 22 : 0);
+    const laneH = Math.max(0, H - stripPx);
     // Every tile's size is fixed wherever it is in the lane: full height,
     // unless that would be wider than the screen; then it's one screen
     // wide, its media fit inside and centred (black above and below). So
@@ -328,58 +399,100 @@ export default function PassRun({
 
     // ── Videos (Q / E scrub the current one) ──
     const currentVideo = useRef<HTMLVideoElement | null>(null);
+    // Hold 4: the current video plays faster (the factor is a setting).
+    // Stepping to another file while held carries it over; letting go, or
+    // the window losing focus, goes back to normal speed.
+    const { passFfFactor } = useSettings();
+    const ffHeld = useRef(false);
+    const ffFactor = useRef(passFfFactor);
+    ffFactor.current = passFfFactor;
     const setCurrentVideo = useCallback((el: HTMLVideoElement | null) => {
+        if (currentVideo.current && currentVideo.current !== el) currentVideo.current.playbackRate = 1;
         currentVideo.current = el;
+        if (el) el.playbackRate = ffHeld.current ? ffFactor.current : 1;
     }, []);
+    const setFf = useCallback((on: boolean) => {
+        ffHeld.current = on;
+        if (currentVideo.current) currentVideo.current.playbackRate = on ? ffFactor.current : 1;
+    }, []);
+    useEffect(() => {
+        if (ffHeld.current && currentVideo.current) currentVideo.current.playbackRate = passFfFactor;
+    }, [passFfFactor]);
+    useEffect(() => {
+        if (!active) {
+            setFf(false);
+            return;
+        }
+        const onUp = (e: KeyboardEvent) => {
+            if (e.code === "Digit4") setFf(false);
+        };
+        const onBlur = () => setFf(false);
+        window.addEventListener("keyup", onUp);
+        window.addEventListener("blur", onBlur);
+        return () => {
+            window.removeEventListener("keyup", onUp);
+            window.removeEventListener("blur", onBlur);
+            setFf(false);
+        };
+    }, [active, setFf]);
 
     // ── Keys ──
-    const state = useRef({ current, tagId, tagged: !!onFile });
-    state.current = { current, tagId, tagged: !!onFile };
+    const state = useRef({ current, tagId, tagged: !!onFile, upperTag, upperTagged: !!onFileUpper, currentKey });
+    state.current = { current, tagId, tagged: !!onFile, upperTag, upperTagged: !!onFileUpper, currentKey };
     const rotating = useRef(false);
     useEffect(() => {
         if (!active) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.metaKey || e.ctrlKey || e.altKey || isTyping() || pickingRef.current) return;
             if (document.querySelector("[data-modal]")) return;
-            const { current, tagId, tagged } = state.current;
+            const { current, tagId, tagged, upperTag, upperTagged, currentKey } = state.current;
             const file = current?.kind === "file" ? current.file : null;
+            // The tags this stretch asks about, and whether the file has each.
+            const asks: { id: number; has: boolean }[] = [];
+            if (tagId != null) asks.push({ id: tagId, has: tagged });
+            if (upperTag) asks.push({ id: upperTag.id, has: upperTagged });
             switch (e.code) {
                 case "Digit3":
                     e.preventDefault();
                     if (e.repeat || !current || current.kind === "end") return;
-                    // Stepping past an untagged file is a firm no (main
-                    // skips it if the file has the tag).
-                    if (file && tagId != null) {
-                        if (!tagged) {
-                            const k = noKey(tagId, file.id);
-                            setNoes((n) => ({ ...n, [k]: { hard: n[k]?.hard ?? false, pass: true } }));
-                        }
+                    // Stepping past is a firm no for each tag asked about
+                    // that the file doesn't have (main skips tagged ones).
+                    if (file) {
                         const id = file.id;
-                        window.api
-                            .setPassNo(id, tagId)
-                            .then(() => loadNoes(tagId, [id]))
-                            .catch(() => {});
+                        for (const a of asks) {
+                            if (!a.has) {
+                                const k = noKey(a.id, id);
+                                setNoes((n) => ({ ...n, [k]: { hard: n[k]?.hard ?? false, pass: true } }));
+                            }
+                            window.api
+                                .setPassNo(id, a.id)
+                                .then(() => loadNoes(a.id, [id]))
+                                .catch(() => {});
+                        }
                     }
                     void forward();
                     break;
                 case "Digit2":
                     e.preventDefault();
                     if (e.repeat || !current || current.kind === "end") return;
-                    // Skip: no answer. Clears a no given by mistake.
-                    if (file && tagId != null) {
-                        const k = noKey(tagId, file.id);
-                        setNoes((n) => {
-                            if (!n[k]) return n;
-                            const next = { ...n };
-                            if (n[k].hard) next[k] = { hard: true, pass: false };
-                            else delete next[k];
-                            return next;
-                        });
+                    // Skip: no noes, for either tag (yeses already pressed
+                    // stay). Clears a no given by mistake.
+                    if (file && asks.length > 0) {
                         const id = file.id;
-                        window.api
-                            .clearPassNo(id, tagId)
-                            .then(() => loadNoes(tagId, [id]))
-                            .catch(() => {});
+                        for (const a of asks) {
+                            const k = noKey(a.id, id);
+                            setNoes((n) => {
+                                if (!n[k]) return n;
+                                const next = { ...n };
+                                if (n[k].hard) next[k] = { hard: true, pass: false };
+                                else delete next[k];
+                                return next;
+                            });
+                            window.api
+                                .clearPassNo(id, a.id)
+                                .then(() => loadNoes(a.id, [id]))
+                                .catch(() => {});
+                        }
                         setLaneFlash((n) => n + 1);
                     }
                     void forward();
@@ -387,6 +500,22 @@ export default function PassRun({
                 case "Digit1":
                     e.preventDefault();
                     if (!e.repeat) back();
+                    break;
+                case "Digit4":
+                    // Hold: fast-forward the current video (see setFf).
+                    e.preventDefault();
+                    if (!e.repeat) setFf(true);
+                    break;
+                case "KeyV":
+                    // A pair: V toggles the upper tag (flashing the top edge).
+                    if (!upperTag) return;
+                    e.preventDefault();
+                    if (e.repeat || !file) return;
+                    void toggleUpper(file, upperTag).then((kind) => {
+                        if (kind) {
+                            setTileFlash((f) => ({ key: currentKey, kind, n: (f?.n ?? 0) + 1, edges: "top" }));
+                        }
+                    });
                     break;
                 case "KeyQ":
                 case "KeyE":
@@ -428,7 +557,7 @@ export default function PassRun({
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [active, forward, back, replaceFile, onInspect, onCompare, pickingRef, loadNoes]);
+    }, [active, forward, back, replaceFile, onInspect, onCompare, pickingRef, loadNoes, toggleUpper, setFf]);
 
     if (!run) return null;
     const tr = run.t < run.tags.length ? run.tags[run.t] : null;
@@ -479,27 +608,25 @@ export default function PassRun({
                                         run={run}
                                         rootPath={rootPath}
                                         current={isCurrent}
+                                        active={active}
                                         onShape={onShape}
                                         onVideo={isCurrent ? setCurrentVideo : undefined}
                                     />
                                     {/* A firm no: a steady red ring round the media (easy
-                                        to catch as it slides away), and the badge saying so. */}
-                                    {it.kind === "file" &&
-                                        noes[noKey(run.tags[it.t].tagId, it.file.id)] && (
-                                            <>
-                                                <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_0_3px_rgb(239_68_68)]" />
-                                                <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/75 px-2 py-0.5 text-[11px] font-medium text-red-300">
-                                                    ✕ no
-                                                </span>
-                                            </>
-                                        )}
+                                        to catch as it slides away), and a badge saying so. A
+                                        pair: the top half for the upper tag, the bottom half
+                                        for the lower one, each badge naming its tag. */}
+                                    {it.kind === "file" && <NoMarks run={run} t={it.t} fileId={it.file.id} noes={noes} />}
                                 </div>
                                 {isCurrent && tileFlash && tileFlash.key === key && (
                                     <div
                                         className="pointer-events-none absolute inset-x-0"
                                         style={{ top: curTop, height: curH }}
                                     >
-                                        <MediaFlash flash={{ kind: tileFlash.kind, n: tileFlash.n }} />
+                                        <MediaFlash
+                                            flash={{ kind: tileFlash.kind, n: tileFlash.n }}
+                                            edges={tileFlash.edges}
+                                        />
                                     </div>
                                 )}
                             </div>
@@ -527,18 +654,40 @@ export default function PassRun({
                             current.kind === "card" && !picking ? "hidden" : "flex"
                         }`}
                     >
-                        <PointerLabel onFile={onFile} originTop={!hasMouse} />
+                        <PointerLabel
+                            onFile={onFile}
+                            originTop={!hasMouse}
+                            upper={upperTag ? { tag: upperTag, onFile: onFileUpper } : undefined}
+                        />
                     </div>
                 )}
 
                 {/* The strip: tag, place, keys, and the run's progress */}
                 <div
                     className="absolute inset-x-0 bottom-0 flex flex-col justify-end border-t border-neutral-800 bg-neutral-950"
-                    style={{ height: STRIP_PX }}
+                    style={{ height: stripPx }}
                 >
+                    {/* A pair: the upper tag (V) on its own line, over the lower (Space). */}
+                    {hasPairs && (
+                        <div className="flex h-[22px] items-center gap-3 px-3 text-[11px] text-neutral-500">
+                            {upperTag && (
+                                <span className="flex origin-left scale-90 items-center gap-1.5">
+                                    <kbd className="w-10 rounded bg-neutral-800 px-1 text-center text-[10px] text-neutral-400">
+                                        V
+                                    </kbd>
+                                    <TagPill tag={upperTag} applied />
+                                </span>
+                            )}
+                        </div>
+                    )}
                     <div className="flex items-center gap-3 px-3 pb-1 text-[11px] text-neutral-500">
                         {tag ? (
-                            <span className="origin-left scale-90">
+                            <span className="flex origin-left scale-90 items-center gap-1.5">
+                                {upperTag && (
+                                    <kbd className="w-10 rounded bg-neutral-800 px-1 text-center text-[10px] text-neutral-400">
+                                        Space
+                                    </kbd>
+                                )}
                                 <TagPill tag={tag} applied />
                             </span>
                         ) : (
@@ -556,7 +705,7 @@ export default function PassRun({
                             </span>
                         )}
                         <span className="ml-auto truncate">
-                            1 back · Space yes · 2 skip · 3 no
+                            {paired ? "1 back · Space / V yes · 2 skip · 3 no (each missing) · hold 4 fast" : "1 back · Space yes · 2 skip · 3 no · hold 4 fast"}
                         </span>
                     </div>
                     <div className="h-[3px] bg-neutral-800">
@@ -576,6 +725,7 @@ function PassTile({
     run,
     rootPath,
     current,
+    active,
     onShape,
     onVideo,
 }: {
@@ -583,6 +733,8 @@ function PassTile({
     run: Run;
     rootPath: string;
     current: boolean;
+    /** The run is showing (not under the file view, G): paused otherwise. */
+    active: boolean;
     onShape: (fileId: number, aspect: number) => void;
     onVideo?: (el: HTMLVideoElement | null) => void;
 }): JSX.Element {
@@ -592,8 +744,8 @@ function PassTile({
             <LaneMedia
                 file={item.file}
                 rootPath={rootPath}
-                audible={current}
-                play
+                audible={current && active}
+                play={active}
                 onShape={(aspect) => onShape(id, aspect)}
                 onVideo={onVideo}
             />
@@ -616,20 +768,37 @@ function PassCard({
     if (item.kind === "end") return <EndCard run={run} current={current} />;
     const tr = run.tags[item.t];
     const tag = tagMap.get(tr.tagId);
-    const left = tr.files ? tr.files.length : (run.estimates[tr.tagId] ?? null);
+    const upper = tr.upperId != null ? tagMap.get(tr.upperId) : undefined;
+    const left = tr.files ? tr.files.length : (run.estimates[tr.id] ?? null);
+    const big = (t: DbTagWithCategory) => (
+        <span className="flex items-center gap-2 rounded-full bg-neutral-200 px-5 py-2 text-3xl font-semibold text-neutral-900">
+            {t.category && (
+                <span
+                    className="rounded-full bg-neutral-900 px-2 py-1 text-xl leading-none"
+                    style={{ color: t.category.color ?? undefined }}
+                >
+                    {t.category.icon}
+                </span>
+            )}
+            {t.name}
+        </span>
+    );
+    const key = (k: string) => (
+        <kbd className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{k}</kbd>
+    );
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-neutral-900 p-6 text-center">
+            {/* A pair: the upper tag (V) over the lower one (Space). */}
+            {upper && (
+                <span className="flex flex-col items-center gap-1.5">
+                    {key("V")}
+                    {big(upper)}
+                </span>
+            )}
             {tag && (
-                <span className="flex items-center gap-2 rounded-full bg-neutral-200 px-5 py-2 text-3xl font-semibold text-neutral-900">
-                    {tag.category && (
-                        <span
-                            className="rounded-full bg-neutral-900 px-2 py-1 text-xl leading-none"
-                            style={{ color: tag.category.color ?? undefined }}
-                        >
-                            {tag.category.icon}
-                        </span>
-                    )}
-                    {tag.name}
+                <span className="flex flex-col items-center gap-1.5">
+                    {upper && key("Space")}
+                    {big(tag)}
                 </span>
             )}
             {left != null && (
@@ -637,8 +806,61 @@ function PassCard({
                     {left.toLocaleString()} file{left === 1 ? "" : "s"}
                 </span>
             )}
-            <span className="text-xs text-neutral-500">Space = has it · 3 = doesn&apos;t · 2 = skip</span>
+            <span className="text-xs text-neutral-500">
+                {upper
+                    ? "Space / V = has it · 3 = a no for each it doesn't have · 2 = skip"
+                    : "Space = has it · 3 = doesn't · 2 = skip"}
+            </span>
         </div>
+    );
+}
+
+/** The no marks on a file's media: red bars along the top and bottom edges
+ *  (no side bars: they blended into the neighbouring tiles) and a badge. A
+ *  pair splits them: the top bar for the upper tag, the bottom for the
+ *  lower, each badge naming its tag. */
+function NoMarks({
+    run,
+    t,
+    fileId,
+    noes,
+}: {
+    run: Run;
+    t: number;
+    fileId: number;
+    noes: Record<string, { hard: boolean; pass: boolean }>;
+}): JSX.Element | null {
+    const { tagMap } = useTags();
+    const tr = run.tags[t];
+    if (!tr) return null;
+    const lowerNo = !!noes[`${tr.tagId}:${fileId}`];
+    const badge = "pointer-events-none absolute left-2 rounded-full bg-black/75 px-2 py-0.5 text-[11px] font-medium text-red-300";
+    if (tr.upperId == null) {
+        if (!lowerNo) return null;
+        return (
+            <>
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-red-500" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] bg-red-500" />
+                <span className={`${badge} top-2`}>✕ no</span>
+            </>
+        );
+    }
+    const upperNo = !!noes[`${tr.upperId}:${fileId}`];
+    return (
+        <>
+            {upperNo && (
+                <>
+                    <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-red-500" />
+                    <span className={`${badge} top-2`}>✕ {tagMap.get(tr.upperId)?.name ?? "no"}</span>
+                </>
+            )}
+            {lowerNo && (
+                <>
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] bg-red-500" />
+                    <span className={`${badge} bottom-2`}>✕ {tagMap.get(tr.tagId)?.name ?? "no"}</span>
+                </>
+            )}
+        </>
     );
 }
 
@@ -656,7 +878,8 @@ function pct(checked: number, files: number): string {
 function EndCard({ run, current }: { run: Run; current: boolean }): JSX.Element {
     const { tagMap } = useTags();
     const { coverageSeconds } = useSettings();
-    const tagIds = useMemo(() => [...new Set(run.tags.map((x) => x.tagId))], [run.tags]);
+    // Every tag the run asked about (a pair's upper tags too).
+    const tagIds = useMemo(() => slotTagIds(run.tags), [run.tags]);
     const files = run.tags.reduce((s, x) => s + (x.files?.length ?? 0), 0);
     const [after, setAfter] = useState<Record<number, CoverageSnap> | null>(null);
     // Read once it's reached (as the next tile over, the last answer

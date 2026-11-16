@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { usePass, tagPosition, type PassWhich } from "@renderer/contexts/PassContext";
+import { usePass, tagPosition, slotTagIds, type PassWhich, type PassSlot } from "@renderer/contexts/PassContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
@@ -49,43 +49,63 @@ export default function PassLobby(): JSX.Element | null {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [!!lobby, scopeKey]);
 
-    // Each tag's estimated list size (later tags may shrink as earlier
-    // ones imply them).
-    const tagIds = lobby?.tagIds ?? [];
+    // Each slot's estimated list size (later ones may shrink as earlier
+    // ones imply them). A pair's is files needing an answer for either.
+    const slots = useMemo(
+        () => (lobby?.slots ?? []).filter((x) => tagMap.has(x.tagId)),
+        [lobby?.slots, tagMap],
+    );
+    const slotsKey = slots.map((x) => `${x.tagId}/${x.upperId ?? ""}`).join(",");
     const which = lobby?.which ?? "needs-firm";
-    const [counts, setCounts] = useState<Record<number, number>>({});
+    const [counts, setCounts] = useState<Record<string, number>>({});
     useEffect(() => {
-        if (!lobby || tagIds.length === 0) return;
+        if (!lobby || slots.length === 0) return;
         let gone = false;
         window.api
-            .getPassCounts(folderPrefixes, activeFilter, tagIds, which)
-            .then((c) => !gone && setCounts(c))
+            .getPassCounts(folderPrefixes, activeFilter, slots, which)
+            .then((c) => {
+                if (gone) return;
+                const next: Record<string, number> = {};
+                slots.forEach((x, i) => (next[`${x.tagId}/${x.upperId ?? ""}`] = c[i] ?? 0));
+                setCounts(next);
+            })
             .catch(() => {});
         return () => {
             gone = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [!!lobby, scopeKey, tagIds.join(","), which]);
-
-    const tags = useMemo(
-        () => tagIds.map((id) => tagMap.get(id)).filter((t): t is NonNullable<typeof t> => !!t),
-        [tagIds, tagMap],
+    }, [!!lobby, scopeKey, slotsKey, which]);
+    const countOf = (x: PassSlot) => counts[`${x.tagId}/${x.upperId ?? ""}`];
+    const total = slots.reduce((n, x) => n + (countOf(x) ?? 0), 0);
+    // Every tag in the job (each can only be in it once).
+    const used = useMemo(
+        () => slotTagIds(slots).map((id) => tagMap.get(id)).filter((t): t is NonNullable<typeof t> => !!t),
+        [slots, tagMap],
     );
-    const total = tags.reduce((s, t) => s + (counts[t.id] ?? 0), 0);
+    // The slot whose upper tag is being picked.
+    const [pairing, setPairing] = useState<number | null>(null);
 
     if (!lobby) return null;
 
+    const setSlots = (next: PassSlot[]) => updateLobby({ slots: next });
     const move = (i: number, by: -1 | 1) => {
-        const next = [...tagIds];
+        const next = [...slots];
         const j = i + by;
         if (j < 0 || j >= next.length) return;
         [next[i], next[j]] = [next[j], next[i]];
-        updateLobby({ tagIds: next });
+        setSlots(next);
     };
-    const remove = (id: number) => updateLobby({ tagIds: tagIds.filter((t) => t !== id) });
+    const remove = (i: number) => setSlots(slots.filter((_, k) => k !== i));
+    const byName = (name: string) => [...tagMap.values()].find((t) => t.name === name);
     const add = (name: string) => {
-        const tag = [...tagMap.values()].find((t) => t.name === name);
-        if (tag && !tagIds.includes(tag.id)) updateLobby({ tagIds: [...tagIds, tag.id] });
+        const tag = byName(name);
+        if (tag && !used.some((u) => u.id === tag.id)) setSlots([...slots, { tagId: tag.id, upperId: null }]);
+    };
+    const setUpper = (i: number, name: string | null) => {
+        const tag = name ? byName(name) : null;
+        if (name && (!tag || used.some((u) => u.id === tag.id))) return;
+        setSlots(slots.map((x, k) => (k === i ? { ...x, upperId: tag ? tag.id : null } : x)));
+        setPairing(null);
     };
 
     const section = "text-[11px] font-medium uppercase tracking-wider text-neutral-500";
@@ -157,50 +177,105 @@ export default function PassLobby(): JSX.Element | null {
                     {/* Tags, in order. */}
                     <div className="flex flex-col gap-2">
                         <span className={section}>Tags, in order</span>
-                        {tags.length === 0 && (
+                        {slots.length === 0 && (
                             <p className="text-xs text-neutral-600">Add the tags to pass on.</p>
                         )}
-                        {tags.map((t, i) => (
-                            <div key={t.id} className="flex items-center gap-2">
-                                <span className="w-4 text-right text-xs text-neutral-600 tabular-nums">
-                                    {i + 1}
-                                </span>
-                                <TagPill tag={t} applied />
-                                <span className="flex-1 text-xs text-neutral-500 tabular-nums">
-                                    {counts[t.id] == null ? "…" : `${num(counts[t.id])} files`}
-                                </span>
-                                <button
-                                    onClick={() => move(i, -1)}
-                                    disabled={i === 0}
-                                    title="Earlier"
-                                    className="px-1 text-xs text-neutral-500 hover:text-neutral-200 disabled:text-neutral-800"
-                                >
-                                    ↑
-                                </button>
-                                <button
-                                    onClick={() => move(i, 1)}
-                                    disabled={i === tags.length - 1}
-                                    title="Later"
-                                    className="px-1 text-xs text-neutral-500 hover:text-neutral-200 disabled:text-neutral-800"
-                                >
-                                    ↓
-                                </button>
-                                <button
-                                    onClick={() => remove(t.id)}
-                                    title="Remove"
-                                    className="px-1 text-xs text-neutral-600 hover:text-neutral-200"
-                                >
-                                    ✕
-                                </button>
-                            </div>
-                        ))}
+                        {slots.map((x, i) => {
+                            const lower = tagMap.get(x.tagId)!;
+                            const upper = x.upperId != null ? tagMap.get(x.upperId) : undefined;
+                            const n = countOf(x);
+                            return (
+                                <div key={`${x.tagId}/${x.upperId ?? ""}`} className="flex items-start gap-2">
+                                    <span className="w-4 pt-1 text-right text-xs text-neutral-600 tabular-nums">
+                                        {i + 1}
+                                    </span>
+                                    {/* A pair: the upper tag (V) over the lower one (Space). */}
+                                    <div className="flex flex-col gap-1">
+                                        {upper && (
+                                            <span className="flex items-center gap-1.5">
+                                                <kbd className="w-9 rounded bg-neutral-800 px-1 text-center text-[10px] text-neutral-400">
+                                                    V
+                                                </kbd>
+                                                <TagPill tag={upper} applied />
+                                                <button
+                                                    onClick={() => setUpper(i, null)}
+                                                    title="Remove the upper tag"
+                                                    className="px-1 text-[10px] text-neutral-600 hover:text-neutral-200"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </span>
+                                        )}
+                                        <span className="flex items-center gap-1.5">
+                                            {upper && (
+                                                <kbd className="w-9 rounded bg-neutral-800 px-1 text-center text-[10px] text-neutral-400">
+                                                    Space
+                                                </kbd>
+                                            )}
+                                            <TagPill tag={lower} applied />
+                                        </span>
+                                        {!upper && pairing !== i && (
+                                            <button
+                                                onClick={() => setPairing(i)}
+                                                title="Answer a second tag alongside this one: V toggles it, 3 is a no for each tag the file doesn't have"
+                                                className="self-start text-[11px] text-neutral-500 hover:text-neutral-200"
+                                            >
+                                                + upper tag (V)
+                                            </button>
+                                        )}
+                                        {pairing === i && (
+                                            <div className="flex items-center gap-1">
+                                                <TagInput
+                                                    exclude={used}
+                                                    onPick={(name) => setUpper(i, name)}
+                                                    onCreate={() => {}}
+                                                    className=""
+                                                />
+                                                <button
+                                                    onClick={() => setPairing(null)}
+                                                    className="px-1 text-[11px] text-neutral-500 hover:text-neutral-200"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span className="flex-1 pt-1 text-xs text-neutral-500 tabular-nums">
+                                        {n == null ? "…" : `${num(n)} files`}
+                                    </span>
+                                    <button
+                                        onClick={() => move(i, -1)}
+                                        disabled={i === 0}
+                                        title="Earlier"
+                                        className="px-1 pt-1 text-xs text-neutral-500 hover:text-neutral-200 disabled:text-neutral-800"
+                                    >
+                                        ↑
+                                    </button>
+                                    <button
+                                        onClick={() => move(i, 1)}
+                                        disabled={i === slots.length - 1}
+                                        title="Later"
+                                        className="px-1 pt-1 text-xs text-neutral-500 hover:text-neutral-200 disabled:text-neutral-800"
+                                    >
+                                        ↓
+                                    </button>
+                                    <button
+                                        onClick={() => remove(i)}
+                                        title="Remove"
+                                        className="px-1 pt-1 text-xs text-neutral-600 hover:text-neutral-200"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            );
+                        })}
                         <TagInput
-                            exclude={tags}
+                            exclude={used}
                             onPick={add}
                             onCreate={() => {}}
                             className="pl-6"
                         />
-                        {tags.length > 1 && (
+                        {slots.length > 1 && (
                             <p className="pl-6 text-[11px] text-neutral-500 tabular-nums">
                                 About {num(total)} files in all. Later tags can shrink as earlier
                                 ones imply them.
@@ -271,10 +346,10 @@ export default function PassLobby(): JSX.Element | null {
                 <div className="flex items-center justify-end gap-2 border-t border-neutral-800 px-5 py-3">
                     <button
                         onClick={() => void startRun()}
-                        disabled={tags.length === 0}
-                        title={tags.length === 0 ? "Add a tag first" : undefined}
+                        disabled={slots.length === 0}
+                        title={slots.length === 0 ? "Add a tag first" : undefined}
                         className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                            tags.length === 0
+                            slots.length === 0
                                 ? "cursor-default bg-neutral-800 text-neutral-600"
                                 : "bg-neutral-200 text-neutral-900 hover:bg-white"
                         }`}

@@ -32,6 +32,9 @@ interface Settings {
      *  no, pass no); off, it shows everything. */
     sweepSkipAnswered: boolean;
     toggleSweepSkipAnswered: () => void;
+    /** Pass: how fast holding 4 plays the current video (2–10×). */
+    passFfFactor: number;
+    setPassFfFactor: (n: number) => void;
     toggleCompareBothAudio: () => void;
     /** Browse's sort, direction and grid/rows choice, kept between sessions. */
     browseSortMode: SortMode;
@@ -98,6 +101,8 @@ const SettingsContext = createContext<Settings>({
     toggleSweepAllAudio: () => {},
     sweepSkipAnswered: true,
     toggleSweepSkipAnswered: () => {},
+    passFfFactor: 2,
+    setPassFfFactor: () => {},
     toggleCompareBothAudio: () => {},
     browseSortMode: "alphabetical",
     setBrowseSortMode: () => {},
@@ -204,6 +209,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const toggleSweepAllAudio = useCallback(() => setSweepAllAudio((a) => !a), []);
     const [sweepSkipAnswered, setSweepSkipAnswered] = useState(() => savedBool("sweepSkipAnswered", true));
     const toggleSweepSkipAnswered = useCallback(() => setSweepSkipAnswered((a) => !a), []);
+    const [passFfFactor, setPassFfFactor] = useState(() => savedNum("passFfFactor", 2, 2, 10));
     const toggleCompareBothAudio = useCallback(() => {
         setCompareBothAudio((b) => !b);
     }, []);
@@ -301,6 +307,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     compareBothAudio,
                     sweepAllAudio,
                     sweepSkipAnswered,
+                    passFfFactor,
                     browseSortMode,
                     browseSortDirection,
                     browseViewMode,
@@ -331,6 +338,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         compareBothAudio,
         sweepAllAudio,
         sweepSkipAnswered,
+        passFfFactor,
         browseSortMode,
         browseSortDirection,
         browseViewMode,
@@ -371,6 +379,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 toggleSweepAllAudio,
                 sweepSkipAnswered,
                 toggleSweepSkipAnswered,
+                passFfFactor,
+                setPassFfFactor,
                 toggleCompareBothAudio,
                 browseSortMode,
                 setBrowseSortMode,

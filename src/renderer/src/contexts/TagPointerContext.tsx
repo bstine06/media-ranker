@@ -211,6 +211,9 @@ export interface PassPointer {
     tagId: number | null;
     /** The job's tags still to come, in order. */
     upcoming: number[];
+    /** A pair's upper tag (V), by its lower tag, for the current tag and
+     *  those to come: the picker shows both. */
+    partners: Record<number, number>;
     /** Picked in the picker: that tag comes up now, the current one goes
      *  to the end of the queue. */
     onPick: (tagId: number) => void;
@@ -703,13 +706,29 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
         [passMode, tagMap],
     );
     const matches = useMemo(() => {
-        // In a pass, search finds only the job's tags still to come.
-        if (passMode) return searchTags(query.trim(), passTags);
+        // In a pass, search finds only the job's tags still to come (a pair
+        // by either of its tags).
+        if (passMode) {
+            const uppers = passTags
+                .map((t) => {
+                    const up = passMode.partners[t.id];
+                    const ut = up != null ? tagMap.get(up) : undefined;
+                    return ut ? { ...ut, lower: t } : null;
+                })
+                .filter((x): x is DbTagWithCategory & { lower: DbTagWithCategory } => !!x);
+            const hits = searchTags(query.trim(), [...passTags, ...uppers]);
+            const out: DbTagWithCategory[] = [];
+            for (const h of hits) {
+                const lower = (h as { lower?: DbTagWithCategory }).lower ?? h;
+                if (!out.some((x) => x.id === lower.id)) out.push(lower);
+            }
+            return out;
+        }
         if (listMode !== "excluded") return searchTags(query.trim(), offeredTags);
         // Tab+3: the excluded tags, best suggestions first, until typing.
         if (!query.trim()) return excludedRanked.slice(0, 8);
         return searchTags(query.trim(), excludedTags);
-    }, [query, offeredTags, excludedTags, excludedRanked, listMode, passMode, passTags]);
+    }, [query, offeredTags, excludedTags, excludedRanked, listMode, passMode, passTags, tagMap]);
     useEffect(() => setHighlight(0), [query]);
 
     const openPicker = useCallback(() => {

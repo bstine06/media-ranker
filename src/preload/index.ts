@@ -294,17 +294,17 @@ const api = {
     getPassFiles: (
         folderPrefixes: string[] | null,
         filter: FilterNode | null,
-        tagId: number,
+        slot: { tagId: number; upperId: number | null },
         which: "needs-firm" | "all",
-    ) => ipcRenderer.invoke("get-pass-files", folderPrefixes, filter, tagId, which),
+    ) => ipcRenderer.invoke("get-pass-files", folderPrefixes, filter, slot, which),
     getPassCounts: (
         folderPrefixes: string[] | null,
         filter: FilterNode | null,
-        tagIds: number[],
+        slots: { tagId: number; upperId: number | null }[],
         which: "needs-firm" | "all",
-    ) => ipcRenderer.invoke("get-pass-counts", folderPrefixes, filter, tagIds, which),
-    prunePassList: (tagId: number, fileIds: number[]): Promise<number[]> =>
-        ipcRenderer.invoke("prune-pass-list", tagId, fileIds),
+    ) => ipcRenderer.invoke("get-pass-counts", folderPrefixes, filter, slots, which),
+    prunePassList: (slot: { tagId: number; upperId: number | null }, fileIds: number[]): Promise<number[]> =>
+        ipcRenderer.invoke("prune-pass-list", slot, fileIds),
     setPassNo: (fileId: number, tagId: number): Promise<void> =>
         ipcRenderer.invoke("set-pass-no", fileId, tagId),
     clearPassNo: (fileId: number, tagId: number): Promise<void> =>

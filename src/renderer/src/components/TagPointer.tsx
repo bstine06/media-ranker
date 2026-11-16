@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from "react";
-import type { DbTag } from "@renderer/shared/types/types";
+import type { DbTag, DbTagWithCategory } from "@renderer/shared/types/types";
 import {
     SEARCH_CARD,
     useTagPointer,
     type MediaFlashState,
 } from "@renderer/contexts/TagPointerContext";
 import { useFileTags } from "@renderer/hooks/useFileTags";
+import { useTags } from "@renderer/contexts/TagsContext";
 
 // The tag pointer's drawing: the pill with the tag, the picker's rolodex,
 // lists and search results, the countdown, and the triangle whose tip is
@@ -45,11 +46,19 @@ function stackSlotStyle(slot: number): React.CSSProperties {
  * it was already on (press again to take it off). Violet: it can't be changed
  * here (inherited). Blue: skipped (a pass's 2, across its lane).
  */
-export function MediaFlash({ flash }: { flash: MediaFlashState }): JSX.Element | null {
+export function MediaFlash({
+    flash,
+    edges = "both",
+}: {
+    flash: MediaFlashState;
+    /** A pass pair: the upper tag flashes the top edge, the lower the bottom. */
+    edges?: "both" | "top" | "bottom";
+}): JSX.Element | null {
     if (!flash) return null;
+    const list = edges === "top" ? ["top-0"] : edges === "bottom" ? ["bottom-0"] : ["top-0", "bottom-0"];
     return (
         <React.Fragment key={flash.n}>
-            {["top-0", "bottom-0"].map((edge) => (
+            {list.map((edge) => (
                 <div
                     key={edge}
                     className={`pointer-events-none absolute inset-x-0 z-30 ${edge} h-[3px] ${
@@ -81,9 +90,13 @@ export function MediaFlash({ flash }: { flash: MediaFlashState }): JSX.Element |
 export function PointerLabel({
     onFile,
     originTop = false,
+    upper,
 }: {
     onFile: OnFile | undefined;
     originTop?: boolean;
+    /** A pass pair: the upper tag (V), drawn over the carried one (Space),
+     *  each white when the file has it, dark when it doesn't. */
+    upper?: { tag: DbTagWithCategory; onFile: OnFile | undefined };
 }): JSX.Element {
     const {
         tag,
@@ -100,6 +113,7 @@ export function PointerLabel({
         stack,
         cursor,
         listMode,
+        passMode,
         listItems,
         listIndex,
         related,
@@ -138,7 +152,26 @@ export function PointerLabel({
                     picking ? "scale-[1.25]" : ""
                 } ${originTop ? "origin-top" : "origin-bottom"}`}
             >
-                <div className="relative mt-2 flex flex-col items-stretch">
+                {/* A pair's upper tag (V), over the carried one. */}
+                {upper && !picking && (
+                    <div
+                        className={`mt-2 flex min-w-[5rem] items-center justify-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium shadow-lg backdrop-blur ${
+                            upper.onFile ? "bg-neutral-100 text-neutral-900" : "bg-black/70 text-neutral-200"
+                        } ${upper.onFile?.inherited ? "opacity-60" : ""}`}
+                    >
+                        <KeyChip k="V" light={!!upper.onFile} />
+                        {upper.tag.category && (
+                            <span
+                                className="rounded-full bg-neutral-900 px-1 py-0.5 text-[10px] leading-none"
+                                style={{ color: upper.tag.category.color }}
+                            >
+                                {upper.tag.category.icon}
+                            </span>
+                        )}
+                        <span>{upper.onFile ? `✓ ${upper.tag.name}` : upper.tag.name}</span>
+                    </div>
+                )}
+                <div className={`relative flex flex-col items-stretch ${upper && !picking ? "mt-1" : "mt-2"}`}>
                     {/* Held + 1 / 2 / 3: which list is showing. Hidden when 3's
                         results open upward, over where it sits. */}
                     {picking && listMode && !(listMode === "excluded" && searchMode && resultsAbove) && (
@@ -236,6 +269,7 @@ export function PointerLabel({
                                     ) : (
                                         t.name
                                     )}
+                                    <PairChip lowerId={t.id} partners={passMode?.partners} />
                                 </div>
                             );
                         })}
@@ -275,6 +309,7 @@ export function PointerLabel({
                                 const shown = rolling ?? tag;
                                 return (
                                     <>
+                                        {upper && !picking && <KeyChip k="Space" light={!!onFile} />}
                                         {shown?.category && (
                                             // Dark backing: the label turns white, and so are some category colors.
                                             <span
@@ -346,6 +381,7 @@ export function PointerLabel({
                                     {t.category?.icon ?? ""}
                                 </span>
                                 {t.name}
+                                <PairChip lowerId={t.id} partners={passMode?.partners} />
                             </button>
                         ))
                     ) : (
@@ -412,5 +448,39 @@ export function CursorPointer(): JSX.Element | null {
         >
             <PointerLabel onFile={onFile} />
         </div>
+    );
+}
+
+/** In a pass, a pair's upper tag (V) beside its lower one in the picker. */
+function PairChip({
+    lowerId,
+    partners,
+}: {
+    lowerId: number;
+    partners: Record<number, number> | undefined;
+}): JSX.Element | null {
+    const { tagMap } = useTags();
+    const upperId = partners?.[lowerId];
+    const upper = upperId != null ? tagMap.get(upperId) : undefined;
+    if (!upper) return null;
+    return (
+        <span className="flex items-center gap-1 rounded-full bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-300">
+            <span className="text-neutral-500">V</span>
+            {upper.category && <span style={{ color: upper.category.color }}>{upper.category.icon}</span>}
+            {upper.name}
+        </span>
+    );
+}
+
+/** Which key a pair's pill answers to (V over Space). */
+function KeyChip({ k, light }: { k: string; light: boolean }): JSX.Element {
+    return (
+        <span
+            className={`rounded px-1 text-[9px] font-semibold leading-tight ${
+                light ? "bg-neutral-300 text-neutral-700" : "bg-neutral-800 text-neutral-400"
+            }`}
+        >
+            {k}
+        </span>
     );
 }

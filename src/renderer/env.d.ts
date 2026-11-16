@@ -113,18 +113,21 @@ declare global {
             getPassFiles: (
                 folderPrefixes: string[] | null,
                 filter: FilterNode | null,
-                tagId: number,
+                slot: { tagId: number; upperId: number | null },
                 which: "needs-firm" | "all",
             ) => Promise<DbFile[]>;
-            /** Sweep pass: how many files each tag's pass would have. */
+            /** Sweep pass: how many files each slot's pass would have (in order). */
             getPassCounts: (
                 folderPrefixes: string[] | null,
                 filter: FilterNode | null,
-                tagIds: number[],
+                slots: { tagId: number; upperId: number | null }[],
                 which: "needs-firm" | "all",
-            ) => Promise<Record<number, number>>;
+            ) => Promise<number[]>;
             /** Sweep pass: these files (order kept) that still need a firm answer. */
-            prunePassList: (tagId: number, fileIds: number[]) => Promise<number[]>;
+            prunePassList: (
+                slot: { tagId: number; upperId: number | null },
+                fileIds: number[],
+            ) => Promise<number[]>;
             /** Sweep pass: 3 records a pass no (skipped if the file has the tag). */
             setPassNo: (fileId: number, tagId: number) => Promise<void>;
             /** Sweep pass: 2 (skip) clears a pass no. */

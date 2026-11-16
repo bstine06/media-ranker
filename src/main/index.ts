@@ -138,6 +138,7 @@ import {
     savePassRun,
     clearPassRun,
     type PassWhich,
+    type PassSlot,
 } from "./pass";
 import {
     loadSavedRootPath,
@@ -733,18 +734,22 @@ function registerIpcHandlers(): void {
 
     // -- Sweep pass mode
     const passWhich = (w: unknown): PassWhich => (w === "all" ? "all" : "needs-firm");
+    const passSlot = (s: PassSlot): PassSlot => ({
+        tagId: Number(s?.tagId),
+        upperId: s?.upperId == null ? null : Number(s.upperId),
+    });
     ipcMain.handle(
         "get-pass-files",
-        (_event, folderPrefixes: string[] | null, filter: unknown, tagId: number, which: unknown) =>
-            getPassFiles(folderPrefixes, validateFilter(filter), tagId, passWhich(which)),
+        (_event, folderPrefixes: string[] | null, filter: unknown, slot: PassSlot, which: unknown) =>
+            getPassFiles(folderPrefixes, validateFilter(filter), passSlot(slot), passWhich(which)),
     );
     ipcMain.handle(
         "get-pass-counts",
-        (_event, folderPrefixes: string[] | null, filter: unknown, tagIds: number[], which: unknown) =>
-            getPassCounts(folderPrefixes, validateFilter(filter), tagIds, passWhich(which)),
+        (_event, folderPrefixes: string[] | null, filter: unknown, slots: PassSlot[], which: unknown) =>
+            getPassCounts(folderPrefixes, validateFilter(filter), slots.map(passSlot), passWhich(which)),
     );
-    ipcMain.handle("prune-pass-list", (_event, tagId: number, fileIds: number[]) =>
-        prunePassList(tagId, fileIds),
+    ipcMain.handle("prune-pass-list", (_event, slot: PassSlot, fileIds: number[]) =>
+        prunePassList(passSlot(slot), fileIds),
     );
     ipcMain.handle("set-pass-no", (_event, fileId: number, tagId: number) =>
         setPassNo(fileId, tagId),

@@ -22,9 +22,16 @@ import ConfirmDialog from "@renderer/components/ConfirmDialog";
  *  tag (yes, hard no, pass no), or every file (an audit). */
 export type PassWhich = "needs-firm" | "all";
 
+/** A stretch of the run: its tag (the lower one, Space) and optionally a
+ *  second (the upper one, V), answered together. */
+export interface PassSlot {
+    tagId: number;
+    upperId: number | null;
+}
+
 export interface LobbyDraft {
-    /** Tags in the order the run will go through them. */
-    tagIds: number[];
+    /** Slots in the order the run will go through them. */
+    slots: PassSlot[];
     which: PassWhich;
 }
 
@@ -40,7 +47,11 @@ export interface PassScope {
 export interface TagRun {
     /** Unique in the run (a tag can have two parts). */
     id: number;
+    /** The lower tag (Space). */
     tagId: number;
+    /** The upper tag (V), if this stretch is a pair. Its files are those
+     *  needing a firm answer for either; 3 is a no for each one missing. */
+    upperId: number | null;
     /** Its fixed list, once its card has been reached. */
     files: DbFile[] | null;
     /** The rest of a tag set aside with the picker. */
@@ -60,7 +71,7 @@ export interface PassRun {
     t: number;
     /** -1 = on the tag's card; otherwise the file's index in its list. */
     pos: number;
-    /** Estimated list sizes for tags whose list isn't built yet. */
+    /** Estimated list sizes (by part id) for parts not built yet. */
     estimates: Record<number, number>;
     /** Coverage when the run started, per tag, for the end card. */
     before: Record<number, CoverageSnap>;
@@ -106,7 +117,14 @@ interface SavedRun {
     which: PassWhich;
     order: PassOrder;
     direction: SortDirection;
-    tags: { id: number; tagId: number; fileIds: number[] | null; rest: boolean; arrived: boolean }[];
+    tags: {
+        id: number;
+        tagId: number;
+        upperId?: number | null;
+        fileIds: number[] | null;
+        rest: boolean;
+        arrived: boolean;
+    }[];
     t: number;
     pos: number;
     estimates: Record<number, number>;
@@ -122,6 +140,7 @@ const toSaved = (r: PassRun): SavedRun => ({
     tags: r.tags.map((x) => ({
         id: x.id,
         tagId: x.tagId,
+        upperId: x.upperId,
         fileIds: x.files ? x.files.map((f) => f.id) : null,
         rest: x.rest,
         arrived: x.arrived,
@@ -146,14 +165,15 @@ async function fromSaved(json: string): Promise<PassRun | null> {
     const byId = new Map((await window.api.getFilesByIds([...new Set(ids)])).map((f) => [f.id, f]));
     let pos = saved.pos;
     const tags: TagRun[] = saved.tags.map((x, i) => {
-        if (!x.fileIds) return { id: x.id, tagId: x.tagId, files: null, rest: x.rest, arrived: x.arrived };
+        const upperId = x.upperId ?? null;
+        if (!x.fileIds) return { id: x.id, tagId: x.tagId, upperId, files: null, rest: x.rest, arrived: x.arrived };
         const files = x.fileIds.map((id) => byId.get(id)).filter((f): f is DbFile => !!f);
         if (i === saved.t && pos >= 0) {
             // The place: as many files in as were kept before it.
             pos = x.fileIds.slice(0, pos).filter((id) => byId.has(id)).length;
             if (pos >= files.length) pos = -1;
         }
-        return { id: x.id, tagId: x.tagId, files, rest: x.rest, arrived: x.arrived };
+        return { id: x.id, tagId: x.tagId, upperId, files, rest: x.rest, arrived: x.arrived };
     });
     return {
         scope: saved.scope,
@@ -307,7 +327,7 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
 
     const openLobbyNow = useCallback((tagIds: number[]) => {
         setRunActive(false);
-        setLobby({ tagIds, which: "needs-firm" });
+        setLobby({ slots: tagIds.map((tagId) => ({ tagId, upperId: null })), which: "needs-firm" });
     }, []);
     // The lobby opens straight away; with an unfinished run it offers to
     // resume it, and Start asks before replacing it.
@@ -332,31 +352,32 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
             const found = await window.api.getPassFiles(
                 r.scope.folderPrefixes,
                 r.scope.filter,
-                tr.tagId,
+                { tagId: tr.tagId, upperId: tr.upperId },
                 r.which,
             );
             files = orderFiles(found, r.order, r.direction);
         } else if (r.which === "needs-firm" && tr.files.length > 0) {
-            const keep = new Set(await window.api.prunePassList(tr.tagId, tr.files.map((f) => f.id)));
+            const keep = new Set(
+                await window.api.prunePassList({ tagId: tr.tagId, upperId: tr.upperId }, tr.files.map((f) => f.id)),
+            );
             files = tr.files.filter((f) => keep.has(f.id));
         } else {
             files = tr.files;
         }
         const tags = r.tags.map((x, i) => (i === t ? { ...x, files, arrived: true } : x));
         // Later tags' estimates, now that this tag's work may have changed them.
-        const later = tags.slice(t + 1).filter((x) => !x.files).map((x) => x.tagId);
+        const later = tags.slice(t + 1).filter((x) => !x.files);
         let estimates = r.estimates;
         if (later.length > 0) {
             try {
-                estimates = {
-                    ...estimates,
-                    ...(await window.api.getPassCounts(
-                        r.scope.folderPrefixes,
-                        r.scope.filter,
-                        later,
-                        r.which,
-                    )),
-                };
+                const counts = await window.api.getPassCounts(
+                    r.scope.folderPrefixes,
+                    r.scope.filter,
+                    later.map((x) => ({ tagId: x.tagId, upperId: x.upperId })),
+                    r.which,
+                );
+                estimates = { ...estimates };
+                later.forEach((x, i) => (estimates[x.id] = counts[i] ?? 0));
             } catch {
                 // keep the old ones
             }
@@ -365,7 +386,7 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
     }, []);
 
     const startNow = useCallback(async () => {
-        if (!lobby || lobby.tagIds.length === 0 || busy.current) return;
+        if (!lobby || lobby.slots.length === 0 || busy.current) return;
         busy.current = true;
         try {
             const scope: PassScope = {
@@ -381,9 +402,10 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
                 which: lobby.which,
                 order: passOrder,
                 direction: passDirection,
-                tags: lobby.tagIds.map((tagId) => ({
+                tags: lobby.slots.map((slot) => ({
                     id: nextId.current++,
-                    tagId,
+                    tagId: slot.tagId,
+                    upperId: slot.upperId,
                     files: null,
                     rest: false,
                     arrived: false,
@@ -394,7 +416,7 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
                 before: {},
             };
             try {
-                fresh.before = await snapCoverage(scope, lobby.tagIds, coverageSeconds);
+                fresh.before = await snapCoverage(scope, slotTagIds(lobby.slots), coverageSeconds);
             } catch {
                 // the end card just won't show before → after
             }
@@ -462,6 +484,7 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
             const restPart: TagRun = {
                 id: nextId.current++,
                 tagId: cur.tagId,
+                upperId: cur.upperId,
                 files: cur.files ? files.slice(doneCount) : null,
                 rest: true,
                 arrived: false,
@@ -540,7 +563,7 @@ export function runProgress(run: PassRun): { done: number; total: number } {
     let done = 0;
     let total = 0;
     run.tags.forEach((tr, i) => {
-        const n = tr.files ? tr.files.length : (run.estimates[tr.tagId] ?? 0);
+        const n = tr.files ? tr.files.length : (run.estimates[tr.id] ?? 0);
         total += n;
         if (i < run.t) done += n;
         else if (i === run.t) done += Math.max(0, run.pos);
@@ -556,4 +579,9 @@ export function tagPosition(run: PassRun): { n: number; of: number; rest: boolea
     for (const tr of run.tags) if (!order.includes(tr.tagId)) order.push(tr.tagId);
     const cur = run.tags[run.t];
     return { n: order.indexOf(cur.tagId) + 1, of: order.length, rest: cur.rest };
+}
+
+/** Every tag in these slots, lower and upper, each once. */
+export function slotTagIds(slots: { tagId: number; upperId: number | null }[]): number[] {
+    return [...new Set(slots.flatMap((x) => (x.upperId != null ? [x.tagId, x.upperId] : [x.tagId])))];
 }
