@@ -314,6 +314,10 @@ const api = {
         fileIds: number[],
     ): Promise<{ fileId: number; hard: boolean; pass: boolean }[]> =>
         ipcRenderer.invoke("get-firm-noes", tagId, fileIds),
+    getFilesByIds: (fileIds: number[]) => ipcRenderer.invoke("get-files-by-ids", fileIds),
+    loadPassRun: (): Promise<string | null> => ipcRenderer.invoke("load-pass-run"),
+    savePassRun: (state: string): Promise<void> => ipcRenderer.invoke("save-pass-run", state),
+    clearPassRun: (): Promise<void> => ipcRenderer.invoke("clear-pass-run"),
     countScope: (folderPrefixes: string[] | null, filter: FilterNode | null): Promise<number> =>
         ipcRenderer.invoke("count-scope", folderPrefixes, filter),
 

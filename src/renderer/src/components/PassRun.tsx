@@ -7,6 +7,8 @@ import {
     prevSpot,
     runProgress,
     tagPosition,
+    snapCoverage,
+    type CoverageSnap,
     type PassItem,
     type PassRun as Run,
 } from "@renderer/contexts/PassContext";
@@ -632,7 +634,7 @@ function PassTile({
             />
         );
     }
-    return <PassCard item={item} run={run} />;
+    return <PassCard item={item} run={run} current={current} />;
 }
 
 function PassMedia({
@@ -693,20 +695,17 @@ function PassMedia({
 }
 
 /** A tag card (or the end card): a stop in the lane, not a file. */
-function PassCard({ item, run }: { item: Exclude<PassItem, { kind: "file" }>; run: Run }): JSX.Element {
+function PassCard({
+    item,
+    run,
+    current,
+}: {
+    item: Exclude<PassItem, { kind: "file" }>;
+    run: Run;
+    current: boolean;
+}): JSX.Element {
     const { tagMap } = useTags();
-    if (item.kind === "end") {
-        const files = run.tags.reduce((s, x) => s + (x.files?.length ?? 0), 0);
-        return (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-neutral-900 p-6 text-center">
-                <span className="text-2xl font-semibold text-neutral-100">Pass complete</span>
-                <span className="text-sm text-neutral-400 tabular-nums">
-                    {run.tags.length} tag{run.tags.length === 1 ? "" : "s"} · {files.toLocaleString()} file
-                    {files === 1 ? "" : "s"}
-                </span>
-            </div>
-        );
-    }
+    if (item.kind === "end") return <EndCard run={run} current={current} />;
     const tr = run.tags[item.t];
     const tag = tagMap.get(tr.tagId);
     const left = tr.files ? tr.files.length : (run.estimates[tr.tagId] ?? null);
@@ -731,6 +730,72 @@ function PassCard({ item, run }: { item: Exclude<PassItem, { kind: "file" }>; ru
                 </span>
             )}
             <span className="text-xs text-neutral-500">Space = has it · 3 = doesn&apos;t · 2 = skip</span>
+        </div>
+    );
+}
+
+/** Whole percent, rounded down (never 100% before it is); a little shows
+ *  as "<1%". */
+function pct(checked: number, files: number): string {
+    if (files === 0) return "0%";
+    const p = (checked / files) * 100;
+    if (p > 0 && p < 1) return "<1%";
+    return `${Math.floor(p)}%`;
+}
+
+/** The end of the run: each tag's coverage before → after, for the run's
+ *  files (big) and the library (small). */
+function EndCard({ run, current }: { run: Run; current: boolean }): JSX.Element {
+    const { tagMap } = useTags();
+    const { coverageSeconds } = useSettings();
+    const tagIds = useMemo(() => [...new Set(run.tags.map((x) => x.tagId))], [run.tags]);
+    const files = run.tags.reduce((s, x) => s + (x.files?.length ?? 0), 0);
+    const [after, setAfter] = useState<Record<number, CoverageSnap> | null>(null);
+    // Read once it's reached (as the next tile over, the last answer
+    // isn't in yet).
+    useEffect(() => {
+        if (!current) return;
+        let gone = false;
+        snapCoverage(run.scope, tagIds, coverageSeconds)
+            .then((a) => !gone && setAfter(a))
+            .catch(() => {});
+        return () => {
+            gone = true;
+        };
+    }, [current, run.scope, tagIds, coverageSeconds]);
+    return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 overflow-y-auto bg-neutral-900 p-6 text-center">
+            <span className="text-2xl font-semibold text-neutral-100">Pass complete</span>
+            <span className="text-sm text-neutral-400 tabular-nums">
+                {tagIds.length} tag{tagIds.length === 1 ? "" : "s"} · {files.toLocaleString()} file
+                {files === 1 ? "" : "s"}
+            </span>
+            <div className="flex flex-col gap-2">
+                {tagIds.map((id) => {
+                    const tag = tagMap.get(id);
+                    const b = run.before[id];
+                    const a = after?.[id];
+                    return (
+                        <div key={id} className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+                            {tag && <TagPill tag={tag} applied />}
+                            {b && a ? (
+                                <>
+                                    <span className="text-base text-neutral-100 tabular-nums">
+                                        {pct(b.scope.checked, b.scope.files)} → {pct(a.scope.checked, a.scope.files)}{" "}
+                                        <span className="text-xs text-neutral-500">here</span>
+                                    </span>
+                                    <span className="text-xs text-neutral-500 tabular-nums">
+                                        library {pct(b.library.checked, b.library.files)} →{" "}
+                                        {pct(a.library.checked, a.library.files)}
+                                    </span>
+                                </>
+                            ) : (
+                                <span className="text-xs text-neutral-600">{b ? "…" : ""}</span>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }

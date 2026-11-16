@@ -133,6 +133,10 @@ import {
     setPassNo,
     clearPassNo,
     getFirmNoes,
+    getFilesByIds,
+    loadPassRun,
+    savePassRun,
+    clearPassRun,
     type PassWhich,
 } from "./pass";
 import {
@@ -751,6 +755,10 @@ function registerIpcHandlers(): void {
     ipcMain.handle("get-firm-noes", (_event, tagId: number, fileIds: number[]) =>
         getFirmNoes(tagId, fileIds),
     );
+    ipcMain.handle("get-files-by-ids", (_event, fileIds: number[]) => getFilesByIds(fileIds));
+    ipcMain.handle("load-pass-run", () => loadPassRun());
+    ipcMain.handle("save-pass-run", (_event, state: string) => savePassRun(state));
+    ipcMain.handle("clear-pass-run", () => clearPassRun());
     ipcMain.handle("count-scope", (_event, folderPrefixes: string[] | null, filter: unknown) =>
         countScope(folderPrefixes, validateFilter(filter)),
     );

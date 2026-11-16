@@ -210,6 +210,14 @@ export function initDb(rootPath: string): Database.Database {
             PRIMARY KEY (file_id, tag_id)
         );
 
+        -- The one unfinished Sweep pass (JSON, see PassContext), so it
+        -- can be resumed after the app closes. Cleared when it finishes.
+        CREATE TABLE IF NOT EXISTS pass_run (
+            id         INTEGER PRIMARY KEY CHECK (id = 1),
+            state      TEXT    NOT NULL,
+            updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
+
         -- Saved tag filters ("feeds"), as JSON trees (see tagFilter.ts).
         CREATE TABLE IF NOT EXISTS feeds (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,

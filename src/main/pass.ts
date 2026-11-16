@@ -132,3 +132,35 @@ export function getFirmNoes(
         .all(tagId, JSON.stringify(fileIds)) as { fileId: number; hard: number; pass: number }[];
     return rows.map((r) => ({ fileId: r.fileId, hard: r.hard === 1, pass: r.pass === 1 }));
 }
+
+/** Files by id (active ones; order not kept), to rebuild a saved run. */
+export function getFilesByIds(fileIds: number[]): DbFile[] {
+    if (fileIds.length === 0) return [];
+    return getDb()
+        .prepare(
+            `SELECT f.* FROM files f
+             WHERE f.status = 'active' AND f.id IN (SELECT value FROM json_each(?))`,
+        )
+        .all(JSON.stringify(fileIds)) as DbFile[];
+}
+
+// The one unfinished run, saved as JSON (its shape is the renderer's).
+export function loadPassRun(): string | null {
+    const row = getDb().prepare(`SELECT state FROM pass_run WHERE id = 1`).get() as
+        | { state: string }
+        | undefined;
+    return row?.state ?? null;
+}
+
+export function savePassRun(state: string): void {
+    getDb()
+        .prepare(
+            `INSERT INTO pass_run (id, state) VALUES (1, ?)
+             ON CONFLICT (id) DO UPDATE SET state = excluded.state, updated_at = datetime('now')`,
+        )
+        .run(state);
+}
+
+export function clearPassRun(): void {
+    getDb().prepare(`DELETE FROM pass_run WHERE id = 1`).run();
+}

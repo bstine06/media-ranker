@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { usePass, type PassWhich } from "@renderer/contexts/PassContext";
+import { usePass, tagPosition, type PassWhich } from "@renderer/contexts/PassContext";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
@@ -22,7 +22,9 @@ const orderLabel = (o: PassOrder) => (o === "shuffled" ? "Shuffled" : SORTS[o].t
 const num = (n: number) => n.toLocaleString();
 
 export default function PassLobby(): JSX.Element | null {
-    const { lobby, updateLobby, closeLobby, startRun } = usePass();
+    const { lobby, updateLobby, closeLobby, startRun, run, resumeRun } = usePass();
+    const unfinished = run && run.t < run.tags.length ? run : null;
+    const tp = unfinished ? tagPosition(unfinished) : null;
     const { tagMap, activeFilter, loadedFeed, filter } = useTags();
     const { folderPrefixes } = useFolders();
     const { passOrder, setPassOrder, passDirection, setPassDirection } = useSettings();
@@ -97,6 +99,44 @@ export default function PassLobby(): JSX.Element | null {
                         Go through a fixed list of files, one tag at a time.
                     </p>
                 </div>
+
+                {/* The unfinished pass, to pick up instead (its own files). */}
+                {unfinished && tp && (
+                    <div className="flex flex-col gap-2 border-b border-neutral-800 bg-neutral-950/40 px-5 py-3">
+                        <div className="flex items-center gap-3">
+                            <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                                Unfinished pass
+                            </span>
+                            <span className="text-xs text-neutral-300 tabular-nums">
+                                tag {tp.n} of {tp.of}
+                                {tp.rest && " (rest)"} · {Math.max(0, unfinished.pos + 1)} /{" "}
+                                {unfinished.tags[unfinished.t].files?.length ?? 0}
+                            </span>
+                            <button
+                                onClick={resumeRun}
+                                className="ml-auto rounded bg-neutral-200 px-3 py-1 text-xs font-medium text-neutral-900 hover:bg-white"
+                            >
+                                Resume
+                            </button>
+                        </div>
+                        {(() => {
+                            const t = tagMap.get(unfinished.tags[unfinished.t].tagId);
+                            return t ? (
+                                <div className="flex items-center gap-2 text-[11px] text-neutral-500">
+                                    On <TagPill tag={t} applied />
+                                </div>
+                            ) : null;
+                        })()}
+                        <ScopeSummary
+                            folderPrefixes={unfinished.scope.folderPrefixes}
+                            filter={unfinished.scope.filter}
+                            feedName={unfinished.scope.feedName}
+                        />
+                        <p className="text-[11px] text-neutral-600">
+                            Starting a new pass below replaces it.
+                        </p>
+                    </div>
+                )}
 
                 <div className="flex flex-col gap-5 px-5 py-4">
                     {/* Files: the current selection, shown as it was set. */}

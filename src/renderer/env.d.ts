@@ -135,6 +135,12 @@ declare global {
                 tagId: number,
                 fileIds: number[],
             ) => Promise<{ fileId: number; hard: boolean; pass: boolean }[]>;
+            /** Active files by id (order not kept), to rebuild a saved pass. */
+            getFilesByIds: (fileIds: number[]) => Promise<DbFile[]>;
+            /** The one unfinished Sweep pass, saved as JSON. */
+            loadPassRun: () => Promise<string | null>;
+            savePassRun: (state: string) => Promise<void>;
+            clearPassRun: () => Promise<void>;
             /** Active files in a scope. */
             countScope: (folderPrefixes: string[] | null, filter: FilterNode | null) => Promise<number>;
             /** What per-tag coverage is worked out from (threshold applied

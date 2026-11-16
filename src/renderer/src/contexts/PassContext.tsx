@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { DbFile, FilterNode } from "@renderer/shared/types/types";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { DbFile, FilterNode, TagCoverageRaw } from "@renderer/shared/types/types";
 import { useTags } from "./TagsContext";
 import { useFolders } from "./FolderContext";
 import { useSettings, type SortDirection } from "./SettingsContext";
@@ -62,6 +62,110 @@ export interface PassRun {
     pos: number;
     /** Estimated list sizes for tags whose list isn't built yet. */
     estimates: Record<number, number>;
+    /** Coverage when the run started, per tag, for the end card. */
+    before: Record<number, CoverageSnap>;
+}
+
+/** Files checked for a tag in the run's scope and in the library. */
+export interface CoverageSnap {
+    scope: { checked: number; files: number };
+    library: { checked: number; files: number };
+}
+
+/** Files checked for a tag (yes, firm no, or seen at the threshold). */
+export function checkedOf(raw: TagCoverageRaw, tagId: number, threshold: number): number {
+    const t = raw.tags.find((x) => x.tagId === tagId);
+    if (!t) return 0;
+    return t.yes + t.firmNo + t.seen.reduce((s, [sec, n]) => (sec >= threshold ? s + n : s), 0);
+}
+
+/** Coverage right now for these tags, over the run's scope and the library. */
+export async function snapCoverage(
+    scope: PassScope,
+    tagIds: number[],
+    threshold: number,
+): Promise<Record<number, CoverageSnap>> {
+    const [inScope, lib] = await Promise.all([
+        window.api.getTagCoverage(scope.folderPrefixes, scope.filter),
+        window.api.getTagCoverage(),
+    ]);
+    const out: Record<number, CoverageSnap> = {};
+    for (const id of tagIds) {
+        out[id] = {
+            scope: { checked: checkedOf(inScope, id, threshold), files: inScope.files },
+            library: { checked: checkedOf(lib, id, threshold), files: lib.files },
+        };
+    }
+    return out;
+}
+
+// Saved form (file ids instead of file records).
+interface SavedRun {
+    v: 1;
+    scope: PassScope;
+    which: PassWhich;
+    order: PassOrder;
+    direction: SortDirection;
+    tags: { id: number; tagId: number; fileIds: number[] | null; rest: boolean; arrived: boolean }[];
+    t: number;
+    pos: number;
+    estimates: Record<number, number>;
+    before: Record<number, CoverageSnap>;
+}
+
+const toSaved = (r: PassRun): SavedRun => ({
+    v: 1,
+    scope: r.scope,
+    which: r.which,
+    order: r.order,
+    direction: r.direction,
+    tags: r.tags.map((x) => ({
+        id: x.id,
+        tagId: x.tagId,
+        fileIds: x.files ? x.files.map((f) => f.id) : null,
+        rest: x.rest,
+        arrived: x.arrived,
+    })),
+    t: r.t,
+    pos: r.pos,
+    estimates: r.estimates,
+    before: r.before,
+});
+
+/** A saved run back as a run: files that are gone (deleted, missing) drop
+ *  out of the lists, and the place moves to match. Null if unreadable. */
+async function fromSaved(json: string): Promise<PassRun | null> {
+    let saved: SavedRun;
+    try {
+        saved = JSON.parse(json);
+    } catch {
+        return null;
+    }
+    if (saved?.v !== 1 || !Array.isArray(saved.tags)) return null;
+    const ids = saved.tags.flatMap((x) => x.fileIds ?? []);
+    const byId = new Map((await window.api.getFilesByIds([...new Set(ids)])).map((f) => [f.id, f]));
+    let pos = saved.pos;
+    const tags: TagRun[] = saved.tags.map((x, i) => {
+        if (!x.fileIds) return { id: x.id, tagId: x.tagId, files: null, rest: x.rest, arrived: x.arrived };
+        const files = x.fileIds.map((id) => byId.get(id)).filter((f): f is DbFile => !!f);
+        if (i === saved.t && pos >= 0) {
+            // The place: as many files in as were kept before it.
+            pos = x.fileIds.slice(0, pos).filter((id) => byId.has(id)).length;
+            if (pos >= files.length) pos = -1;
+        }
+        return { id: x.id, tagId: x.tagId, files, rest: x.rest, arrived: x.arrived };
+    });
+    return {
+        scope: saved.scope,
+        which: saved.which,
+        order: saved.order,
+        direction: saved.direction,
+        tags,
+        t: Math.min(saved.t, tags.length),
+        pos,
+        estimates: saved.estimates ?? {},
+        before: saved.before ?? {},
+    };
 }
 
 /** What's in the lane at a spot. */
@@ -150,8 +254,8 @@ export function prevSpot(run: PassRun, t: number, pos: number): [number, number]
 
 export function PassProvider({ children }: { children: React.ReactNode }): JSX.Element {
     const { activeFilter, loadedFeed, filter } = useTags();
-    const { folderPrefixes } = useFolders();
-    const { passOrder, passDirection } = useSettings();
+    const { folderPrefixes, rootPath } = useFolders();
+    const { passOrder, passDirection, coverageSeconds } = useSettings();
 
     const [lobby, setLobby] = useState<LobbyDraft | null>(null);
     const [run, setRunState] = useState<PassRun | null>(null);
@@ -161,21 +265,53 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
         setRunState(r);
     }, []);
     const [runActive, setRunActive] = useState(false);
-    // A new pass asked for with an unfinished run: waiting on the confirm.
-    const [pendingLobby, setPendingLobby] = useState<number[] | null>(null);
+    // Start pressed with an unfinished run: waiting on the confirm.
+    const [confirmReplace, setConfirmReplace] = useState(false);
+    // Ids for the queue's parts.
+    const nextId = useRef(1);
+
+    // The unfinished run belongs to the library: a library opening loads
+    // its saved one (not shown until resumed).
+    useEffect(() => {
+        setRun(null);
+        setRunActive(false);
+        setLobby(null);
+        if (!rootPath) return;
+        let gone = false;
+        window.api
+            .loadPassRun()
+            .then(async (json) => {
+                if (!json || gone) return;
+                const r = await fromSaved(json);
+                if (!r || gone) return;
+                nextId.current = Math.max(0, ...r.tags.map((x) => x.id)) + 1;
+                if (r.t < r.tags.length) setRun(r);
+                else window.api.clearPassRun().catch(() => {});
+            })
+            .catch(() => {});
+        return () => {
+            gone = true;
+        };
+    }, [rootPath, setRun]);
+
+    // Saved after every change (one row); cleared once it's finished. (A
+    // null run saves nothing: replacing clears it explicitly.)
+    useEffect(() => {
+        if (!run) return;
+        const t = setTimeout(() => {
+            if (run.t >= run.tags.length) window.api.clearPassRun().catch(() => {});
+            else window.api.savePassRun(JSON.stringify(toSaved(run))).catch(() => {});
+        }, 250);
+        return () => clearTimeout(t);
+    }, [run]);
 
     const openLobbyNow = useCallback((tagIds: number[]) => {
         setRunActive(false);
         setLobby({ tagIds, which: "needs-firm" });
     }, []);
-    const openLobby = useCallback(
-        (tagIds: number[] = []) => {
-            const r = runRef.current;
-            if (r && r.t < r.tags.length) setPendingLobby(tagIds);
-            else openLobbyNow(tagIds);
-        },
-        [openLobbyNow],
-    );
+    // The lobby opens straight away; with an unfinished run it offers to
+    // resume it, and Start asks before replacing it.
+    const openLobby = useCallback((tagIds: number[] = []) => openLobbyNow(tagIds), [openLobbyNow]);
     const updateLobby = useCallback((patch: Partial<LobbyDraft>) => {
         setLobby((l) => (l ? { ...l, ...patch } : l));
     }, []);
@@ -183,8 +319,6 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
 
     // Moving is one step at a time (a list may be loading).
     const busy = useRef(false);
-    // Ids for the queue's parts.
-    const nextId = useRef(1);
 
     /** A card reached for the first time since its part was made: build
      *  the list, or (the rest of a set-aside tag) drop files that got a
@@ -230,7 +364,7 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
         return { ...r, tags, estimates };
     }, []);
 
-    const startRun = useCallback(async () => {
+    const startNow = useCallback(async () => {
         if (!lobby || lobby.tagIds.length === 0 || busy.current) return;
         busy.current = true;
         try {
@@ -257,7 +391,13 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
                 t: 0,
                 pos: -1,
                 estimates: {},
+                before: {},
             };
+            try {
+                fresh.before = await snapCoverage(scope, lobby.tagIds, coverageSeconds);
+            } catch {
+                // the end card just won't show before → after
+            }
             const r = await arrive(fresh, 0);
             setRun(r);
             setLobby(null);
@@ -265,7 +405,13 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
         } finally {
             busy.current = false;
         }
-    }, [lobby, folderPrefixes, activeFilter, loadedFeed, filter, passOrder, passDirection, arrive, setRun]);
+    }, [lobby, folderPrefixes, activeFilter, loadedFeed, filter, passOrder, passDirection, coverageSeconds, arrive, setRun]);
+
+    const startRun = useCallback(async () => {
+        const r = runRef.current;
+        if (r && r.t < r.tags.length) setConfirmReplace(true);
+        else await startNow();
+    }, [startNow]);
 
     const resumeRun = useCallback(() => {
         if (!runRef.current) return;
@@ -370,19 +516,17 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
     return (
         <PassContext.Provider value={value}>
             {children}
-            {pendingLobby && (
+            {confirmReplace && (
                 <ConfirmDialog
                     title="Start a new pass?"
-                    message="You have an unfinished pass. Setting up a new one replaces it (everything you answered is already saved)."
-                    confirmText="New pass"
+                    message="You have an unfinished pass. Starting this one replaces it (everything you answered in it is already saved)."
+                    confirmText="Start new pass"
                     danger={false}
                     onConfirm={() => {
-                        const ids = pendingLobby;
-                        setPendingLobby(null);
-                        setRun(null);
-                        openLobbyNow(ids);
+                        setConfirmReplace(false);
+                        void startNow();
                     }}
-                    onCancel={() => setPendingLobby(null)}
+                    onCancel={() => setConfirmReplace(false)}
                 />
             )}
         </PassContext.Provider>
