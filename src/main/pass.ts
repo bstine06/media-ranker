@@ -11,13 +11,16 @@ import type { FilterNode } from "./tagFilter";
 
 export type PassWhich = "needs-firm" | "all";
 
-// Needs a firm answer for the tag; takes the tag id twice (positional).
+// Needs a firm answer for the tag; takes the tag id three times
+// (positional). A folder no is a firm answer too.
 const NEEDS_FIRM = `
     NOT EXISTS (SELECT 1 FROM file_effective_tags e
                 WHERE e.file_id = f.id AND e.tag_id = ?)
     AND NOT EXISTS (SELECT 1 FROM tag_checks c
                     WHERE c.file_id = f.id AND c.tag_id = ?
-                      AND (c.rejected = 1 OR c.passed = 1))`;
+                      AND (c.rejected = 1 OR c.passed = 1))
+    AND NOT EXISTS (SELECT 1 FROM file_folder_noes n
+                    WHERE n.file_id = f.id AND n.tag_id = ?)`;
 
 /** A stretch of a pass: one tag, or a pair (the upper tag optional). A
  *  pair's files are those needing a firm answer for either tag. */
@@ -29,11 +32,11 @@ export interface PassSlot {
 // Needs a firm answer for the slot's tag (or either of its pair).
 function needsSql(slot: PassSlot): { sql: string; params: number[] } {
     if (slot.upperId == null || slot.upperId === slot.tagId) {
-        return { sql: NEEDS_FIRM, params: [slot.tagId, slot.tagId] };
+        return { sql: NEEDS_FIRM, params: [slot.tagId, slot.tagId, slot.tagId] };
     }
     return {
         sql: `((${NEEDS_FIRM}) OR (${NEEDS_FIRM}))`,
-        params: [slot.tagId, slot.tagId, slot.upperId, slot.upperId],
+        params: [slot.tagId, slot.tagId, slot.tagId, slot.upperId, slot.upperId, slot.upperId],
     };
 }
 
@@ -136,8 +139,8 @@ export function clearPassNo(fileId: number, tagId: number): void {
 }
 
 /** Of these files, the ones with a firm no for the tag (and not tagged:
- *  yes wins), and which kind: hard (taken off by hand), pass (stepped past
- *  in a pass), or both. For the run's "no" markers. */
+ *  yes wins), and which kind: hard (taken off, or a folder no), pass
+ *  (stepped past in a pass), or both. For the run's "no" markers. */
 export function getFirmNoes(
     tagId: number,
     fileIds: number[],
@@ -145,13 +148,16 @@ export function getFirmNoes(
     if (fileIds.length === 0) return [];
     const rows = getDb()
         .prepare(
-            `SELECT c.file_id AS fileId, c.rejected AS hard, c.passed AS pass
-             FROM tag_checks c
+            `SELECT c.file_id AS fileId, MAX(c.hard) AS hard, MAX(c.pass) AS pass
+             FROM (SELECT file_id, tag_id, rejected AS hard, passed AS pass FROM tag_checks
+                   WHERE rejected = 1 OR passed = 1
+                   UNION ALL
+                   SELECT file_id, tag_id, 1, 0 FROM file_folder_noes) c
              WHERE c.tag_id = ?
                AND c.file_id IN (SELECT value FROM json_each(?))
-               AND (c.rejected = 1 OR c.passed = 1)
                AND NOT EXISTS (SELECT 1 FROM file_effective_tags e
-                               WHERE e.file_id = c.file_id AND e.tag_id = c.tag_id)`,
+                               WHERE e.file_id = c.file_id AND e.tag_id = c.tag_id)
+             GROUP BY c.file_id`,
         )
         .all(tagId, JSON.stringify(fileIds)) as { fileId: number; hard: number; pass: number }[];
     return rows.map((r) => ({ fileId: r.fileId, hard: r.hard === 1, pass: r.pass === 1 }));

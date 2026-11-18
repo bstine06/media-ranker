@@ -10,11 +10,16 @@ export function TagInput({
     onPick,
     onCreate,
     className,
+    placeholder = "Add tag…",
+    danger = false,
 }: {
     exclude: DbTag[]; // tags left out of the suggestions (already applied)
     onPick: (name: string) => unknown;
     onCreate: (name: string) => unknown;
     className: string; // wrapper padding; the dropdown lines up with px-3
+    placeholder?: string;
+    /** Red edge: what's entered becomes a no. */
+    danger?: boolean;
 }): JSX.Element {
     const { allTags } = useTags();
     const [input, setInput] = useState("");
@@ -111,8 +116,10 @@ export function TagInput({
                         }
                     }
                 }}
-                placeholder="Add tag…"
-                className="w-full px-2 py-1.5 text-xs bg-neutral-950 border border-neutral-700 rounded-md text-neutral-200"
+                placeholder={placeholder}
+                className={`w-full px-2 py-1.5 text-xs bg-neutral-950 border rounded-md text-neutral-200 ${
+                    danger ? "border-red-900/80 placeholder-red-300/40" : "border-neutral-700"
+                }`}
             />
 
             {focused && filtered.length > 0 && (

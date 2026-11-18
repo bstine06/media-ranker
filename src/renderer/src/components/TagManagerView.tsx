@@ -1139,6 +1139,8 @@ export default function TagManagerView({
                     coverage={coverage}
                     onEditTag={editTag}
                     onPassTag={passTag}
+                    active={active}
+                    setView={setView}
                 />
             )}
 

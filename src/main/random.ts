@@ -34,8 +34,9 @@ export function getRandomFile(
             `f.id NOT IN (SELECT file_id FROM file_effective_tags WHERE tag_id = ?)`,
             `f.id NOT IN (SELECT file_id FROM tag_checks
                           WHERE tag_id = ? AND (rejected = 1 OR passed = 1))`,
+            `f.id NOT IN (SELECT file_id FROM file_folder_noes WHERE tag_id = ?)`,
         );
-        params.push(withoutTagId, withoutTagId);
+        params.push(withoutTagId, withoutTagId, withoutTagId);
     }
 
     const tagFilter = filterSql(filter);

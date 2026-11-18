@@ -16,6 +16,7 @@ import { CompareIcon } from "./icons/CompareIcon";
 import { TagIcon } from "./icons/TagIcon";
 import { filterKey } from "@renderer/lib/tagFilters";
 import FilterBuilder from "./FilterBuilder";
+import { useGuardedMove } from "@renderer/hooks/useGuardedMove";
 
 // Makes an element a drop target for files dragged from Browse / the media
 // player / Finder. dragenter/leave also fire for child elements, so track
@@ -641,8 +642,11 @@ export default function Sidebar({
     const [search, setSearch] = useState("");
     const { status, setStatus, resetStatus } = useStatus();
 
+    const { guardedMove, moveDialog } = useGuardedMove();
     const handleDropOnFolder = async (folder: string, absPaths: string[]) => {
-        const { moved, errors } = await window.api.moveIntoFolder(absPaths, folder);
+        const result = await guardedMove(absPaths, folder);
+        if (!result) return;
+        const { moved, errors } = result;
         if (errors.length > 0) {
             setStatus(errors.join(" · "));
         } else if (moved > 0) {
@@ -806,7 +810,12 @@ export default function Sidebar({
             }
             target = made.relativePath;
         }
-        const { moved, errors } = await window.api.moveIntoFolder(filing, target);
+        const result = await guardedMove(filing, target);
+        if (!result) {
+            setFilingBusy(false);
+            return;
+        }
+        const { moved, errors } = result;
         const where = target || "Unsorted";
         endFiling();
         setSearch("");
@@ -827,6 +836,8 @@ export default function Sidebar({
     useEffect(() => {
         if (!filing) return;
         const onKey = (e: KeyboardEvent) => {
+            // The move confirm (folder noes) has the keys while it's open.
+            if (document.querySelector("[data-modal]")) return;
             e.stopPropagation();
             const k = filingKeys.current;
             if (e.key === "Escape") {
@@ -1236,6 +1247,7 @@ export default function Sidebar({
                 </button>
                 <SettingsSection />
             </div>
+            {moveDialog}
         </aside>
     );
 }

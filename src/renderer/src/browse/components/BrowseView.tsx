@@ -21,6 +21,7 @@ import ScrollView from "@renderer/components/ScrollView";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { TagIcon } from "@renderer/components/icons/TagIcon";
 import FolderTagPanel from "./FolderTagPanel";
+import { useGuardedMove } from "@renderer/hooks/useGuardedMove";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
 import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
 import { usePlacement, PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
@@ -95,6 +96,7 @@ export default function BrowseView({
     };
 
     const { setStatus, resetStatus } = useStatus();
+    const { guardedMove, moveDialog } = useGuardedMove();
     const {
         rootPath,
         activeFolder,
@@ -276,10 +278,12 @@ export default function BrowseView({
             resetStatus();
             return;
         }
-        const { errors } = await window.api.moveIntoFolder(
-            toMove,
-            activeFolder ?? "",
-        );
+        const result = await guardedMove(toMove, activeFolder ?? "");
+        if (!result) {
+            resetStatus();
+            return;
+        }
+        const { errors } = result;
         if (errors.length > 0) {
             setStatus(errors.join(" · "));
             return;
@@ -322,11 +326,17 @@ export default function BrowseView({
     };
 
     const handleAddFolderTag = async (tag: string) => {
-        if (!activeFolder) return;
-        await window.api.addTagToFolder(activeFolder, tag);
+        if (!activeFolder) return { ok: true as const };
+        const res = await window.api.addTagToFolder(activeFolder, tag);
         const tags = await window.api.getFolderTags(activeFolder);
         setFolderTags(tags);
         refreshTags();
+        return res;
+    };
+
+    const reloadFolderTags = async () => {
+        if (!activeFolder) return;
+        setFolderTags(await window.api.getFolderTags(activeFolder));
     };
 
     const handleRemoveFolderTag = async (tag: string) => {
@@ -973,11 +983,13 @@ export default function BrowseView({
                         folderTags={folderTags}
                         onAddFolderTag={handleAddFolderTag}
                         onRemoveFolderTag={handleRemoveFolderTag}
+                        onFolderTagsChanged={reloadFolderTags}
                         selectedFiles={selectedFiles}
                         onExecuteBatchTag={handleExecuteBatchTag}
                     />
                 </div>
             )}
+            {moveDialog}
             {folderDelete?.step === "choose" && (
                 <ConfirmDialog
                     title={`Delete the folder "${folderDelete.folder}"?`}

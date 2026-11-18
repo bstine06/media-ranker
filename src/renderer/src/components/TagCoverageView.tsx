@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+    DbFile,
     DbTagWithCategory,
     FilterNode,
     TagCoverage,
     TagCoverageRaw,
+    View,
 } from "@renderer/shared/types/types";
+import SingleFileView from "./SingleFileView";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -60,7 +63,14 @@ export function useTagCoverage(active: boolean, scope: CoverageScope = null): Ta
                     (s, [sec, n]) => (sec >= coverageSeconds ? s + n : s),
                     0,
                 );
-                return { tagId: t.tagId, yes: t.yes, firmNo: t.firmNo, seen, no: t.firmNo + seen };
+                return {
+                    tagId: t.tagId,
+                    yes: t.yes,
+                    firmNo: t.firmNo,
+                    seen,
+                    no: t.firmNo + seen,
+                    conflicts: t.conflicts,
+                };
             }),
         };
     }, [raw, coverageSeconds]);
@@ -156,6 +166,8 @@ type Row = {
     checked: number;
     /** yes + firmNo */
     firm: number;
+    /** Files where a no and a yes disagree. */
+    conflicts: number;
 };
 
 const GRID =
@@ -165,11 +177,15 @@ export default function TagCoverageView({
     coverage: libraryCoverage,
     onEditTag,
     onPassTag,
+    active,
+    setView,
 }: {
     /** The whole library's coverage (the Selection view reads its own). */
     coverage: TagCoverage | null;
     onEditTag: (tagId: number) => void;
     onPassTag: (tagId: number) => void;
+    active: boolean;
+    setView: (view: View) => void;
 }) {
     const { allTags, activeFilter, loadedFeed, filter } = useTags();
     const { folderPrefixes } = useFolders();
@@ -197,6 +213,9 @@ export default function TagCoverageView({
     };
     // The row whose menu is open.
     const [menuFor, setMenuFor] = useState<number | null>(null);
+    // The tag whose conflicts are listed, and a file opened from the list.
+    const [conflictsFor, setConflictsFor] = useState<DbTagWithCategory | null>(null);
+    const [inspected, setInspected] = useState<DbFile | null>(null);
 
     const files = coverage?.files ?? 0;
 
@@ -207,7 +226,15 @@ export default function TagCoverageView({
             const yes = r?.yes ?? 0;
             const firmNo = r?.firmNo ?? 0;
             const seen = r?.seen ?? 0;
-            return { tag, yes, firmNo, seen, checked: yes + firmNo + seen, firm: yes + firmNo };
+            return {
+                tag,
+                yes,
+                firmNo,
+                seen,
+                checked: yes + firmNo + seen,
+                firm: yes + firmNo,
+                conflicts: r?.conflicts ?? 0,
+            };
         });
         const dir = lowestFirst ? 1 : -1;
         rows.sort(
@@ -256,6 +283,17 @@ export default function TagCoverageView({
         </div>
     );
 
+    if (inspected) {
+        return (
+            <SingleFileView
+                file={inspected}
+                active={active}
+                setView={setView}
+                onClose={() => setInspected(null)}
+            />
+        );
+    }
+
     if (!coverage) {
         return (
             <div className="flex flex-1 flex-col">
@@ -280,6 +318,10 @@ export default function TagCoverageView({
             onPass={() => {
                 setMenuFor(null);
                 onPassTag(r.tag.id);
+            }}
+            onConflicts={() => {
+                setMenuFor(null);
+                setConflictsFor(r.tag);
             }}
         />
     );
@@ -351,7 +393,7 @@ export default function TagCoverageView({
                     </span>
                     <span className="text-right">%</span>
                     <span className="text-right">Tagged</span>
-                    <span className="text-right" title="Firm noes: the tag was taken off, or stepped past in a pass">
+                    <span className="text-right" title="Firm noes: the tag was taken off or marked no, stepped past in a pass, or not allowed in the folder">
                         No
                     </span>
                     <span className="text-right" title="On screen in Sweep long enough with the tag up (soft)">
@@ -379,6 +421,97 @@ export default function TagCoverageView({
                     </>
                 )}
             </div>
+            {conflictsFor && (
+                <ConflictList
+                    tag={conflictsFor}
+                    scope={bySelection ? { folderPrefixes, filter: activeFilter } : null}
+                    onOpen={setInspected}
+                    onClose={() => setConflictsFor(null)}
+                />
+            )}
+        </div>
+    );
+}
+
+/** The files with a conflict for a tag (a no and a yes disagree), each
+ *  with why; clicking one opens it. Read fresh each time it shows, so files
+ *  fixed meanwhile drop out. */
+function ConflictList({
+    tag,
+    scope,
+    onOpen,
+    onClose,
+}: {
+    tag: DbTagWithCategory;
+    scope: CoverageScope;
+    onOpen: (file: DbFile) => void;
+    onClose: () => void;
+}) {
+    const [files, setFiles] = useState<(DbFile & { reason: string })[] | null>(null);
+    useEffect(() => {
+        let live = true;
+        window.api
+            .getConflictFiles(tag.id, scope?.folderPrefixes ?? null, scope?.filter ?? null)
+            .then((f) => {
+                if (live) setFiles(f);
+            })
+            .catch(() => setFiles([]));
+        return () => {
+            live = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tag.id]);
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                e.stopPropagation();
+                onClose();
+            }
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, [onClose]);
+    return (
+        <div
+            data-modal
+            className="fixed inset-0 z-40 flex items-center justify-center bg-black/60"
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) onClose();
+            }}
+        >
+            <div className="flex max-h-[70vh] w-[30rem] max-w-[calc(100vw-2rem)] flex-col rounded-lg border border-neutral-700 bg-neutral-900 shadow-2xl">
+                <div className="flex items-baseline justify-between gap-3 border-b border-neutral-800 px-4 py-3">
+                    <h2 className="text-sm font-semibold text-neutral-200">
+                        Conflicts for "{tag.name}"
+                    </h2>
+                    <button
+                        onClick={onClose}
+                        className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors"
+                    >
+                        Close
+                    </button>
+                </div>
+                <p className="px-4 pt-2 text-[11px] text-neutral-500">
+                    A no and a yes disagree on these files. Fix it by moving the file or changing
+                    its folder's tags.
+                </p>
+                <div className="flex-1 overflow-y-auto px-2 py-2">
+                    {files === null && <p className="px-2 py-1 text-xs text-neutral-600">Loading…</p>}
+                    {files?.length === 0 && (
+                        <p className="px-2 py-1 text-xs text-neutral-600">No conflicts left.</p>
+                    )}
+                    {files?.map((f) => (
+                        <button
+                            key={f.id}
+                            onClick={() => onOpen(f)}
+                            className="flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-neutral-800 transition-colors"
+                        >
+                            <span className="truncate text-xs text-neutral-200">{f.path}</span>
+                            <span className="text-[11px] text-red-300/80">{f.reason}</span>
+                        </button>
+                    ))}
+                </div>
+            </div>
         </div>
     );
 }
@@ -391,6 +524,7 @@ function CoverageRow({
     onCloseMenu,
     onEdit,
     onPass,
+    onConflicts,
 }: {
     row: Row;
     files: number;
@@ -399,6 +533,7 @@ function CoverageRow({
     onCloseMenu: () => void;
     onEdit: () => void;
     onPass: () => void;
+    onConflicts: () => void;
 }) {
     const ref = useRef<HTMLDivElement>(null);
 
@@ -422,7 +557,7 @@ function CoverageRow({
         };
     }, [menuOpen, onCloseMenu]);
 
-    const { tag, yes, firmNo, seen, checked, firm } = row;
+    const { tag, yes, firmNo, seen, checked, firm, conflicts } = row;
     const color = tag.category?.color ?? "#888";
     return (
         <div ref={ref} className="relative">
@@ -437,6 +572,19 @@ function CoverageRow({
                         {tag.category?.icon ?? "●"}
                     </span>
                     <span className="truncate">{tag.name}</span>
+                    {conflicts > 0 && (
+                        <span
+                            role="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onConflicts();
+                            }}
+                            title="A no and a yes disagree on these files: click to see them"
+                            className="flex-shrink-0 rounded-full bg-red-950/70 px-1.5 text-[10px] text-red-300 hover:bg-red-900/70 tabular-nums"
+                        >
+                            {num(conflicts)} conflict{conflicts === 1 ? "" : "s"}
+                        </span>
+                    )}
                 </span>
                 <Bar firm={files ? firm / files : 0} seen={files ? seen / files : 0} />
                 <span className="text-right text-neutral-200 tabular-nums">
@@ -463,6 +611,14 @@ function CoverageRow({
                     >
                         Pass with this tag
                     </button>
+                    {conflicts > 0 && (
+                        <button
+                            onClick={onConflicts}
+                            className="px-3 py-1 text-left text-xs text-red-300 hover:bg-neutral-800 transition-colors"
+                        >
+                            Show {num(conflicts)} conflict{conflicts === 1 ? "" : "s"}
+                        </button>
+                    )}
                 </div>
             )}
         </div>

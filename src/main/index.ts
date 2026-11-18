@@ -64,6 +64,16 @@ import {
     mergeTags,
     addTagCheckSeconds,
     getTagCoverage,
+    getNoesForFolder,
+    previewFolderNo,
+    addFolderNo,
+    removeFolderNo,
+    tagsRuledOutByFolder,
+    getNoesForFile,
+    clearFileNo,
+    previewBatchNo,
+    batchNo,
+    getConflictFiles,
     getRelatedTags,
     getTagImplications,
     reorderTags,
@@ -448,6 +458,7 @@ function registerIpcHandlers(): void {
     const moveIntoFolder = async (
         absPaths: string[],
         targetFolder: string,
+        enforceNoes = false,
     ): Promise<{ moved: number; errors: string[] }> => {
             const errors: string[] = [];
             let moved = 0;
@@ -505,7 +516,7 @@ function registerIpcHandlers(): void {
                     const folder = targetFolder
                         ? upsertFolder(targetFolder, path.basename(targetFolder))
                         : null;
-                    moveFileRecord(record.id, newRel, filename, folder?.id ?? null);
+                    moveFileRecord(record.id, newRel, filename, folder?.id ?? null, enforceNoes);
 
                     win?.webContents.send("media:renamed", {
                         oldRelativePath: rel,
@@ -524,8 +535,31 @@ function registerIpcHandlers(): void {
 
     ipcMain.handle(
         "move-into-folder",
-        (_event, absPaths: string[], targetFolder: string) =>
-            moveIntoFolder(absPaths, targetFolder),
+        (_event, absPaths: string[], targetFolder: string, enforceNoes?: boolean) =>
+            moveIntoFolder(absPaths, targetFolder, enforceNoes === true),
+    );
+
+    // Before a move: the library files that would lose own tags to the
+    // target folder's noes (for the confirm), with those tags.
+    ipcMain.handle(
+        "preview-move-into-folder",
+        (_event, absPaths: string[], targetFolder: string) => {
+            if (!rootPath || !targetFolder) return [];
+            const folder = getFolderByPath(targetFolder);
+            if (!folder) return [];
+            const targetDir = path.join(rootPath, targetFolder);
+            const out: { absPath: string; filename: string; tags: string[] }[] = [];
+            for (const src of absPaths) {
+                if (path.dirname(src) === targetDir) continue;
+                const rel = path.relative(rootPath, src);
+                if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+                const record = getFileByPath(rel);
+                if (!record) continue;
+                const tags = tagsRuledOutByFolder(record.id, folder.id);
+                if (tags.length > 0) out.push({ absPath: src, filename: record.filename, tags });
+            }
+            return out;
+        },
     );
 
     // ── Deleting a folder (Browse) ───────────────────────────────────────
@@ -845,8 +879,51 @@ function registerIpcHandlers(): void {
                 path.basename(folderRelPath),
             );
             const { id: tagId } = upsertTag(tag);
-            addTagToFolder(folder.id, tagId);
+            return addTagToFolder(folder.id, tagId);
         },
+    );
+
+    // ── Folder noes ──
+    ipcMain.handle("get-folder-noes", (_event, folderRelPath: string) => {
+        const folder = getFolderByPath(folderRelPath);
+        return folder ? getNoesForFolder(folder.id) : [];
+    });
+    ipcMain.handle("preview-folder-no", (_event, folderRelPath: string, tag: string) => {
+        const folder = getFolderByPath(folderRelPath);
+        const existing = getTagByName(tag.trim().toLowerCase());
+        // A brand-new tag or folder row: nothing can clash or come off yet.
+        if (!folder || !existing) return { swap: false, removed: [], files: 0 };
+        return previewFolderNo(folder.id, existing.id);
+    });
+    ipcMain.handle("add-folder-no", (_event, folderRelPath: string, tag: string) => {
+        const folder = upsertFolder(folderRelPath, path.basename(folderRelPath));
+        const { id: tagId } = upsertTag(tag);
+        return addFolderNo(folder.id, tagId);
+    });
+    ipcMain.handle("remove-folder-no", (_event, folderRelPath: string, tag: string) => {
+        const folder = getFolderByPath(folderRelPath);
+        const existing = getTagByName(tag);
+        if (folder && existing) removeFolderNo(folder.id, existing.id);
+    });
+
+    // ── Noes on files ──
+    ipcMain.handle("get-file-noes", (_event, fileId: number) => getNoesForFile(fileId));
+    ipcMain.handle("clear-file-no", (_event, fileId: number, tagId: number) =>
+        clearFileNo(fileId, tagId),
+    );
+    ipcMain.handle("preview-batch-no", (_event, fileIds: number[], tag: string) => {
+        const existing = getTagByName(tag.trim().toLowerCase());
+        if (!existing) return { removed: [], files: 0, conflicts: 0 };
+        return previewBatchNo(fileIds, existing.id);
+    });
+    ipcMain.handle("batch-no", (_event, fileIds: number[], tag: string) => {
+        const { id: tagId } = upsertTag(tag);
+        return batchNo(fileIds, tagId);
+    });
+    ipcMain.handle(
+        "get-conflict-files",
+        (_event, tagId: number, folderPrefixes: string[] | null = null, filter: unknown = null) =>
+            getConflictFiles(tagId, folderPrefixes, validateFilter(filter)),
     );
 
     ipcMain.handle("get-most-used-tags", (_event, folderId?: number) => {

@@ -145,6 +145,16 @@ export function initDb(rootPath: string): Database.Database {
             PRIMARY KEY (folder_id, tag_id)
         );
 
+        -- A folder's noes: none of its files have the tag (nor any tag that
+        -- implies it). A standing rule like folder_tags: files added later
+        -- get it too, and removing it sends them back to unchecked. Never
+        -- both a folder tag and a folder no for the same folder and tag.
+        CREATE TABLE IF NOT EXISTS folder_noes (
+            folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+            tag_id    INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (folder_id, tag_id)
+        );
+
         CREATE TABLE IF NOT EXISTS files (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             content_hash     TEXT    NOT NULL UNIQUE,
@@ -243,6 +253,7 @@ export function initDb(rootPath: string): Database.Database {
         CREATE INDEX IF NOT EXISTS idx_file_tags_tag     ON file_tags(tag_id);
         CREATE INDEX IF NOT EXISTS idx_folder_tags_folder ON folder_tags(folder_id);
         CREATE INDEX IF NOT EXISTS idx_folder_tags_tag   ON folder_tags(tag_id);
+        CREATE INDEX IF NOT EXISTS idx_folder_noes_tag   ON folder_noes(tag_id);
         CREATE INDEX IF NOT EXISTS idx_tags_category     ON tags(category_id);
         CREATE INDEX IF NOT EXISTS idx_tag_implications_implies ON tag_implications(implies_id);
         CREATE INDEX IF NOT EXISTS idx_tag_implied_implied ON tag_implied(implied_id);
@@ -274,6 +285,7 @@ export function initDb(rootPath: string): Database.Database {
         WHERE instr(path, '/') > 0
           AND profile_image_hash IS NULL
           AND id NOT IN (SELECT folder_id FROM folder_tags)
+          AND id NOT IN (SELECT folder_id FROM folder_noes)
           AND id NOT IN (SELECT folder_id FROM folder_metadata)
     `);
     // Both idempotent and cheap, so they also run on every open to repair
@@ -328,6 +340,19 @@ function createViews(db: Database.Database): void {
             SELECT f.id, ti.implied_id, 2, 1 FROM files f
             JOIN folder_tags fo ON fo.folder_id = f.folder_id
             JOIN tag_implied ti ON ti.tag_id = fo.tag_id;
+
+        -- Noes each file gets from its folder: the folder's noes, plus every
+        -- tag implying one (not cat rules out kitten, since kitten means
+        -- cat). no_tag_id: the folder no it comes from (= tag_id when
+        -- direct). A tag can appear more than once.
+        DROP VIEW IF EXISTS file_folder_noes;
+        CREATE VIEW file_folder_noes AS
+            SELECT f.id AS file_id, n.tag_id, n.tag_id AS no_tag_id, n.folder_id
+            FROM files f JOIN folder_noes n ON n.folder_id = f.folder_id
+            UNION ALL
+            SELECT f.id, ti.tag_id, n.tag_id, n.folder_id
+            FROM files f JOIN folder_noes n ON n.folder_id = f.folder_id
+            JOIN tag_implied ti ON ti.implied_id = n.tag_id;
     `);
 }
 
@@ -749,28 +774,219 @@ export function getTagsForFolder(folderId: number): FileTag[] {
     ];
 }
 
-// No-op when the folder's other tags already imply it. Files in the folder
-// now inherit the tag (and whatever it implies), so their own copies go.
-export function addTagToFolder(folderId: number, tagId: number): void {
+export type FolderRuleResult = { ok: true } | { ok: false; error: string };
+
+// A folder that says both "has X" and "not Y" where X is Y or implies it
+// can't be resolved, so it's never allowed. The first such clash (in one
+// folder, or anywhere), for the error message.
+function folderContradiction(
+    folderId?: number,
+): { folder: string; yes: string; no: string } | undefined {
+    return getDb()
+        .prepare(
+            `SELECT fo.name AS folder, ty.name AS yes, tn.name AS no
+             FROM folder_tags y
+             JOIN folder_noes n ON n.folder_id = y.folder_id
+             JOIN folders fo ON fo.id = y.folder_id
+             JOIN tags ty ON ty.id = y.tag_id
+             JOIN tags tn ON tn.id = n.tag_id
+             WHERE (y.tag_id = n.tag_id OR EXISTS (
+                       SELECT 1 FROM tag_implied ti
+                       WHERE ti.tag_id = y.tag_id AND ti.implied_id = n.tag_id))
+               ${folderId != null ? "AND y.folder_id = ?" : ""}
+             LIMIT 1`,
+        )
+        .get(...(folderId != null ? [folderId] : [])) as
+        | { folder: string; yes: string; no: string }
+        | undefined;
+}
+
+function contradictionMessage(c: { folder: string; yes: string; no: string }): string {
+    return c.yes === c.no
+        ? `"${c.folder}" can't both have "${c.yes}" and not have it.`
+        : `"${c.folder}" has "${c.yes}", which means "${c.no}", and "${c.no}" is not allowed there. Remove "${c.yes}" from the folder first.`;
+}
+
+/** Thrown inside a transaction to roll it back with a message. */
+class RuleError extends Error {}
+
+// Adding a folder tag swaps out a folder no for the same tag. No-op when
+// the folder's other tags already imply it. Files in the folder now inherit
+// the tag (and whatever it implies), so their own copies go.
+export function addTagToFolder(folderId: number, tagId: number): FolderRuleResult {
     const db = getDb();
-    db.transaction(() => {
-        db.prepare(
-            `INSERT OR IGNORE INTO folder_tags (folder_id, tag_id)
-             SELECT ?, ?
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM folder_tags fo
-                 JOIN tag_implied ti ON ti.tag_id = fo.tag_id
-                 WHERE fo.folder_id = ? AND ti.implied_id = ?
-             )`,
-        ).run(folderId, tagId, folderId, tagId);
-        dropTagsCoveredByInheritance({ folderId });
-    })();
+    try {
+        db.transaction(() => {
+            db.prepare(`DELETE FROM folder_noes WHERE folder_id = ? AND tag_id = ?`).run(
+                folderId,
+                tagId,
+            );
+            db.prepare(
+                `INSERT OR IGNORE INTO folder_tags (folder_id, tag_id)
+                 SELECT ?, ?
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM folder_tags fo
+                     JOIN tag_implied ti ON ti.tag_id = fo.tag_id
+                     WHERE fo.folder_id = ? AND ti.implied_id = ?
+                 )`,
+            ).run(folderId, tagId, folderId, tagId);
+            const clash = folderContradiction(folderId);
+            if (clash) throw new RuleError(contradictionMessage(clash));
+            dropTagsCoveredByInheritance({ folderId });
+        })();
+    } catch (err) {
+        if (err instanceof RuleError) return { ok: false, error: err.message };
+        throw err;
+    }
+    return { ok: true };
 }
 
 export function removeTagFromFolder(folderId: number, tagId: number): void {
     getDb()
         .prepare(`DELETE FROM folder_tags WHERE folder_id = ? AND tag_id = ?`)
         .run(folderId, tagId);
+}
+
+// ── Folder noes ──────────────────────────────────────────────────────────────
+
+/** The folder's noes (not the tags they rule out through implications). */
+export function getNoesForFolder(folderId: number): DbTag[] {
+    return getDb()
+        .prepare(
+            `SELECT t.* FROM tags t JOIN folder_noes n ON n.tag_id = t.id
+             WHERE n.folder_id = ? ORDER BY t.name`,
+        )
+        .all(folderId) as DbTag[];
+}
+
+// The folder's noes win over its files' own tags: an own tag the folder
+// rules out (directly, or because it implies a ruled-out tag) is deleted.
+// No hard no is left behind: the folder rule is the no. Only called on a
+// deliberate act (adding a folder no, a move the user confirmed), never
+// as a side effect, so nothing disappears unseen.
+function enforceFolderNoes(scope: { fileId?: number; folderId?: number }): void {
+    const where =
+        scope.fileId != null
+            ? { sql: "file_tags.file_id = ?", params: [scope.fileId] }
+            : {
+                  sql: "file_tags.file_id IN (SELECT id FROM files WHERE folder_id = ?)",
+                  params: [scope.folderId],
+              };
+    getDb()
+        .prepare(
+            `DELETE FROM file_tags
+             WHERE ${where.sql}
+               AND EXISTS (SELECT 1 FROM file_folder_noes n
+                           WHERE n.file_id = file_tags.file_id AND n.tag_id = file_tags.tag_id)`,
+        )
+        .run(...where.params);
+}
+
+/** What adding a folder no would take off files, for the confirm. */
+export interface FolderNoPreview {
+    /** It replaces the folder's tag of the same name. */
+    swap: boolean;
+    /** Own tags removed, per tag (active files). */
+    removed: { name: string; files: number }[];
+    /** Active files losing at least one tag. */
+    files: number;
+}
+
+function applyFolderNo(folderId: number, tagId: number): void {
+    const db = getDb();
+    db.prepare(`DELETE FROM folder_tags WHERE folder_id = ? AND tag_id = ?`).run(folderId, tagId);
+    db.prepare(`INSERT OR IGNORE INTO folder_noes (folder_id, tag_id) VALUES (?, ?)`).run(
+        folderId,
+        tagId,
+    );
+    const clash = folderContradiction(folderId);
+    if (clash) throw new RuleError(contradictionMessage(clash));
+    enforceFolderNoes({ folderId });
+}
+
+// Found by making the change and rolling it back, so it can't disagree with
+// what actually happens.
+export function previewFolderNo(
+    folderId: number,
+    tagId: number,
+): FolderNoPreview | { error: string } {
+    const db = getDb();
+    const ownTags = () =>
+        db
+            .prepare(
+                `SELECT ft.file_id, ft.tag_id FROM file_tags ft
+                 JOIN files f ON f.id = ft.file_id
+                 WHERE f.folder_id = ? AND f.status = 'active'`,
+            )
+            .all(folderId) as { file_id: number; tag_id: number }[];
+    const swap = !!db
+        .prepare(`SELECT 1 FROM folder_tags WHERE folder_id = ? AND tag_id = ?`)
+        .get(folderId, tagId);
+    const before = ownTags();
+    let after = before;
+    db.exec("SAVEPOINT preview_folder_no");
+    try {
+        applyFolderNo(folderId, tagId);
+        after = ownTags();
+    } catch (err) {
+        if (err instanceof RuleError) return { error: err.message };
+        throw err;
+    } finally {
+        db.exec("ROLLBACK TO preview_folder_no");
+        db.exec("RELEASE preview_folder_no");
+    }
+    const kept = new Set(after.map((r) => `${r.file_id}:${r.tag_id}`));
+    const gone = before.filter((r) => !kept.has(`${r.file_id}:${r.tag_id}`));
+    return { swap, ...summarizeRemoved(gone) };
+}
+
+function summarizeRemoved(gone: { file_id: number; tag_id: number }[]): {
+    removed: { name: string; files: number }[];
+    files: number;
+} {
+    const byTag = new Map<number, number>();
+    for (const r of gone) byTag.set(r.tag_id, (byTag.get(r.tag_id) ?? 0) + 1);
+    const removed = [...byTag].map(([id, files]) => ({ name: tagName(id) ?? "?", files }));
+    removed.sort((a, b) => b.files - a.files || a.name.localeCompare(b.name));
+    return { removed, files: new Set(gone.map((r) => r.file_id)).size };
+}
+
+// Adding a folder no swaps out the folder's tag of the same name, and takes
+// the tags it rules out off the folder's files. Refused when the folder's
+// other tags would contradict it.
+export function addFolderNo(folderId: number, tagId: number): FolderRuleResult {
+    const db = getDb();
+    try {
+        db.transaction(() => applyFolderNo(folderId, tagId))();
+    } catch (err) {
+        if (err instanceof RuleError) return { ok: false, error: err.message };
+        throw err;
+    }
+    return { ok: true };
+}
+
+export function removeFolderNo(folderId: number, tagId: number): void {
+    getDb()
+        .prepare(`DELETE FROM folder_noes WHERE folder_id = ? AND tag_id = ?`)
+        .run(folderId, tagId);
+}
+
+/** Own tags of this file that a folder's noes rule out (names). */
+export function tagsRuledOutByFolder(fileId: number, folderId: number): string[] {
+    return (
+        getDb()
+            .prepare(
+                `SELECT DISTINCT t.name FROM file_tags ft
+                 JOIN tags t ON t.id = ft.tag_id
+                 WHERE ft.file_id = ?
+                   AND (ft.tag_id IN (SELECT tag_id FROM folder_noes WHERE folder_id = ?)
+                        OR EXISTS (SELECT 1 FROM tag_implied ti
+                                   JOIN folder_noes n ON n.tag_id = ti.implied_id
+                                   WHERE n.folder_id = ? AND ti.tag_id = ft.tag_id))
+                 ORDER BY t.name`,
+            )
+            .all(fileId, folderId, folderId) as { name: string }[]
+    ).map((r) => r.name);
 }
 
 export function getTagsForFolderByPath(folderPath: string): FileTag[] {
@@ -824,19 +1040,24 @@ export function getMostUsedTags(folderId?: number): DbTag[] {
 
 // Move a tracked file to a new path/folder in one go (used for in-app moves;
 // the watcher is told to ignore the filesystem events). It now inherits the
-// new folder's tags, and loses the old one's.
+// new folder's tags, and loses the old one's. `enforceNoes`: the user
+// confirmed losing own tags the new folder's noes rule out; otherwise they
+// stay (and show as a conflict).
 export function moveFileRecord(
     fileId: number,
     newRelativePath: string,
     newFilename: string,
     folderId: number | null,
+    enforceNoes = false,
 ): void {
-    getDb()
-        .prepare(
+    const db = getDb();
+    db.transaction(() => {
+        db.prepare(
             `UPDATE files SET path = ?, filename = ?, folder_id = ? WHERE id = ?`,
-        )
-        .run(newRelativePath, newFilename, folderId, fileId);
-    dropTagsCoveredByInheritance({ fileId });
+        ).run(newRelativePath, newFilename, folderId, fileId);
+        dropTagsCoveredByInheritance({ fileId });
+        if (enforceNoes) enforceFolderNoes({ fileId });
+    })();
 }
 
 // ── Folder metadata queries ──────────────────────────────────────────────────
@@ -1063,6 +1284,7 @@ export function mergeTags(sourceId: number, targetId: number): MergeTagsResult {
                 `would make a tag imply itself. Remove one of those links first.`,
         };
     }
+    try {
     db.transaction(() => {
         db.prepare(
             `INSERT OR IGNORE INTO tag_implications (tag_id, implies_id)
@@ -1082,6 +1304,10 @@ export function mergeTags(sourceId: number, targetId: number): MergeTagsResult {
             `INSERT OR IGNORE INTO folder_tags (folder_id, tag_id)
              SELECT folder_id, ? FROM folder_tags WHERE tag_id = ?`,
         ).run(targetId, sourceId);
+        db.prepare(
+            `INSERT OR IGNORE INTO folder_noes (folder_id, tag_id)
+             SELECT folder_id, ? FROM folder_noes WHERE tag_id = ?`,
+        ).run(targetId, sourceId);
         // Checks move too; where both have one, the larger counts (a merge
         // shouldn't add up to a "no" nobody made).
         db.prepare(
@@ -1097,9 +1323,20 @@ export function mergeTags(sourceId: number, targetId: number): MergeTagsResult {
         rewriteFilterTag(db, sourceId, targetId);
         db.prepare(`DELETE FROM tags WHERE id = ?`).run(sourceId); // cascades
         rebuildTagImplied();
+        // A folder that had one as a tag and the other as a no would now
+        // contradict itself.
+        const clash = folderContradiction();
+        if (clash) throw new RuleError(contradictionMessage(clash));
         // A file may now have the target both as its own and inherited.
         dropTagsCoveredByInheritance();
     })();
+    } catch (err) {
+        if (err instanceof RuleError) {
+            rebuildTagImplied();
+            return { ok: false, error: `Merging them would break a folder rule: ${err.message}` };
+        }
+        throw err;
+    }
     return { ok: true };
 }
 
@@ -1330,7 +1567,19 @@ export function addTagImplication(
     const error = implicationError(tagId, impliesId);
     if (error) return { ok: false, error };
     const db = getDb();
-    db.transaction(() => linkTags(tagId, impliesId))();
+    try {
+        db.transaction(() => {
+            linkTags(tagId, impliesId);
+            const clash = folderContradiction();
+            if (clash) throw new RuleError(contradictionMessage(clash));
+        })();
+    } catch (err) {
+        if (err instanceof RuleError) {
+            rebuildTagImplied();
+            return { ok: false, error: err.message };
+        }
+        throw err;
+    }
     return { ok: true };
 }
 
@@ -1382,6 +1631,8 @@ export function previewTagImplication(
     try {
         if (action === "add") linkTags(tagId, impliesId);
         else unlinkTags(tagId, impliesId);
+        const clash = action === "add" ? folderContradiction() : undefined;
+        if (clash) return { error: contradictionMessage(clash) };
         after = measure();
     } finally {
         db.exec("ROLLBACK TO preview_tag_implication");
@@ -1476,7 +1727,9 @@ export function updateTagCategory(
 // folder or is implied by another tag, so it's shown dimmed and can only be
 // removed at its source. `inheritedVia`: the tag implying it, when it isn't
 // from the folder.
-export type FileTag = DbTag & { inherited: boolean; inheritedVia?: string };
+// `conflict`: the file has the tag, but a no disagrees (a hard no while its
+// folder gives the tag, or an own tag its folder rules out); says which.
+export type FileTag = DbTag & { inherited: boolean; inheritedVia?: string; conflict?: string };
 
 export function getTagsForFile(fileId: number): FileTag[] {
     const db = getDb();
@@ -1510,14 +1763,203 @@ export function getTagsForFile(fileId: number): FileTag[] {
                 .all(fileId, fileId) as { id: number; name: string }[]
         ).map((r) => [r.id, r.name]),
     );
+    const conflicts = conflictsForFile(fileId);
     return rows.map(({ source, ...r }) => ({
         ...r,
         inherited: r.inherited === 1,
         ...(source === 2 && via.has(r.id) ? { inheritedVia: via.get(r.id) } : {}),
+        ...(conflicts.has(r.id) ? { conflict: conflicts.get(r.id) } : {}),
     }));
 }
 
-// No-op when the file already inherits the tag. Tags the new one implies
+// SQL (alias c = a tag_checks row): its file's folder gives it the tag.
+const FOLDER_GIVES = `EXISTS (
+    SELECT 1 FROM files cf JOIN folder_tags fo ON fo.folder_id = cf.folder_id
+    WHERE cf.id = c.file_id
+      AND (fo.tag_id = c.tag_id OR EXISTS (
+          SELECT 1 FROM tag_implied ti
+          WHERE ti.tag_id = fo.tag_id AND ti.implied_id = c.tag_id)))`;
+
+// Conflicts, as (file_id, tag_id) pairs: a hard no on a tag the file's
+// folder gives it (a batch no can't take that off), or a tag the file has
+// from its own tags that its folder rules out (after a move kept it, or a
+// tag link added later). `kind` 1 / 2 respectively.
+const CONFLICTS_SQL = `
+    SELECT c.file_id, c.tag_id, 1 AS kind, NULL AS folder_id FROM tag_checks c
+    WHERE c.rejected = 1 AND ${FOLDER_GIVES}
+    UNION
+    SELECT n.file_id, n.tag_id, 2, n.folder_id FROM file_folder_noes n
+    WHERE EXISTS (SELECT 1 FROM file_effective_tags e
+                  WHERE e.file_id = n.file_id AND e.tag_id = n.tag_id)`;
+
+function conflictsForFile(fileId: number): Map<number, string> {
+    const rows = getDb()
+        .prepare(
+            `SELECT x.tag_id, x.kind, fo.name AS folder
+             FROM (${CONFLICTS_SQL}) x
+             LEFT JOIN folders fo ON fo.id = x.folder_id
+             WHERE x.file_id = ?`,
+        )
+        .all(fileId) as { tag_id: number; kind: number; folder: string | null }[];
+    const out = new Map<number, string>();
+    for (const r of rows) {
+        out.set(
+            r.tag_id,
+            r.kind === 1
+                ? "Conflict: marked as no, but it comes from the folder"
+                : `Conflict: not allowed in ${r.folder ?? "its folder"}`,
+        );
+    }
+    return out;
+}
+
+/** A no shown on a file: its own (hard and/or from a pass, removable) or
+ *  from its folder (`folder`; `via`: the folder no it follows from when
+ *  the tag implies it). Tags the file has aren't listed (yes wins). */
+export type FileNo = DbTag & { hard: boolean; pass: boolean; folder?: string; via?: string };
+
+export function getNoesForFile(fileId: number): FileNo[] {
+    const db = getDb();
+    const has = `NOT EXISTS (SELECT 1 FROM file_effective_tags e
+                             WHERE e.file_id = ? AND e.tag_id = t.id)`;
+    const own = db
+        .prepare(
+            `SELECT t.*, c.rejected AS hard, c.passed AS pass FROM tag_checks c
+             JOIN tags t ON t.id = c.tag_id
+             WHERE c.file_id = ? AND (c.rejected = 1 OR c.passed = 1) AND ${has}`,
+        )
+        .all(fileId, fileId) as (DbTag & { hard: number; pass: number })[];
+    const fromFolder = db
+        .prepare(
+            `SELECT t.*, fo.name AS folder, MIN(CASE WHEN n.no_tag_id != n.tag_id
+                                                 THEN nt.name END) AS via,
+                    MAX(n.no_tag_id = n.tag_id) AS direct
+             FROM file_folder_noes n
+             JOIN tags t ON t.id = n.tag_id
+             JOIN tags nt ON nt.id = n.no_tag_id
+             JOIN folders fo ON fo.id = n.folder_id
+             WHERE n.file_id = ? AND ${has}
+             GROUP BY t.id`,
+        )
+        .all(fileId, fileId) as (DbTag & { folder: string; via: string | null; direct: number })[];
+    const byId = new Map<number, FileNo>();
+    for (const r of own) byId.set(r.id, { ...r, hard: r.hard === 1, pass: r.pass === 1 });
+    for (const { via, direct, ...r } of fromFolder) {
+        const prev = byId.get(r.id);
+        const extra = { folder: r.folder, ...(direct ? {} : via ? { via } : {}) };
+        byId.set(r.id, prev ? { ...prev, ...extra } : { ...r, hard: false, pass: false, ...extra });
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Removing a no from a file: back to unchecked for that tag (hard no, pass
+// no and its Sweep time all go). Noes from the folder are removed there.
+export function clearFileNo(fileId: number, tagId: number): void {
+    getDb().prepare(`DELETE FROM tag_checks WHERE file_id = ? AND tag_id = ?`).run(fileId, tagId);
+}
+
+/** What a batch no would do, for the confirm. */
+export interface BatchNoPreview {
+    /** Own tags taken off, per tag (the tag itself, or tags implying it). */
+    removed: { name: string; files: number }[];
+    /** Files losing at least one tag. */
+    files: number;
+    /** Files whose folder gives them the tag: the no is stored but the
+     *  folder's yes wins, a conflict until the file or folder changes. */
+    conflicts: number;
+}
+
+// A batch no for one tag. Each file's own sources of the tag (the tag
+// itself, or an own tag implying it) come off, each as a hard no, and the
+// tag itself gets a hard no. Where the folder gives the tag, the hard no is
+// still stored (a conflict, see CONFLICTS_SQL). Never refused.
+function applyBatchNo(fileIds: number[], tagId: number): { file_id: number; tag_id: number }[] {
+    const db = getDb();
+    const sources = db.prepare(
+        `SELECT ft.tag_id FROM file_tags ft
+         WHERE ft.file_id = ?
+           AND (ft.tag_id = ? OR EXISTS (SELECT 1 FROM tag_implied ti
+                                         WHERE ti.tag_id = ft.tag_id AND ti.implied_id = ?))`,
+    );
+    const del = db.prepare(`DELETE FROM file_tags WHERE file_id = ? AND tag_id = ?`);
+    const reject = db.prepare(
+        `INSERT INTO tag_checks (file_id, tag_id, rejected)
+         SELECT ?, ?, 1 WHERE EXISTS (SELECT 1 FROM files WHERE id = ?)
+         ON CONFLICT (file_id, tag_id)
+         DO UPDATE SET rejected = 1, updated_at = datetime('now')`,
+    );
+    const gone: { file_id: number; tag_id: number }[] = [];
+    for (const fileId of fileIds) {
+        for (const { tag_id } of sources.all(fileId, tagId, tagId) as { tag_id: number }[]) {
+            del.run(fileId, tag_id);
+            reject.run(fileId, tag_id, fileId);
+            gone.push({ file_id: fileId, tag_id });
+        }
+        reject.run(fileId, tagId, fileId);
+    }
+    return gone;
+}
+
+function batchConflicts(fileIds: number[], tagId: number): number {
+    return (
+        getDb()
+            .prepare(
+                `SELECT COUNT(DISTINCT e.file_id) AS n FROM file_effective_tags e
+                 WHERE e.tag_id = ? AND e.file_id IN (SELECT value FROM json_each(?))`,
+            )
+            .get(tagId, JSON.stringify(fileIds)) as { n: number }
+    ).n;
+}
+
+export function previewBatchNo(fileIds: number[], tagId: number): BatchNoPreview {
+    const db = getDb();
+    db.exec("SAVEPOINT preview_batch_no");
+    try {
+        const gone = applyBatchNo(fileIds, tagId);
+        return { ...summarizeRemoved(gone), conflicts: batchConflicts(fileIds, tagId) };
+    } finally {
+        db.exec("ROLLBACK TO preview_batch_no");
+        db.exec("RELEASE preview_batch_no");
+    }
+}
+
+export function batchNo(fileIds: number[], tagId: number): BatchNoPreview {
+    const db = getDb();
+    return db.transaction(() => {
+        const gone = applyBatchNo(fileIds, tagId);
+        return { ...summarizeRemoved(gone), conflicts: batchConflicts(fileIds, tagId) };
+    })();
+}
+
+/** Files with a conflict for a tag (in a scope), and why. */
+export function getConflictFiles(
+    tagId: number,
+    folderPrefixes: string[] | null = null,
+    filter: FilterNode | null = null,
+): (DbFile & { reason: string })[] {
+    const scope = scopeSql(folderPrefixes, filter);
+    const rows = getDb()
+        .prepare(
+            `SELECT f.*, MIN(x.kind) AS kind, MIN(fo.name) AS folderName
+             FROM (${CONFLICTS_SQL}) x
+             JOIN files f ON f.id = x.file_id
+             LEFT JOIN folders fo ON fo.id = x.folder_id
+             WHERE x.tag_id = ? AND ${scope.sql}
+             GROUP BY f.id
+             ORDER BY f.path`,
+        )
+        .all(tagId, ...scope.params) as (DbFile & { kind: number; folderName: string | null })[];
+    return rows.map(({ kind, folderName, ...f }) => ({
+        ...f,
+        reason:
+            kind === 1
+                ? "Marked as no, but the folder gives it this tag"
+                : `Has the tag, but it's not allowed in ${folderName ?? "its folder"}`,
+    }));
+}
+
+// No-op when the file already inherits the tag, or its folder rules the
+// tag out (a folder no). Tags the new one implies
 // become inherited, so the file's own copies of them go.
 export function addTagToFile(fileId: number, tagId: number): void {
     const db = getDb();
@@ -1535,6 +1977,10 @@ export function addTagToFile(fileId: number, tagId: number): void {
                  SELECT 1 FROM file_tags b
                  JOIN tag_implied ti ON ti.tag_id = b.tag_id
                  WHERE b.file_id = @fileId AND ti.implied_id = @tagId
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM file_folder_noes n
+                 WHERE n.file_id = @fileId AND n.tag_id = @tagId
              )`,
         ).run({ fileId, tagId });
         dropTagsCoveredByInheritance({ fileId });
@@ -1627,8 +2073,9 @@ export function scopeSql(
 
 // Coverage: for each tag, what's needed to count files settled yes or no,
 // over the library or a scope (folders and/or a tag filter). Yes: the file
-// has the tag (own or inherited). Firm no: the user took the tag off the
-// file, or stepped past it untagged in a pass. Seen (a soft no): neither,
+// has the tag (own or inherited). Firm no: the tag was taken off the
+// file (by hand or a batch no), stepped past untagged in a pass, or ruled
+// out by its folder. Seen (a soft no): neither,
 // but it was on screen in Sweep with the tag up for at least the threshold
 // (a setting, 1–30 s). The threshold is applied in the renderer, so Sweep
 // time comes grouped by whole second (capped at 30): a file counts as seen
@@ -1638,7 +2085,13 @@ export function getTagCoverage(
     filter: FilterNode | null = null,
 ): {
     files: number;
-    tags: { tagId: number; yes: number; firmNo: number; seen: [number, number][] }[];
+    tags: {
+        tagId: number;
+        yes: number;
+        firmNo: number;
+        seen: [number, number][];
+        conflicts: number;
+    }[];
 } {
     const db = getDb();
     const scope = scopeSql(folderPrefixes, filter);
@@ -1656,23 +2109,50 @@ export function getTagCoverage(
              GROUP BY e.tag_id`,
         )
         .all(...scope.params) as { tagId: number; n: number }[];
-    // Untagged checks: firm noes, else bucketed by seconds.
-    const checks = db
+    // Untagged checks: firm noes (taken off, a pass, or ruled out by the
+    // folder), else bucketed by seconds.
+    const firm = `SELECT file_id, tag_id FROM tag_checks WHERE rejected = 1 OR passed = 1
+                  UNION SELECT file_id, tag_id FROM file_folder_noes`;
+    const untagged = (alias: string) => `NOT EXISTS (
+        SELECT 1 FROM file_effective_tags e
+        WHERE e.file_id = ${alias}.file_id AND e.tag_id = ${alias}.tag_id)`;
+    const firmRows = db
         .prepare(
-            `SELECT c.tag_id AS tagId,
-                    CASE WHEN c.rejected = 1 OR c.passed = 1 THEN -1
-                         ELSE CAST(MIN(c.seconds, 30) AS INTEGER) END AS bucket,
+            `SELECT c.tag_id AS tagId, -1 AS bucket, COUNT(*) AS n
+             FROM (${firm}) c
+             JOIN files f ON f.id = c.file_id
+             WHERE ${scope.sql} AND ${untagged("c")}
+             GROUP BY c.tag_id`,
+        )
+        .all(...scope.params) as { tagId: number; bucket: number; n: number }[];
+    const seenRows = db
+        .prepare(
+            `SELECT c.tag_id AS tagId, CAST(MIN(c.seconds, 30) AS INTEGER) AS bucket,
                     COUNT(*) AS n
              FROM tag_checks c
              JOIN files f ON f.id = c.file_id
              WHERE ${scope.sql}
-               AND (c.rejected = 1 OR c.passed = 1 OR c.seconds >= 1)
-               AND NOT EXISTS (
-                   SELECT 1 FROM file_effective_tags e
-                   WHERE e.file_id = c.file_id AND e.tag_id = c.tag_id)
+               AND c.rejected = 0 AND c.passed = 0 AND c.seconds >= 1
+               AND NOT EXISTS (SELECT 1 FROM file_folder_noes n
+                               WHERE n.file_id = c.file_id AND n.tag_id = c.tag_id)
+               AND ${untagged("c")}
              GROUP BY c.tag_id, bucket`,
         )
         .all(...scope.params) as { tagId: number; bucket: number; n: number }[];
+    const checks = [...firmRows, ...seenRows];
+    const conflictBy = new Map(
+        (
+            db
+                .prepare(
+                    `SELECT x.tag_id AS tagId, COUNT(DISTINCT x.file_id) AS n
+                     FROM (${CONFLICTS_SQL}) x
+                     JOIN files f ON f.id = x.file_id
+                     WHERE ${scope.sql}
+                     GROUP BY x.tag_id`,
+                )
+                .all(...scope.params) as { tagId: number; n: number }[]
+        ).map((r) => [r.tagId, r.n]),
+    );
     const yesBy = new Map(yes.map((r) => [r.tagId, r.n]));
     const firmNoBy = new Map<number, number>();
     const seenBy = new Map<number, [number, number][]>();
@@ -1690,6 +2170,7 @@ export function getTagCoverage(
             yes: yesBy.get(tagId) ?? 0,
             firmNo: firmNoBy.get(tagId) ?? 0,
             seen: seenBy.get(tagId) ?? [],
+            conflicts: conflictBy.get(tagId) ?? 0,
         })),
     };
 }

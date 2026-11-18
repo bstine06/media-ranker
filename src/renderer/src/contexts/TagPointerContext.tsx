@@ -566,6 +566,8 @@ export function TagPointerProvider({ children }: { children: React.ReactNode }) 
                 : await window.api.addTag(file.id, t.name);
         publishFileTags(file.id, next);
         if (state === null) {
+            // Refused: the file's folder rules the tag out.
+            if (!next.some((x) => x.id === t.id)) return "denied";
             addedHere.current.add(id);
             return "on";
         }

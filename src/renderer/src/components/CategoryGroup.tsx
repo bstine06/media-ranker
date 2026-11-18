@@ -9,9 +9,11 @@ type CategoryGroupProps = {
     activeTags: DbTagWithCategory[];
     onRemoveTag: (tag: DbTagWithCategory) => void;
     onAddTag: (tagName: string) => void;
+    /** Briefly highlight this tag (it just moved here, e.g. a swap). */
+    glowTagId?: number | null;
 };
 
-const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag }: CategoryGroupProps) => {
+const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag, glowTagId }: CategoryGroupProps) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(false);
@@ -31,6 +33,10 @@ const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag }: Ca
     // but removed at their source. Value: the implying tag, if any.
     const inheritedTags = new Map(
         activeTags.filter(t => t.inherited).map(t => [t.id, t.inheritedVia]),
+    );
+    // A no disagrees with the tag on this file (see getTagsForFile).
+    const conflicts = new Map(
+        activeTags.filter(t => t.conflict).map(t => [t.id, t.conflict]),
     );
 
     useEffect(() => {
@@ -76,6 +82,8 @@ const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag }: Ca
                                 applied={isActive}
                                 inherited={isInherited}
                                 inheritedVia={inheritedTags.get(tag.id)}
+                                conflict={applied ? conflicts.get(tag.id) : undefined}
+                                className={glowTagId === tag.id ? "ring-2 ring-amber-300/70 animate-pulse" : ""}
                                 onRemove={isActive && !isInherited ? () => onRemoveTag(tag) : undefined}
                                 onAdd={!isActive ? () => onAddTag(tag.name) : undefined}
                             />

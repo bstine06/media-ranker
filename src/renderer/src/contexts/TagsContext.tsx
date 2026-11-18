@@ -173,11 +173,14 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
         return tags
             .map((t) => {
                 const full = tagMap.get(t.id);
-                // Keep a file tag's `inherited` flag and its source (the
-                // map's copy has neither).
-                return full && t.inherited
-                    ? { ...full, inherited: true, inheritedVia: t.inheritedVia }
-                    : full;
+                // Keep a file tag's `inherited` flag, its source and any
+                // conflict (the map's copy has none of them).
+                if (!full || (!t.inherited && !t.conflict)) return full;
+                return {
+                    ...full,
+                    ...(t.inherited ? { inherited: true, inheritedVia: t.inheritedVia } : {}),
+                    ...(t.conflict ? { conflict: t.conflict } : {}),
+                };
             })
             .filter((t): t is DbTagWithCategory => t != null);
     },

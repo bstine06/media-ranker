@@ -29,6 +29,37 @@ export interface DbTag {
     inherited?: boolean;
     /** With `inherited`: the tag that implies it. Absent: from the folder. */
     inheritedVia?: string;
+    /** On a file's tag list: a no disagrees with it (says which). */
+    conflict?: string;
+}
+
+/** A firm no on a file: its own (`hard`: taken off or a batch no; `pass`:
+ *  from a pass), and/or from its folder (`folder`, with `via` the folder no
+ *  it follows from when this tag implies it). */
+export interface FileNo extends DbTag {
+    hard: boolean;
+    pass: boolean;
+    folder?: string;
+    via?: string;
+}
+
+export type FolderRuleResult = { ok: true } | { ok: false; error: string };
+
+/** What adding a folder no would take off the folder's files. */
+export interface FolderNoPreview {
+    /** It replaces the folder's tag of the same name. */
+    swap: boolean;
+    removed: { name: string; files: number }[];
+    files: number;
+}
+
+/** What a batch no would do (or did). */
+export interface BatchNoPreview {
+    removed: { name: string; files: number }[];
+    files: number;
+    /** Files whose folder gives them the tag: the no is kept but the
+     *  folder wins, so they show as conflicts. */
+    conflicts: number;
 }
 
 export interface DbTagCategory {
@@ -171,6 +202,8 @@ export interface TagCoverageRaw {
         /** The other untagged files with Sweep time: [whole seconds, files],
          *  seconds capped at the threshold's max (30). */
         seen: [number, number][];
+        /** Files where a no and a yes disagree (see getConflictFiles). */
+        conflicts: number;
     }[];
 }
 
@@ -178,7 +211,14 @@ export interface TagCoverageRaw {
  *  seconds threshold. no = firmNo + seen. */
 export interface TagCoverage {
     files: number;
-    tags: { tagId: number; yes: number; firmNo: number; seen: number; no: number }[];
+    tags: {
+        tagId: number;
+        yes: number;
+        firmNo: number;
+        seen: number;
+        no: number;
+        conflicts: number;
+    }[];
 }
 
 export interface TagUsage {

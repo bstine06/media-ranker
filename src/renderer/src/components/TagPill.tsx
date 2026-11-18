@@ -15,10 +15,16 @@ interface TagPillProps {
   inherited?: boolean;
   /** With `inherited`: the tag implying it. Absent: from the folder. */
   inheritedVia?: string;
+  /** A no disagrees with this tag on the file: a red mark, and this text on
+   *  hover. */
+  conflict?: string;
+  /** A no (not a tag): reddish. `title` explains where it comes from. */
+  no?: boolean;
+  title?: string;
   className?: string;
 }
 
-export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia, className }: TagPillProps) {
+export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia, conflict, no, title, className }: TagPillProps) {
   const color = tag.category?.color ?? "#888";
   const icon = tag.category?.icon ?? "●";
 
@@ -124,18 +130,28 @@ export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia
   return (
     <>
       <span
-        className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 text-xs group ${
-          applied ? "border border-neutral-500" : ""
+        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs group ${
+          no
+            ? `bg-red-950/60 text-red-200 ${applied ? "border border-red-800/80" : ""}`
+            : `bg-neutral-800 text-neutral-300 ${applied ? "border border-neutral-500" : ""}`
         } ${inherited ? "opacity-50" : ""} ${className}`}
-        title={
-          !inherited
-            ? undefined
-            : inheritedVia
-              ? `Comes with "${inheritedVia}". Remove "${inheritedVia}" to take it off.`
-              : "From the folder's tags. Remove it there to take it off."
-        }
+        title={[
+          title ??
+            (!inherited
+              ? undefined
+              : inheritedVia
+                ? `Comes with "${inheritedVia}". Remove "${inheritedVia}" to take it off.`
+                : "From the folder's tags. Remove it there to take it off."),
+          conflict,
+        ]
+          .filter(Boolean)
+          .join("\n") || undefined}
         onContextMenu={handleContextMenu}
       >
+        {conflict && (
+          <span className="text-[10px] font-bold leading-none text-red-400 flex-shrink-0">!</span>
+        )}
+        {no && <span className="text-[10px] leading-none text-red-400 flex-shrink-0">✕</span>}
         {tag.category && !showTagCategoryNames && (
           <span className="text-[10px] leading-none flex-shrink-0" style={{ color }}>
             {icon}
@@ -143,7 +159,7 @@ export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia
         )}
         <button
           onClick={onAdd ?? onRemove}
-          className={`text-left transition-colors ${inherited ? "cursor-default" : "hover:text-neutral-100"}`}
+          className={`text-left transition-colors ${inherited ? "cursor-default" : no ? "hover:text-red-100" : "hover:text-neutral-100"}`}
         >
           {tag.name}
         </button>

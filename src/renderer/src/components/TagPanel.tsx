@@ -3,17 +3,72 @@ import {
     DbFile,
     DbTag,
     DbTagWithCategory,
+    FileNo,
     isDbTagArray,
 } from "@renderer/shared/types/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryGroup from "./CategoryGroup";
+import { TagPill } from "./TagPill";
 import { useClipboard } from "@renderer/contexts/ClipboardContext";
 import { useFileTags } from "@renderer/hooks/useFileTags";
 import { TagInput } from "./TagInput";
 import { groupTagsByCategory } from "@renderer/lib/tagGroups";
 
+// The "Not" section stays open or closed across files (this session).
+let notOpenRemembered = false;
+
+/** Where a no on a file comes from, one line each. */
+function noSource(n: FileNo): string {
+    const lines: string[] = [];
+    if (n.hard) lines.push("Marked as no");
+    if (n.pass) lines.push("No from a pass");
+    if (n.folder) {
+        lines.push(
+            n.via
+                ? `Not allowed in ${n.folder}: ${n.name} means ${n.via}`
+                : `Not allowed in ${n.folder}`,
+        );
+    }
+    return lines.join("\n");
+}
+
 export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     const { tags, setTags } = useFileTags(file.id);
+    const { tagMap } = useTags();
+    // Firm noes (own and from the folder); reread whenever the tags change,
+    // since adding a tag settles a no and taking one off makes one.
+    const [noes, setNoes] = useState<FileNo[]>([]);
+    const [notOpen, setNotOpenState] = useState(notOpenRemembered);
+    const setNotOpen = (open: boolean) => {
+        notOpenRemembered = open;
+        setNotOpenState(open);
+    };
+    const [note, setNote] = useState<string | null>(null);
+    useEffect(() => {
+        let live = true;
+        window.api
+            .getFileNoes(file.id)
+            .then((n) => {
+                if (live) setNoes(n);
+            })
+            .catch(() => {});
+        return () => {
+            live = false;
+        };
+    }, [file.id, tags]);
+    useEffect(() => setNote(null), [file.id]);
+    useEffect(() => {
+        if (!note) return;
+        const t = setTimeout(() => setNote(null), 4000);
+        return () => clearTimeout(t);
+    }, [note]);
+    const clearNo = useCallback(
+        async (n: FileNo) => {
+            await window.api.clearFileNo(file.id, n.id);
+            setNoes(await window.api.getFileNoes(file.id));
+        },
+        [file.id],
+    );
     const [suggestionMode, setSuggestionMode] = useState<"folder" | "global">(
         "folder",
     );
@@ -68,8 +123,13 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             const updated = await window.api.addTag(file.id, trimmed);
             await refreshTags();
             setTags(updated);
+            // Refused: the folder rules it out.
+            if (!updated.some((t) => t.name === trimmed)) {
+                const ruled = noes.find((n) => n.name === trimmed && n.folder);
+                if (ruled) setNote(noSource({ ...ruled, hard: false, pass: false }));
+            }
         },
-        [file.id, tags, refreshTags, setTags],
+        [file.id, tags, refreshTags, setTags, noes],
     );
 
     const removeTag = useCallback(
@@ -137,6 +197,43 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                 onCreate={addTag}
                 className="px-3 pb-1"
             />
+            {note && <p className="px-4 pb-1 text-[11px] text-red-300/90">{note}</p>}
+
+            {/* Noes: less useful than the tags, so folded away by default. */}
+            <div className="border-t border-neutral-800 mt-2">
+                <button
+                    onClick={() => setNotOpen(!notOpen)}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors"
+                >
+                    <span className={`inline-block transition-transform ${notOpen ? "rotate-90" : ""}`}>›</span>
+                    Not
+                    <span className="normal-case tracking-normal text-neutral-600 tabular-nums">
+                        ({noes.length})
+                    </span>
+                </button>
+                {notOpen && (
+                    <div className="flex flex-wrap gap-1.5 px-3 pb-3">
+                        {noes.length === 0 && (
+                            <p className="px-1 text-[11px] text-neutral-600">No firm noes yet.</p>
+                        )}
+                        {noes.map((n) => {
+                            const t = tagMap.get(n.id);
+                            const own = n.hard || n.pass;
+                            return (
+                                <TagPill
+                                    key={n.id}
+                                    tag={(t ?? n) as DbTagWithCategory}
+                                    applied
+                                    no
+                                    inherited={!own}
+                                    title={noSource(n)}
+                                    onRemove={own ? () => clearNo(n) : undefined}
+                                />
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
 
             <div className="flex px-4 py-3 items-center border-neutral-800">
                 <p className="text-[11px] flex grow text-neutral-400 font-medium">

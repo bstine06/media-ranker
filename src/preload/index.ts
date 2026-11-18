@@ -139,8 +139,14 @@ const api = {
     moveIntoFolder: (
         absPaths: string[],
         targetFolder: string,
+        enforceNoes = false,
     ): Promise<{ moved: number; errors: string[] }> =>
-        ipcRenderer.invoke("move-into-folder", absPaths, targetFolder),
+        ipcRenderer.invoke("move-into-folder", absPaths, targetFolder, enforceNoes),
+    previewMoveIntoFolder: (
+        absPaths: string[],
+        targetFolder: string,
+    ): Promise<{ absPath: string; filename: string; tags: string[] }[]> =>
+        ipcRenderer.invoke("preview-move-into-folder", absPaths, targetFolder),
 
     getSettingsSync: (): Record<string, unknown> =>
         ipcRenderer.sendSync("settings:get-sync"),
@@ -349,8 +355,31 @@ const api = {
     countFilter: (filter: FilterNode | null, folderPrefixes: string[] | null) =>
         ipcRenderer.invoke("feeds:count", filter, folderPrefixes),
 
-    addTagToFolder: (folderRelPath: string, tag: string): Promise<void> =>
+    addTagToFolder: (
+        folderRelPath: string,
+        tag: string,
+    ): Promise<{ ok: true } | { ok: false; error: string }> =>
         ipcRenderer.invoke("add-tag-to-folder", folderRelPath, tag),
+
+    getFolderNoes: (folderRelPath: string): Promise<DbTag[]> =>
+        ipcRenderer.invoke("get-folder-noes", folderRelPath),
+    previewFolderNo: (folderRelPath: string, tag: string) =>
+        ipcRenderer.invoke("preview-folder-no", folderRelPath, tag),
+    addFolderNo: (folderRelPath: string, tag: string) =>
+        ipcRenderer.invoke("add-folder-no", folderRelPath, tag),
+    removeFolderNo: (folderRelPath: string, tag: string): Promise<void> =>
+        ipcRenderer.invoke("remove-folder-no", folderRelPath, tag),
+    getFileNoes: (fileId: number) => ipcRenderer.invoke("get-file-noes", fileId),
+    clearFileNo: (fileId: number, tagId: number): Promise<void> =>
+        ipcRenderer.invoke("clear-file-no", fileId, tagId),
+    previewBatchNo: (fileIds: number[], tag: string) =>
+        ipcRenderer.invoke("preview-batch-no", fileIds, tag),
+    batchNo: (fileIds: number[], tag: string) => ipcRenderer.invoke("batch-no", fileIds, tag),
+    getConflictFiles: (
+        tagId: number,
+        folderPrefixes: string[] | null = null,
+        filter: FilterNode | null = null,
+    ) => ipcRenderer.invoke("get-conflict-files", tagId, folderPrefixes, filter),
 
     getFolderTags: (folderRelPath: string): Promise<DbTag[]> =>
         ipcRenderer.invoke("get-folder-tags", folderRelPath),

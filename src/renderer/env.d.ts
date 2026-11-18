@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, BatchNoPreview, FolderRuleResult } from "./src/shared/types/types";
 
 export {};
 
@@ -153,10 +153,31 @@ declare global {
                 filter?: FilterNode | null,
             ) => Promise<TagCoverageRaw>;
             getAllTags: () => Promise<DbTag[]>;
+            /** Swaps out a folder no for the same tag; refused when the
+             *  folder would contradict itself. */
             addTagToFolder: (
                 folderRelPath: string,
                 tag: string,
-            ) => Promise<void>;
+            ) => Promise<FolderRuleResult>;
+            getFolderNoes: (folderRelPath: string) => Promise<DbTag[]>;
+            /** What adding a folder no would take off files (or why it can't). */
+            previewFolderNo: (
+                folderRelPath: string,
+                tag: string,
+            ) => Promise<FolderNoPreview | { error: string }>;
+            addFolderNo: (folderRelPath: string, tag: string) => Promise<FolderRuleResult>;
+            removeFolderNo: (folderRelPath: string, tag: string) => Promise<void>;
+            /** A file's firm noes: its own and from its folder. */
+            getFileNoes: (fileId: number) => Promise<FileNo[]>;
+            /** Back to unchecked for that tag (hard, pass and Sweep time). */
+            clearFileNo: (fileId: number, tagId: number) => Promise<void>;
+            previewBatchNo: (fileIds: number[], tag: string) => Promise<BatchNoPreview>;
+            batchNo: (fileIds: number[], tag: string) => Promise<BatchNoPreview>;
+            getConflictFiles: (
+                tagId: number,
+                folderPrefixes?: string[] | null,
+                filter?: FilterNode | null,
+            ) => Promise<(DbFile & { reason: string })[]>;
             getFolderTags: (folderRelPath: string) => Promise<DbTag[]>;
             removeTagFromFolder: (
                 folderRelPath: string,
@@ -245,10 +266,18 @@ declare global {
             createFolder: (
                 name: string,
             ) => Promise<{ relativePath: string } | { error: string }>;
+            /** `enforceNoes`: the user agreed to lose own tags the target
+             *  folder's noes rule out. */
             moveIntoFolder: (
                 absPaths: string[],
                 targetFolder: string,
+                enforceNoes?: boolean,
             ) => Promise<{ moved: number; errors: string[] }>;
+            /** Library files that would lose own tags to the target's noes. */
+            previewMoveIntoFolder: (
+                absPaths: string[],
+                targetFolder: string,
+            ) => Promise<{ absPath: string; filename: string; tags: string[] }[]>;
             getPathForFile: (file: File) => string;
             getSettingsSync: () => Record<string, unknown>;
             saveSettings: (settings: Record<string, unknown>) => Promise<void>;
