@@ -1,0 +1,275 @@
+MEDIA RANKER — TEST CHECKLIST
+Version 0.5.0 (branch feature/untested)
+
+Everything since 0.4.0 has been built but not tested in the app.
+Tick each box as you go. Note anything odd next to the item.
+
+Tip: test on a COPY of a library, not the real one.
+
+
+======================================================================
+1. FOLDER NOES  (Browse → folder panel)
+======================================================================
+
+[ ] The Folder Tags section has its own separate input for noes,
+    next to the input for folder tags
+[ ] Adding a folder no shows it as a reddish pill, in its own group,
+    set apart from the folder's tags
+[ ] A no on a tag that files in the folder have as their OWN tag shows
+    a confirm listing the files that will lose it
+[ ] Confirming removes those tags from the files
+[ ] Afterwards, adding that tag to a file in the folder is refused,
+    with a short note in the file view
+[ ] A no also follows implications back to the source: "not cat"
+    removes an own "kitten" too, and the confirm gives the reason
+[ ] Typing a folder TAG that is currently a folder NO (or the other
+    way round) swaps it: the pill jumps groups and glows briefly
+    - no confirm, unless files would lose tags
+[ ] A folder can't contradict itself: folder tag "kitten" + folder
+    no "cat" is refused with a message
+[ ] Removing a folder no sends its files back to undecided for that
+    tag (no leftover noes)
+[ ] New files that land in the folder later inherit its noes
+
+
+======================================================================
+2. BATCH TAG: YES / NO SWITCH  (Browse → select files → Batch Tag)
+======================================================================
+
+[ ] A Yes/No switch sits right before the Apply button
+[ ] Switching to No turns the Apply button red
+[ ] With No, the whole staged list applies as noes (no mixing)
+[ ] A confirm appears when the batch would remove tags or create
+    conflicts
+[ ] A file whose FOLDER gives the tag: the tag stays (the folder
+    wins), but it counts as a conflict
+[ ] Batch YES quietly skips files whose folder rules the tag out
+
+
+======================================================================
+3. MOVING FILES INTO A FOLDER WITH NOES
+======================================================================
+
+Check each way of moving:
+[ ] Dragging onto a sidebar folder
+[ ] Filing
+[ ] Dropping in Browse
+
+For each:
+[ ] When the move would remove own tags, a dialog offers three
+    choices: move all and remove those tags / move only the files
+    that keep their tags / cancel
+[ ] "Move all" removes the tags
+[ ] "Only the ones that keep their tags" leaves the rest where they are
+[ ] Cancel moves nothing
+[ ] No dialog when nothing would be removed
+
+
+======================================================================
+4. FILE VIEW: "NOT" SECTION
+======================================================================
+
+[ ] A "Not (N)" section under the tags, collapsed by default behind a
+    chevron, with a count on its header
+[ ] It lists own firm noes (reddish pills) and inherited folder noes
+    (dimmed)
+[ ] Hovering a no explains where it came from:
+      "Marked as no"            (by hand or batch)
+      "No from a pass"
+      "Not allowed in <Collection>"  (+ ": kitten means cat" when it
+                                      came through an implication)
+      both lines when it's a hand no AND a pass no
+[ ] × on an own no resets that file + tag to undecided (clears the no,
+    the pass no AND its Sweep seconds; other tags untouched)
+[ ] Inherited folder noes have no × (they're removed at the folder)
+[ ] A conflict shows a red "!" on the inherited YES pill, visible even
+    when "Not" is collapsed
+[ ] Adding a tag that has a stored no just works (yes beats no)
+
+
+======================================================================
+5. COVERAGE
+======================================================================
+
+[ ] Firm noes from batch and folder noes count toward coverage
+[ ] A tag with conflicts shows a red "N conflicts" badge on its row
+[ ] Clicking the badge lists those files with the reason
+[ ] Clicking a file in that list opens it
+
+
+======================================================================
+6. PASSES
+======================================================================
+
+[ ] A pass skips files whose folder rules the tag out
+[ ] Space on an inherited tag gives the violet "can't change here"
+    flash and changes nothing
+[ ] 3 still writes nothing on files that are already tagged
+
+
+======================================================================
+7. UNDO / REDO: THE BASICS
+======================================================================
+
+[ ] ⌘Z (outside a text field) undoes the last change and shows a
+    toast at the bottom: "Undid: …"
+[ ] ⇧⌘Z redoes it: "Redid: …"
+[ ] With nothing to undo, the toast says "Nothing to undo"
+    ("Nothing to redo" for ⇧⌘Z)
+[ ] Pressing ⌘Z several times quickly steps back one change per press,
+    with one toast that updates rather than a stack of toasts
+[ ] Making a new change after undoing throws away the redo steps
+[ ] In a text field (tag input, search, rename), ⌘Z still undoes
+    TYPING, not app data
+[ ] Undo never switches views or opens anything
+[ ] Edit menu → Undo / Redo do the same as ⌘Z / ⇧⌘Z
+
+
+======================================================================
+8. UNDO: EVERY KIND OF CHANGE
+======================================================================
+
+For each item: do it, ⌘Z (it's fully reversed and the toast names it),
+then ⇧⌘Z (it's back).
+
+Tags on files
+[ ] Add / remove a tag in the file view
+[ ] Toggle a tag with the tag pointer (Space)
+[ ] Toggle the upper tag in a pass (V)
+[ ] Batch Tag YES on several files with several tags → ONE undo step
+[ ] Batch Tag NO with several tags → ONE undo step
+[ ] × on a no in the file view (reset to undecided) - the no, pass no
+    and seconds all come back
+[ ] Pass no (3) and taking it back
+
+Folders
+[ ] Add / remove a folder tag
+[ ] Add / remove a folder no, and a yes↔no swap
+[ ] A folder no that removed files' own tags: undo gives the tags back
+[ ] Set / remove a folder metadata field
+[ ] Change / remove a folder's profile picture
+[ ] Rename a folder (files and sidebar follow both ways)
+[ ] Create a folder (undo removes it, but only while it's still empty)
+[ ] Delete a folder, "move files to Unsorted" mode: undo puts the
+    folder AND its files back
+[ ] Delete a folder, "trash" mode: undo brings the folder and files
+    back with their tags and scores
+
+Files
+[ ] Move files to another folder (sidebar drag, filing, Browse drop)
+[ ] Move with the 3-choice dialog ("move all"): undo restores the
+    files' location AND the removed tags
+[ ] Files dragged in from Finder: undo moves them back where they came
+    from (same drive only)
+[ ] Delete one file: it comes back with its tags and score
+[ ] Delete several files at once → ONE undo step
+[ ] Delete from the scroll / file view
+[ ] Rotate: undo brings back the exact original (not re-rotated)
+[ ] Replace file: undo brings the old version back
+
+Compare
+[ ] W and ↑ no longer undo anything
+[ ] ⌘Z after a pick: scores go back AND that matchup returns on screen
+    (focus, king and placement state too)
+[ ] ⇧⌘Z after that: the pick is reapplied and Compare moves on
+[ ] A placement match undoes the same way
+[ ] Undoing a pick from ANOTHER view only changes scores (no jump to
+    Compare)
+
+Tag Manager
+[ ] Create a tag
+[ ] Rename a tag; move it to another category
+[ ] Merge two tags (undo splits them back, files/folders as before)
+[ ] Delete a tag (undo brings it back on all its files and folders)
+[ ] Add / remove an implication (kitten → cat)
+[ ] Create / edit / delete a category
+[ ] Toggle "available in the tag pointer" for a tag and a category
+[ ] Reorder tags by dragging → ONE undo step per drop
+
+Other
+[ ] Save / update / rename / delete a feed
+[ ] Remove missing files (purge)
+
+Not in the history (these should NOT be undone)
+[ ] Settings changes, fullscreen, switching views
+[ ] Saved pass progress
+[ ] Seconds counted on screen in Sweep
+
+
+======================================================================
+9. UNDO: VIEWS UPDATE AFTERWARDS
+======================================================================
+
+After an undo or redo, without reopening anything:
+[ ] File view tag pills and the "Not" section
+[ ] Browse grid (including files entering/leaving the tag filter)
+[ ] Browse folder panel (folder tags, noes, metadata, picture)
+[ ] Sidebar: folder pictures, Unsorted count, missing-files count
+[ ] Coverage numbers and the conflicts list
+[ ] Tag Manager (tags, categories, links)
+[ ] Pass "no" markers on tiles
+[ ] Compare scores / ranks
+
+
+======================================================================
+10. HISTORY DRAWER
+======================================================================
+
+[ ] Settings → "Show undo history" turns it on (it starts OFF)
+[ ] It docks on the right and pushes the view over (doesn't cover
+    media)
+[ ] It fills in live as changes are made
+[ ] Newest entries sit just under the "Now" line
+[ ] Undone entries show dimmed ABOVE the "Now" line; the next one to
+    redo is closest to the line
+[ ] Clicking an entry does nothing
+[ ] Long labels wrap to two lines; hovering shows the full text
+[ ] × hides it and turns the setting off; the setting turns it back on
+[ ] It's hidden in Sweep / Pass full screen
+[ ] The setting is remembered after restarting
+
+
+======================================================================
+11. UNDO: EDGE CASES
+======================================================================
+
+[ ] Stop rule: move a file in the app, then move or delete it in
+    Finder, then undo back to the app's move → red toast ("Couldn't
+    undo: …"), and older entries disappear from the history
+[ ] Rename a file in Finder after the app moved it, wait a moment,
+    then undo the move → it should FOLLOW the rename and work
+[ ] Put a file with the same name where a deleted file used to be,
+    then undo the delete → refused with a red toast, nothing lost
+[ ] The history holds 200 steps; older ones drop off
+[ ] Rescan keeps the history
+[ ] Switching to another library clears the history
+
+
+======================================================================
+12. HOLDING FOLDER (deleted / rotated / replaced files)
+======================================================================
+
+[ ] Deleting a file puts it in the hidden ".media-ranker-undo" folder
+    inside the library (Finder: ⌘⇧. to show hidden files), not
+    straight into the Trash
+[ ] That folder doesn't appear in the app's sidebar or file lists
+[ ] Quitting the app sends everything in it to the Trash (quitting may
+    pause for a moment), and the folder is gone afterwards
+[ ] After a force quit or crash, the leftovers go to the Trash at the
+    next launch
+[ ] Files that drop off the end of the history (past 200 steps) go to
+    the Trash
+[ ] Note: rotations now leave the pre-rotation original in the Trash
+    after quitting (they used to be overwritten)
+[ ] Delete confirm text now reads "⌘Z brings it back until the app
+    quits; then it goes to the Trash."
+
+
+======================================================================
+13. OLDER FIX, STILL UNCONFIRMED: HIDDEN TAG POINTER
+======================================================================
+
+[ ] After H hides the pointer, Space and tile clicks tag nothing
+[ ] ` (random tag) does nothing while hidden
+[ ] The random reroll timer pauses while hidden and resumes after
+[ ] Tab, T or right click bring the pointer back
