@@ -680,7 +680,7 @@ function TagEditor({
                         (deleteUsage.files === 0 && deleteUsage.folders === 0
                             ? `Delete "${tag.name}"? It isn't on any files.`
                             : `Delete "${tag.name}"? It's on ${usageText(deleteUsage)}, ` +
-                              `and will be removed from all of them. This can't be undone.`) +
+                              `and will be removed from all of them. ⌘Z brings it back.`) +
                         feedsWarning(deleteFeeds)
                     }
                     confirmText="Delete"

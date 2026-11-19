@@ -22,6 +22,7 @@ import {
     useEffect,
     useMemo,
 } from "react";
+import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 
 interface Tags {
     // Data
@@ -151,6 +152,12 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
         setAllCategories(categories);
         setImplications(links);
     }, []);
+
+    // An undo/redo can bring back, rename or delete tags and categories.
+    const historyVersion = useHistoryVersion();
+    useEffect(() => {
+        if (historyVersion > 0) void refreshTags();
+    }, [historyVersion, refreshTags]);
 
     // Join tags with their categories in one memo — components never have to do this themselves
     const allTagsWithCategory = useMemo<DbTagWithCategory[]>(() => {

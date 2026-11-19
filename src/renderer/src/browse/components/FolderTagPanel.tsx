@@ -1,4 +1,5 @@
 import { useTags } from "@renderer/contexts/TagsContext";
+import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import {
     BatchNoPreview,
     DbFile,
@@ -62,13 +63,15 @@ export default function FolderTagPanel({
     // A tag that just moved between the folder's tags and noes (a swap).
     const [glow, setGlow] = useState<number | null>(null);
 
+    const historyVersion = useHistoryVersion();
     const loadNoes = useCallback(async () => {
         if (!activeFolder) {
             setFolderNoes([]);
             return;
         }
         setFolderNoes(await window.api.getFolderNoes(activeFolder));
-    }, [activeFolder]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeFolder, historyVersion]);
     useEffect(() => {
         setError(null);
         void loadNoes();
@@ -218,11 +221,9 @@ export default function FolderTagPanel({
     const commitBatchNo = useCallback(
         async (names: string[], files: DbFile[]) => {
             const ids = files.map((f) => f.id);
-            let conflicts = 0;
-            for (const name of names) {
-                const res = await window.api.batchNo(ids, name);
-                conflicts += res.conflicts;
-            }
+            // All the tags in one call: one undo entry.
+            const res = await window.api.batchNo(ids, names);
+            const conflicts = res.conflicts;
             await refreshTags();
             onAfterBatchNo?.();
             setStagedTags([]);

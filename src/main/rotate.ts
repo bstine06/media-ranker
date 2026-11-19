@@ -2,15 +2,16 @@
 // thumbnails (same volume as the library, so the final rename is a plain
 // move, and a folder the watcher ignores), then swaps it in over the
 // original with replaceTrackedFile. The file keeps its record, score and
-// tags. The old version is overwritten, not trashed, so rotating doesn't
-// fill the Trash.
+// tags. The old version goes to the undo holding folder (returned), so the
+// rotation can be undone exactly (re-rotating an image re-encodes it).
 
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { join, extname } from "path";
+import { join, extname, basename } from "path";
 import { link, readdir, stat, unlink } from "fs/promises";
 import sharp from "sharp";
-import { getDb, getFileByPath } from "./db";
+import { getFileByPath } from "./db";
+import { holdingPath } from "./undo";
 import { ensureDir } from "./scanner";
 import { replaceTrackedFile } from "./replaceFile";
 import { ffmpegBin, needsSips } from "./imageConvert";
@@ -74,9 +75,10 @@ export async function rotateTrackedFile(
     relPath: string,
     quarterTurns: number,
     ignoredPaths: Set<string>,
-): Promise<void> {
+    runDb: (fn: () => void) => void = (fn) => fn(),
+): Promise<string | null> {
     const turns = ((quarterTurns % 4) + 4) % 4;
-    if (turns === 0) return;
+    if (turns === 0) return null;
 
     const file = getFileByPath(relPath);
     if (!file) throw new Error(`File not tracked: ${relPath}`);
@@ -133,15 +135,10 @@ export async function rotateTrackedFile(
         if (file.media_type === "video") {
             await keepPreviousVersion(rootPath, src, file.content_hash);
         }
-        await replaceTrackedFile(rootPath, relPath, tmp, ignoredPaths, "overwrite");
-
-        // The old version's thumbnail, unless an identical file still uses it.
-        const stillUsed = getDb()
-            .prepare(`SELECT 1 FROM files WHERE content_hash = ? LIMIT 1`)
-            .get(file.content_hash);
-        if (!stillUsed) {
-            await unlink(join(tmpDir, `${file.content_hash}.jpg`)).catch(() => {});
-        }
+        // The old version's thumbnail stays: undo brings that version back.
+        const held = await holdingPath(basename(relPath));
+        await replaceTrackedFile(rootPath, relPath, tmp, ignoredPaths, { hold: held }, runDb);
+        return held;
     } finally {
         // Gone already if the swap happened; cleans up after a failure.
         await unlink(tmp).catch(() => {});

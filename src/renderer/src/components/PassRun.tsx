@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import type { DbFile, DbTag, DbTagWithCategory } from "@renderer/shared/types/types";
 import {
     usePass,
@@ -279,6 +280,17 @@ export default function PassRun({
             if (tr.upperId != null) void loadNoes(tr.upperId, tr.files.map((f) => f.id));
         }
     }, [run, loadNoes]);
+    // An undo/redo can change any list's noes.
+    const historyVersion = useHistoryVersion();
+    useEffect(() => {
+        if (!run || historyVersion === 0) return;
+        for (const tr of run.tags) {
+            if (!tr.files) continue;
+            void loadNoes(tr.tagId, tr.files.map((f) => f.id));
+            if (tr.upperId != null) void loadNoes(tr.upperId, tr.files.map((f) => f.id));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [historyVersion]);
     // The current file's tags changed (Space added or took off the tag):
     // its marker follows (taking it off is a hard no; having it, none).
     useEffect(() => {

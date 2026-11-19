@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, BatchNoPreview, FolderRuleResult } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, BatchNoPreview, FolderRuleResult, HistoryItem, HistoryApplied } from "./src/shared/types/types";
 
 export {};
 
@@ -172,7 +172,10 @@ declare global {
             /** Back to unchecked for that tag (hard, pass and Sweep time). */
             clearFileNo: (fileId: number, tagId: number) => Promise<void>;
             previewBatchNo: (fileIds: number[], tag: string) => Promise<BatchNoPreview>;
-            batchNo: (fileIds: number[], tag: string) => Promise<BatchNoPreview>;
+            /** One tag or several, as one undo entry. */
+            batchNo: (fileIds: number[], tag: string | string[]) => Promise<BatchNoPreview>;
+            /** Batch Tag (yes): every tag on every file, as one undo entry. */
+            batchAddTags: (fileIds: number[], tags: string[]) => Promise<void>;
             getConflictFiles: (
                 tagId: number,
                 folderPrefixes?: string[] | null,
@@ -225,11 +228,6 @@ declare global {
                 winnerId: number,
                 loserId: number,
             ) => Promise<ComparisonResult | null>;
-            /** Reverts a comparison, then returns the given files' fresh rows. */
-            undoComparison: (
-                comparisonId: number,
-                fileIds: number[],
-            ) => Promise<(DbFile | undefined)[] | null>;
             getChallenger: (
                 kingId: number,
                 folderPrefixes: string[] | null,
@@ -291,6 +289,8 @@ declare global {
             rotateFile: (relPath: string, quarterTurns: number) => Promise<DbFile>;
             openFile: () => Promise<string | null>;
             deleteFile: (fileId: number) => Promise<void>;
+            /** Several files as one undo entry; resolves to the names that failed. */
+            deleteFiles: (fileIds: number[]) => Promise<string[]>;
             copyFileToClipboard: (filePath: string) => Promise<boolean>;
             dragFileOut: (file: DbFile) => void;
             dragFilesOut: (files: DbFile[]) => void;
@@ -309,6 +309,15 @@ declare global {
             countMissingFiles: () => Promise<number>;
             getLibraryRanks: () => Promise<{ ranks: [number, number][]; total: number }>;
             onRanksChanged: (callback: () => void) => () => void;
+
+            // Undo history (see main/undo.ts)
+            historyList: () => Promise<HistoryItem[]>;
+            historyUndo: () => Promise<HistoryApplied | null>;
+            historyRedo: () => Promise<HistoryApplied | null>;
+            onHistoryChanged: (callback: (items: HistoryItem[]) => void) => () => void;
+            onHistoryApplied: (callback: (applied: HistoryApplied) => void) => () => void;
+            /** Edit ▸ Undo / Redo (⌘Z, ⇧⌘Z) from the app menu. */
+            onHistoryKey: (callback: (action: "undo" | "redo") => void) => () => void;
             deleteMissingFiles: () => Promise<number>;
             getPlacementCandidate: (
                 laneA: PoolFilter,

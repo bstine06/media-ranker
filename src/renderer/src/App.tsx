@@ -14,6 +14,7 @@ import PassView from "./components/PassView";
 import SweepView from "./components/SweepView";
 import TagManagerView from "./components/TagManagerView";
 import { CursorPointer } from "./components/TagPointer";
+import { HistoryDrawer, UndoToast } from "./components/History";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -243,8 +244,10 @@ export default function App(): JSX.Element {
                         />
                     </div>
                 </main>
+                {!immersive && <HistoryDrawer />}
             </div>
             <CursorPointer />
+            <UndoToast />
         </div>
     );
 }

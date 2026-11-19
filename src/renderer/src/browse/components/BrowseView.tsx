@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import type {
     DbFile,
     FilterNode,
@@ -150,18 +151,24 @@ export default function BrowseView({
         });
     }, [activeFolder, activeFilter, showUnsorted]);
 
+    // An undo/redo can change which files match the tag filter.
+    const historyVersion = useHistoryVersion();
+    useEffect(() => {
+        if (historyVersion > 0) getFilesForFolder(activeFolder, activeFilter, showUnsorted);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [historyVersion]);
+
     const handleDelete = async () => {
         if (!deleting) return;
         const files = deleting;
         setDeleting(null);
-        const failed: string[] = [];
-        for (const file of files) {
-            try {
-                await window.api.deleteFile(file.id);
-            } catch (error) {
-                console.error("Failed to delete file:", error);
-                failed.push(file.filename);
-            }
+        // All in one call: one undo entry.
+        let failed: string[] = [];
+        try {
+            failed = await window.api.deleteFiles(files.map((f) => f.id));
+        } catch (error) {
+            console.error("Failed to delete files:", error);
+            failed = files.map((f) => f.filename);
         }
         if (failed.length > 0) {
             setStatus(
@@ -260,7 +267,9 @@ export default function BrowseView({
         load();
         setEditingMetadata(false);
         setRenameError(null);
-    }, [rootPath, activeFolder]);
+        // historyVersion: an undo/redo may have changed the folder's tags,
+        // metadata or picture.
+    }, [rootPath, activeFolder, historyVersion]);
 
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
@@ -436,11 +445,8 @@ export default function BrowseView({
 
     const handleExecuteBatchTag = async (tagNames: string[], files: DbFile[]) => {
         try {
-            for (const f of files) {
-                for (const tagName of tagNames) {
-                    await window.api.addTag(f.id, tagName);
-                }
-            }
+            // All in one call: one undo entry.
+            await window.api.batchAddTags(files.map((f) => f.id), tagNames);
         } catch (error) {
             console.error("Batch tag failed:", error);
         }
@@ -1030,8 +1036,8 @@ export default function BrowseView({
                     title={deleting.length === 1 ? "Delete File" : `Delete ${deleting.length} Files`}
                     message={
                         deleting.length === 1
-                            ? `Are you sure you want to delete "${deleting[0].filename}"? It will be moved to trash.`
-                            : `Are you sure you want to delete these ${deleting.length} files? They will be moved to trash.`
+                            ? `Delete "${deleting[0].filename}"? ⌘Z brings it back until the app quits; then it goes to the Trash.`
+                            : `Delete these ${deleting.length} files? ⌘Z brings them back until the app quits; then they go to the Trash.`
                     }
                     confirmText="Delete"
                     onConfirm={handleDelete}
@@ -1068,7 +1074,7 @@ function FolderDeleteEffects({
         lines.push(
             mode === "unsort"
                 ? `${plural(preview.files, "media file")} will move to Unsorted. They keep their scores, tags and comparison history.`
-                : `${plural(preview.files, "media file")} will go to the Trash, with their scores and tags. They can be restored from the Trash.`,
+                : `${plural(preview.files, "media file")} will be deleted with the folder, scores and tags included.`,
         );
     }
     if (preview.tags.length > 0) {
@@ -1088,9 +1094,9 @@ function FolderDeleteEffects({
             preview.otherFiles > 0 ? `${plural(preview.otherFiles, "other file")} (not media)` : null,
             preview.subfolders > 0 ? plural(preview.subfolders, "subfolder") : null,
         ].filter(Boolean);
-        lines.push(`${parts.join(" and ")} in it will go to the Trash with the folder.`);
+        lines.push(`${parts.join(" and ")} in it will be deleted with the folder.`);
     }
-    lines.push("The folder itself goes to the Trash.");
+    lines.push("⌘Z brings it all back until the app quits; then it goes to the Trash.");
     return (
         <>
             <ul className="list-disc space-y-1 pl-4">

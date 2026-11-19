@@ -11,8 +11,10 @@ export async function replaceTrackedFile(
   newAbsPath: string,
   ignoredPaths: Set<string>,
   // 'trash' keeps the old version recoverable; 'overwrite' replaces it
-  // outright (rotations: the old version is just the same file turned).
-  oldVersion: 'trash' | 'overwrite' = 'trash',
+  // outright; { hold } moves it there (the undo holding folder).
+  oldVersion: 'trash' | 'overwrite' | { hold: string } = 'trash',
+  // Runs the database update (the undo history records it).
+  runDb: (fn: () => void) => void = (fn) => fn(),
 ): Promise<void> {
   const oldAbsPath = join(rootPath, oldRelPath)
   const filename = basename(oldAbsPath)
@@ -32,6 +34,7 @@ export async function replaceTrackedFile(
   ignoredPaths.add(oldAbsPath)
   try {
     if (oldVersion === 'trash') await shell.trashItem(oldAbsPath)
+    else if (oldVersion !== 'overwrite') await rename(oldAbsPath, oldVersion.hold)
     // rename replaces whatever is at the destination
     await rename(newAbsPath, oldAbsPath)
   } finally {
@@ -45,7 +48,9 @@ export async function replaceTrackedFile(
     generateSizedImage(oldAbsPath, join(thumbDir, `${newHash}.jpg`), 400, mediaType),
   ])
 
-  getDb()
-    .prepare(`UPDATE files SET content_hash = ?, mtime = ?, size = ? WHERE id = ?`)
-    .run(newHash, newStat.mtimeMs, newStat.size, existing.id)
+  runDb(() => {
+    getDb()
+      .prepare(`UPDATE files SET content_hash = ?, mtime = ?, size = ? WHERE id = ?`)
+      .run(newHash, newStat.mtimeMs, newStat.size, existing.id)
+  })
 }

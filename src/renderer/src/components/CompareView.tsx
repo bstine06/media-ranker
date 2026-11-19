@@ -55,8 +55,8 @@ const PICK_LOCKOUT_MS = 175;
 // The info bar slides in when the cursor is within this many px of a card's top.
 const INFO_BAR_ZONE_PX = 88;
 
-// How many picks W can step back through.
-const UNDO_LIMIT = 5;
+// Matchups remembered for undo (⌘Z): undoing a pick puts it back on screen.
+const UNDO_LIMIT = 200;
 
 // Placement (main/placement.ts): the file being placed stays on its side
 // while opponents are picked by binary search over the other side's pool.
@@ -77,7 +77,6 @@ interface PlacementState {
 }
 
 interface UndoEntry {
-    comparisonId: number;
     pair: [DbFile, DbFile];
     focus: Side;
     king: KingState | null;
@@ -526,11 +525,10 @@ export default function CompareView({
             const kingBefore = kingRef.current;
             const recentBefore = recentChallengersRef.current;
             const placementBefore = placementRef.current;
-            const pushUndo = (comparisonId: number) => {
+            const pushUndo = () => {
                 undoStackRef.current = [
                     ...undoStackRef.current,
                     {
-                        comparisonId,
                         pair,
                         focus,
                         king: kingBefore,
@@ -553,7 +551,7 @@ export default function CompareView({
                     st.bounds,
                 );
                 if (res) {
-                    pushUndo(res.comparisonId);
+                    pushUndo();
                     const placed = res.winner.id === st.file.id ? res.winner : res.loser;
                     setPlacement({
                         ...st,
@@ -577,7 +575,7 @@ export default function CompareView({
             }
 
             const res = await window.api.recordComparison(winner.id, loser.id);
-            if (res) pushUndo(res.comparisonId);
+            if (res) pushUndo();
 
             let nextKing = kingRef.current;
             if (res && nextKing) {
@@ -611,38 +609,73 @@ export default function CompareView({
         [comparing, pair, focus, loadPair, setKing, bump],
     );
 
-    // Rolls back the last pick and puts that matchup back on screen.
-    const handleUndo = useCallback(async () => {
-        if (comparing) return;
-        const entry = undoStackRef.current.at(-1);
-        if (!entry) return;
-        setComparing(true);
-        const [a, b] = entry.pair;
-        const fresh = await window.api.undoComparison(entry.comparisonId, [
-            a.id,
-            b.id,
-        ]);
-        undoStackRef.current = undoStackRef.current.slice(0, -1);
-        if (fresh && fresh[0] && fresh[1]) {
-            const restored: [DbFile, DbFile] = [fresh[0], fresh[1]];
-            let k = entry.king;
-            if (k) {
-                const kingFile = restored.find((f) => f.id === k!.file.id);
-                if (kingFile) k = { ...k, file: kingFile };
+    // A pick undone from the app-wide history (⌘Z, here or in any view):
+    // the scores are already back; that matchup returns to the screen as
+    // it was. Redoing it moves on to a new pair. Any other undo or redo
+    // may have changed scores, so the pair on screen is refetched.
+    const loadPairForHistoryRef = useRef(loadPair);
+    loadPairForHistoryRef.current = loadPair;
+    useEffect(() => {
+        return window.api.onHistoryApplied(async (applied) => {
+            const meta = applied.meta;
+            const ids =
+                meta?.kind === "compare"
+                    ? [meta.winnerId, meta.loserId]
+                    : meta?.kind === "placement"
+                      ? [meta.placingId, meta.opponentId]
+                      : null;
+            const samePair = (p: [DbFile, DbFile] | null | undefined) =>
+                !!p && !!ids && p.some((f) => f.id === ids[0]) && p.some((f) => f.id === ids[1]);
+
+            if (ids && !applied.error && applied.direction === "undo") {
+                const stack = undoStackRef.current;
+                let i = stack.length - 1;
+                while (i >= 0 && !samePair(stack[i].pair)) i--;
+                const entry = i >= 0 ? stack[i] : null;
+                if (entry) undoStackRef.current = stack.slice(0, i);
+                const order = entry ? entry.pair.map((f) => f.id) : ids;
+                const rows = await window.api.getFilesByIds(order);
+                const byId = new Map(rows.map((f) => [f.id, f]));
+                const a = byId.get(order[0]);
+                const b = byId.get(order[1]);
+                if (!a || !b) return;
+                const restored: [DbFile, DbFile] = [a, b];
+                prefetchedRef.current = null;
+                if (entry) {
+                    let k = entry.king;
+                    if (k) {
+                        const kingFile = restored.find((f) => f.id === k!.file.id);
+                        if (kingFile) k = { ...k, file: kingFile };
+                    }
+                    recentChallengersRef.current = entry.recentChallengers;
+                    kingRef.current = k;
+                    setKing(k);
+                    const p = entry.placement;
+                    const placedFile = p ? restored.find((f) => f.id === p.file.id) : undefined;
+                    setPlacement(p && placedFile ? { ...p, file: placedFile } : p);
+                    if (p) bump();
+                    setFocus(entry.focus);
+                }
+                setPair(restored);
+                return;
             }
-            recentChallengersRef.current = entry.recentChallengers;
-            kingRef.current = k;
-            setKing(k);
-            const p = entry.placement;
-            const placedFile = p ? restored.find((f) => f.id === p.file.id) : undefined;
-            setPlacement(p && placedFile ? { ...p, file: placedFile } : p);
-            if (p) bump();
-            setPair(restored);
-            setFocus(entry.focus);
-        }
-        setComparing(false);
+
+            const current = pairRef.current;
+            if (ids && !applied.error && applied.direction === "redo" && samePair(current)) {
+                loadPairForHistoryRef.current(kingRef.current);
+                return;
+            }
+            if (!current) return;
+            const rows = await window.api.getFilesByIds(current.map((f) => f.id));
+            const byId = new Map(rows.map((f) => [f.id, f]));
+            setPair((p) =>
+                p && p[0].id === current[0].id && p[1].id === current[1].id
+                    ? [byId.get(p[0].id) ?? p[0], byId.get(p[1].id) ?? p[1]]
+                    : p,
+            );
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [comparing, setKing, bump]);
+    }, [setKing, bump]);
 
     // 2 / ↓: the focused side wins.
     const submit = useCallback(() => {
@@ -759,12 +792,6 @@ export default function CompareView({
                     if (e.repeat) return;
                     submit();
                     break;
-                case "KeyW":
-                case "ArrowUp":
-                    e.preventDefault();
-                    if (e.repeat) return;
-                    handleUndo();
-                    break;
                 case "KeyX":
                     e.preventDefault();
                     if (e.repeat) return;
@@ -817,7 +844,6 @@ export default function CompareView({
         keysEnabled,
         focus,
         submit,
-        handleUndo,
         pair,
         king,
         crown,

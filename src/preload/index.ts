@@ -3,6 +3,7 @@ import { electronAPI } from "@electron-toolkit/preload";
 import { DbFile, DbFolder, DbTag, DbTagCategory, getAllTagCategories } from "@main/db";
 import type { PoolFilter } from "@main/elo";
 import type { FilterNode } from "@main/tagFilter";
+import type { HistoryItem, Applied as HistoryApplied } from "@main/undo";
 
 export interface FolderNode {
     name: string;
@@ -169,6 +170,9 @@ const api = {
 
     deleteFile: (fileId: number): Promise<void> =>
         ipcRenderer.invoke("delete-file-by-id", fileId),
+    /** Several files as one undo entry; resolves to the names that failed. */
+    deleteFiles: (fileIds: number[]): Promise<string[]> =>
+        ipcRenderer.invoke("delete-files", fileIds),
 
     copyFileToClipboard: (filePath: string): Promise<boolean> =>
         ipcRenderer.invoke("copy-file-to-clipboard", filePath),
@@ -374,7 +378,9 @@ const api = {
         ipcRenderer.invoke("clear-file-no", fileId, tagId),
     previewBatchNo: (fileIds: number[], tag: string) =>
         ipcRenderer.invoke("preview-batch-no", fileIds, tag),
-    batchNo: (fileIds: number[], tag: string) => ipcRenderer.invoke("batch-no", fileIds, tag),
+    batchNo: (fileIds: number[], tag: string | string[]) => ipcRenderer.invoke("batch-no", fileIds, tag),
+    batchAddTags: (fileIds: number[], tags: string[]): Promise<void> =>
+        ipcRenderer.invoke("batch-add-tags", fileIds, tags),
     getConflictFiles: (
         tagId: number,
         folderPrefixes: string[] | null = null,
@@ -427,11 +433,6 @@ const api = {
     ): Promise<unknown | null> =>
         ipcRenderer.invoke("record-comparison", winnerId, loserId),
 
-    undoComparison: (
-        comparisonId: number,
-        fileIds: number[],
-    ): Promise<unknown[] | null> =>
-        ipcRenderer.invoke("undo-comparison", comparisonId, fileIds),
 
     getChallenger: (
         kingId: number,
@@ -502,6 +503,27 @@ const api = {
 
     getLibraryRanks: (): Promise<{ ranks: [number, number][]; total: number }> =>
         ipcRenderer.invoke("get-library-ranks"),
+    // ── Undo history ──
+    historyList: (): Promise<HistoryItem[]> => ipcRenderer.invoke("history:list"),
+    historyUndo: (): Promise<HistoryApplied | null> => ipcRenderer.invoke("history:undo"),
+    historyRedo: (): Promise<HistoryApplied | null> => ipcRenderer.invoke("history:redo"),
+    onHistoryChanged: (callback: (items: HistoryItem[]) => void) => {
+        const handler = (_e: unknown, items: HistoryItem[]) => callback(items);
+        ipcRenderer.on("history:changed", handler);
+        return () => ipcRenderer.removeListener("history:changed", handler);
+    },
+    onHistoryApplied: (callback: (applied: HistoryApplied) => void) => {
+        const handler = (_e: unknown, applied: HistoryApplied) => callback(applied);
+        ipcRenderer.on("history:applied", handler);
+        return () => ipcRenderer.removeListener("history:applied", handler);
+    },
+    /** Edit ▸ Undo / Redo (⌘Z, ⇧⌘Z) from the app menu. */
+    onHistoryKey: (callback: (action: "undo" | "redo") => void) => {
+        const handler = (_e: unknown, action: "undo" | "redo") => callback(action);
+        ipcRenderer.on("history:key", handler);
+        return () => ipcRenderer.removeListener("history:key", handler);
+    },
+
     onRanksChanged: (callback: () => void) => {
         const handler = () => callback();
         ipcRenderer.on("ranks:changed", handler);

@@ -416,7 +416,7 @@ export default function ScrollView({
                         </button>
                         <button
                             onClick={() => setShowConfirm(true)}
-                            title="Move to trash"
+                            title="Delete"
                             className="rounded p-1.5 text-neutral-400 hover:text-red-300 hover:bg-red-950 transition-colors"
                         >
                             <TrashIcon className="h-4 w-4" />
@@ -430,7 +430,7 @@ export default function ScrollView({
             {showConfirm && (
                 <ConfirmDialog
                     title="Delete File"
-                    message={`Are you sure you want to delete "${currentFile.filename}"? It will be moved to trash.`}
+                    message={`Delete "${currentFile.filename}"? ⌘Z brings it back until the app quits; then it goes to the Trash.`}
                     confirmText="Delete"
                     onConfirm={handleDelete}
                     onCancel={() => setShowConfirm(false)}

@@ -7,6 +7,7 @@ import {
     protocol,
     nativeImage,
     clipboard,
+    Menu,
 } from "electron";
 import path, { join } from "path";
 import { pathToFileURL } from "url";
@@ -22,7 +23,6 @@ import {
     addTagToFolder,
     getDb,
     updateEloScores,
-    undoComparison,
     getFileByPath,
     getMissingFiles,
     countMissingFiles,
@@ -136,6 +136,20 @@ import { rotateTrackedFile, previousVersionPath } from "./rotate";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
 import {
+    initUndo,
+    record,
+    beginStep,
+    holdingPath,
+    undo as undoHistory,
+    redo as redoHistory,
+    historyList,
+    clearHistory,
+    flushHolding,
+    hasHeldFiles,
+    type Step,
+} from "./undo";
+import { generateSizedImage, getMediaType } from "./scanner";
+import {
     getPassFiles,
     getPassCounts,
     prunePassList,
@@ -169,6 +183,48 @@ function ranksChanged<T>(result: T): T {
 
 const renameAsync = promisify(rename);
 
+// ── Undo history labels ──
+const quote = (s: string) => `“${s}”`;
+const plural = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+const fileLabel = (id: number) => getFileById(id)?.filename ?? "a file";
+const filesLabel = (ids: number[]) => (ids.length === 1 ? fileLabel(ids[0]) : plural(ids.length, "file"));
+const folderLabel = (rel: string) => (rel ? path.basename(rel) : "Unsorted");
+const tagLabel = (id: number) => {
+    const row = getDb().prepare(`SELECT name FROM tags WHERE id = ?`).get(id) as { name: string } | undefined;
+    return row ? quote(row.name) : "a tag";
+};
+const tagsLabel = (names: string[]) => names.map((n) => quote(n.trim().toLowerCase())).join(", ");
+
+// Opening a library: a fresh history (it belongs to the library), held
+// files left by a crash go to the Trash, and the change triggers go on.
+// Rescanning reopens the same library: its history stays.
+let undoRoot: string | null = null;
+function openLibraryDb(root: string): void {
+    if (undoRoot === root) {
+        initDb(root);
+        return;
+    }
+    undoRoot = root;
+    clearHistory();
+    initUndo(initDb(root), {
+        rootPath: () => rootPath,
+        ignoredPaths,
+        fileById: (id) => getFileById(id),
+        filesUnder: (relPath) => getFilesByPathPrefix(relPath),
+        ensureThumbnail: async (relPath) => {
+            if (!rootPath) return;
+            const f = getFileByPath(relPath);
+            const type = getMediaType(path.extname(relPath));
+            if (!f || !type) return;
+            const thumb = getThumbnailPath(rootPath, f.content_hash);
+            if (!existsSync(thumb)) {
+                await generateSizedImage(path.join(rootPath, relPath), thumb, 400, type);
+            }
+        },
+    });
+    if (hasHeldFiles(root)) void flushHolding(root);
+}
+
 export const pendingAppRenames = new Set<string>();
 
 // Bring the index in line with the disk: mark files that vanished, index new
@@ -197,6 +253,22 @@ async function moveAcrossVolumes(src: string, dest: string): Promise<void> {
         await fs.copyFile(src, dest, fs.constants.COPYFILE_EXCL);
         await fs.unlink(src);
     }
+}
+
+// Every file and folder under a directory (to keep the watcher off them
+// while it moves as a whole).
+async function listTree(dir: string): Promise<string[]> {
+    const out: string[] = [];
+    const walk = async (d: string): Promise<void> => {
+        const entries = await fs.readdir(d, { withFileTypes: true }).catch(() => []);
+        for (const e of entries) {
+            const p = path.join(d, e.name);
+            out.push(p);
+            if (e.isDirectory()) await walk(p);
+        }
+    };
+    await walk(dir);
+    return out;
 }
 
 // Why a name can't be used for a library folder, or null if it can. Folders
@@ -234,9 +306,14 @@ function registerIpcHandlers(): void {
         // would be written into the new library's database.
         if (rootPath && rootPath !== folderPath) await unwatchAll();
 
+        if (rootPath && rootPath !== folderPath) {
+            clearHistory();
+            void flushHolding(rootPath);
+            undoRoot = null;
+        }
         rootPath = folderPath;
         saveRootPath(folderPath);
-        initDb(folderPath);
+        openLibraryDb(folderPath);
         const result = await scanLibrary(folderPath, win);
 
         // Tell renderer about any missing files (trashed, moved externally, etc.)
@@ -250,15 +327,37 @@ function registerIpcHandlers(): void {
         return result;
     });
 
-    // And clean up on quit:
-    app.on("before-quit", () => unwatchAll());
+    // And clean up on quit. Held files (undo) go to the Trash first.
+    let flushedOnQuit = false;
+    app.on("before-quit", (event) => {
+        unwatchAll();
+        const root = rootPath;
+        if (flushedOnQuit || !root || !hasHeldFiles(root)) return;
+        event.preventDefault();
+        flushedOnQuit = true;
+        clearHistory();
+        flushHolding(root).finally(() => app.quit());
+    });
+
+    // ── Undo history ──
+    ipcMain.handle("history:list", () => historyList());
+    // The result goes to every view (toast, refetching, Compare's pair).
+    const applied = (res: Awaited<ReturnType<typeof undoHistory>>) => {
+        if (!res) return null;
+        const win = BrowserWindow.getAllWindows()[0];
+        win?.webContents.send("history:applied", res);
+        win?.webContents.send("ranks:changed");
+        return res;
+    };
+    ipcMain.handle("history:undo", async () => applied(await undoHistory()));
+    ipcMain.handle("history:redo", async () => applied(await redoHistory()));
 
     ipcMain.handle("get-root-path", () => {
         if (!rootPath) {
             rootPath = loadSavedRootPath();
             if (rootPath) {
                 const root = rootPath;
-                initDb(root);
+                openLibraryDb(root);
                 const win = BrowserWindow.getAllWindows()[0];
                 if (win) {
                     watchFolder(root, win);
@@ -328,14 +427,18 @@ function registerIpcHandlers(): void {
             value: string,
             type: string,
         ) => {
-            setFolderMetadataField(folderRelPath, key, value, type as any);
+            record(`Set ${key} on ${folderLabel(folderRelPath)}`, () =>
+                setFolderMetadataField(folderRelPath, key, value, type as any),
+            );
         },
     );
 
     ipcMain.handle(
         "delete-folder-metadata-field",
         (_event, folderRelPath: string, key: string) => {
-            deleteFolderMetadataField(folderRelPath, key);
+            record(`Removed ${key} from ${folderLabel(folderRelPath)}`, () =>
+                deleteFolderMetadataField(folderRelPath, key),
+            );
         },
     );
 
@@ -346,7 +449,12 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "set-folder-profile-image",
         (_event, folderRelPath: string, hash: string | null) => {
-            setFolderProfileImageByPath(folderRelPath, hash);
+            record(
+                hash
+                    ? `Changed the picture of ${folderLabel(folderRelPath)}`
+                    : `Removed the picture of ${folderLabel(folderRelPath)}`,
+                () => setFolderProfileImageByPath(folderRelPath, hash),
+            );
         },
     );
 
@@ -361,7 +469,9 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "remove-tag-from-folder",
         (_event, folderRelPath: string, tag: string) => {
-            removeTagFromFolderByPath(folderRelPath, tag);
+            record(`Removed ${quote(tag)} from ${folderLabel(folderRelPath)}`, () =>
+                removeTagFromFolderByPath(folderRelPath, tag),
+            );
         },
     );
 
@@ -402,8 +512,20 @@ function registerIpcHandlers(): void {
                 ignoredPaths.delete(oldAbsPath);
                 ignoredPaths.delete(newAbsPath);
 
-                renameFolderPaths(oldRelPath, newRelPath);
-                renameFolderPath(oldRelPath, newRelPath);
+                const step = beginStep(
+                    `Renamed ${folderLabel(oldRelPath)} to ${newName}`,
+                );
+                step.disk({
+                    kind: "move",
+                    from: oldAbsPath,
+                    to: newAbsPath,
+                    folder: { fromRel: oldRelPath, toRel: newRelPath, mode: "rename", fileIds: [] },
+                });
+                step.db(() => {
+                    renameFolderPaths(oldRelPath, newRelPath);
+                    renameFolderPath(oldRelPath, newRelPath);
+                });
+                step.commit();
 
                 // Emit exactly what commitFolderRename would have emitted
                 for (const record of affected) {
@@ -459,7 +581,12 @@ function registerIpcHandlers(): void {
         absPaths: string[],
         targetFolder: string,
         enforceNoes = false,
+        step?: Step,
     ): Promise<{ moved: number; errors: string[] }> => {
+            const own = !step;
+            const s = step ?? beginStep("");
+            const movedIds: number[] = [];
+            try {
             const errors: string[] = [];
             let moved = 0;
             if (!rootPath) return { moved, errors: ["No library open."] };
@@ -495,6 +622,15 @@ function registerIpcHandlers(): void {
                     if (!record) {
                         // Untracked / external file: plain move, watcher indexes it.
                         await moveAcrossVolumes(src, dest);
+                        // Undoable only within one volume (a plain rename back).
+                        if (insideLibrary) s.disk({ kind: "move", from: src, to: dest });
+                        else {
+                            const sameVolume = await fs.stat(path.dirname(src)).then(
+                                async (a) => a.dev === (await fs.stat(targetDir)).dev,
+                                () => false,
+                            );
+                            if (sameVolume) s.disk({ kind: "move", from: src, to: dest });
+                        }
                         moved++;
                         continue;
                     }
@@ -516,7 +652,11 @@ function registerIpcHandlers(): void {
                     const folder = targetFolder
                         ? upsertFolder(targetFolder, path.basename(targetFolder))
                         : null;
-                    moveFileRecord(record.id, newRel, filename, folder?.id ?? null, enforceNoes);
+                    s.disk({ kind: "move", from: src, to: dest, fileId: record.id });
+                    s.db(() =>
+                        moveFileRecord(record.id, newRel, filename, folder?.id ?? null, enforceNoes),
+                    );
+                    movedIds.push(record.id);
 
                     win?.webContents.send("media:renamed", {
                         oldRelativePath: rel,
@@ -531,6 +671,15 @@ function registerIpcHandlers(): void {
                 }
             }
             return { moved, errors };
+            } finally {
+                if (own) {
+                    s.label =
+                        movedIds.length === 1
+                            ? `Moved ${fileLabel(movedIds[0])} to ${folderLabel(targetFolder)}`
+                            : `Moved ${plural(Math.max(s.ops.length, movedIds.length), "file")} to ${folderLabel(targetFolder)}`;
+                    s.commit();
+                }
+            }
     };
 
     ipcMain.handle(
@@ -626,13 +775,19 @@ function registerIpcHandlers(): void {
             const dirAbs = path.join(root, folderRelPath);
             const files = getFilesByFolder(folderRelPath);
             const win = BrowserWindow.getAllWindows()[0];
+            const step = beginStep(`Deleted ${folderLabel(folderRelPath)}`);
 
             if (mode === "unsort" && files.length > 0) {
                 const { errors } = await moveIntoFolder(
                     files.map((f) => path.join(root, f.path)),
                     "",
+                    false,
+                    step,
                 );
                 if (errors.length > 0) {
+                        // The files that did move can still be undone.
+                    step.label = `Moved files out of ${folderLabel(folderRelPath)}`;
+                    step.commit();
                     return {
                         error:
                             `${errors.length} file${errors.length === 1 ? "" : "s"} couldn't be ` +
@@ -641,20 +796,50 @@ function registerIpcHandlers(): void {
                 }
             }
 
+            // Into the holding folder (undo), not the Trash.
             try {
-                if (existsSync(dirAbs)) await shell.trashItem(dirAbs);
+                if (existsSync(dirAbs)) {
+                    const held = await holdingPath(path.basename(dirAbs));
+                    const paths = [dirAbs, ...(await listTree(dirAbs))];
+                    paths.forEach((p) => ignoredPaths.add(p));
+                    try {
+                        await fs.rename(dirAbs, held);
+                    } finally {
+                        setTimeout(() => paths.forEach((p) => ignoredPaths.delete(p)), 1500);
+                    }
+                    step.disk({
+                        kind: "move",
+                        from: dirAbs,
+                        to: held,
+                        folder: {
+                            fromRel: folderRelPath,
+                            toRel: folderRelPath,
+                            mode: "delete",
+                            fileIds: mode === "trash" ? files.map((f) => f.id) : [],
+                        },
+                    });
+                }
             } catch (err) {
-                console.error("Failed to trash folder:", dirAbs, err);
-                return { error: "Couldn't move the folder to the Trash." };
+                console.error("Failed to set folder aside:", dirAbs, err);
+                if (step.ops.length > 0 || step.sql.length > 0) {
+                    step.label = `Moved files out of ${folderLabel(folderRelPath)}`;
+                    step.commit();
+                }
+                return { error: "Couldn't delete the folder." };
             }
 
+            step.db(() => {
+                if (mode === "trash") {
+                    for (const f of files) markFileMissingById(f.id);
+                }
+                deleteFolderTree(folderRelPath);
+            });
+            step.commit();
             if (mode === "trash") {
                 for (const f of files) {
-                    markFileMissingById(f.id);
                     win?.webContents.send("media:removed", { relativePath: f.path });
                 }
             }
-            deleteFolderTree(folderRelPath);
             win?.webContents.send("folder:removed", { relativePath: folderRelPath });
             return { ok: true };
         },
@@ -665,12 +850,19 @@ function registerIpcHandlers(): void {
         async (_event, oldRelPath: string, newAbsPath: string) => {
             if (!rootPath) throw new Error("No library open");
             const win = BrowserWindow.getAllWindows()[0];
+            const before = getFileByPath(oldRelPath);
+            const step = beginStep(`Replaced ${before?.filename ?? path.basename(oldRelPath)}`);
+            const held = await holdingPath(path.basename(oldRelPath));
             await replaceTrackedFile(
                 rootPath,
                 oldRelPath,
                 newAbsPath,
                 ignoredPaths,
+                { hold: held },
+                (fn) => step.db(fn),
             );
+            if (before) step.disk({ kind: "swap", fileId: before.id, held });
+            step.commit();
             const updated = getFileByPath(oldRelPath); // fresh record with new hash
             win?.webContents.send("media:updated", {
                 relativePath: oldRelPath,
@@ -686,7 +878,17 @@ function registerIpcHandlers(): void {
         "file:rotate",
         async (_event, relPath: string, quarterTurns: number) => {
             if (!rootPath) throw new Error("No library open");
-            await rotateTrackedFile(rootPath, relPath, quarterTurns, ignoredPaths);
+            const before = getFileByPath(relPath);
+            const step = beginStep(`Rotated ${before?.filename ?? path.basename(relPath)}`);
+            const held = await rotateTrackedFile(
+                rootPath,
+                relPath,
+                quarterTurns,
+                ignoredPaths,
+                (fn) => step.db(fn),
+            );
+            if (before && held) step.disk({ kind: "swap", fileId: before.id, held });
+            step.commit();
             const updated = getFileByPath(relPath);
             BrowserWindow.getAllWindows()[0]?.webContents.send("media:updated", {
                 relativePath: relPath,
@@ -704,29 +906,44 @@ function registerIpcHandlers(): void {
         return result.canceled ? null : result.filePaths[0];
     });
 
-    ipcMain.handle("delete-file-by-id", async (_event, fileId: number) => {
+    // Deleting files: into the holding folder (undo), not the Trash; they
+    // reach the Trash when they leave the history. One history entry for
+    // the lot. Returns the names of files that couldn't be deleted.
+    const deleteFiles = async (fileIds: number[]): Promise<string[]> => {
         const win = BrowserWindow.getAllWindows()[0];
-        try {
+        if (!rootPath) throw Error("unable to read rootPath");
+        const root = rootPath;
+        const step = beginStep(`Deleted ${filesLabel(fileIds)}`);
+        const failed: string[] = [];
+        for (const fileId of fileIds) {
             const file = getFileById(fileId);
-            if (!file) {
-                throw new Error(`File with id ${fileId} not found in database`);
+            if (!file) continue;
+            try {
+                const absolutePath = path.join(root, file.path);
+                const held = await holdingPath(file.filename);
+                ignoredPaths.add(absolutePath);
+                try {
+                    await fs.rename(absolutePath, held);
+                } finally {
+                    setTimeout(() => ignoredPaths.delete(absolutePath), 1500);
+                }
+                step.disk({ kind: "move", from: absolutePath, to: held, fileId });
+                step.db(() => markFileMissingById(fileId));
+                win?.webContents.send("media:removed", { relativePath: file.path });
+            } catch (error) {
+                console.error("Failed to delete file:", error);
+                failed.push(file.filename);
             }
-
-            // Convert relative path to absolute
-            if (!rootPath) throw Error("unable to read rootPath");
-            const absolutePath = path.join(rootPath, file.path); // Use your app's rootPath
-
-            await shell.trashItem(absolutePath);
-
-            markFileMissingById(fileId);
-
-            // Emit the removal event so UI updates
-            win?.webContents.send("media:removed", { relativePath: file.path });
-        } catch (error) {
-            console.error("Failed to delete file:", error);
-            throw error;
         }
+        step.commit();
+        return failed;
+    };
+
+    ipcMain.handle("delete-file-by-id", async (_event, fileId: number) => {
+        const failed = await deleteFiles([fileId]);
+        if (failed.length > 0) throw new Error(`Couldn't delete ${failed[0]}`);
     });
+    ipcMain.handle("delete-files", (_event, fileIds: number[]) => deleteFiles(fileIds));
 
     ipcMain.handle(
         "copy-file-to-clipboard",
@@ -746,14 +963,30 @@ function registerIpcHandlers(): void {
     });
 
     ipcMain.handle("add-tag", (_event, fileId: number, tag: string) => {
-        const { id: tagId } = upsertTag(tag, undefined);
-        addTagToFile(fileId, tagId);
+        record(`Tagged ${fileLabel(fileId)} ${quote(tag.trim().toLowerCase())}`, () => {
+            const { id: tagId } = upsertTag(tag, undefined);
+            addTagToFile(fileId, tagId);
+        });
         return getTagsForFile(fileId);
+    });
+
+    // Batch Tag (yes): every tag on every file, one history entry.
+    ipcMain.handle("batch-add-tags", (_event, fileIds: number[], tags: string[]) => {
+        record(`Tagged ${filesLabel(fileIds)} ${tagsLabel(tags)}`, () => {
+            for (const tag of tags) {
+                const { id: tagId } = upsertTag(tag, undefined);
+                for (const fileId of fileIds) addTagToFile(fileId, tagId);
+            }
+        });
     });
 
     ipcMain.handle("remove-tag", (_event, fileId: number, tag: string) => {
         const existing = getTagByName(tag);
-        if (existing) removeTagFromFile(fileId, existing.id);
+        if (existing) {
+            record(`Removed ${quote(existing.name)} from ${fileLabel(fileId)}`, () =>
+                removeTagFromFile(fileId, existing.id),
+            );
+        }
         return getTagsForFile(fileId);
     });
 
@@ -786,10 +1019,14 @@ function registerIpcHandlers(): void {
         prunePassList(passSlot(slot), fileIds),
     );
     ipcMain.handle("set-pass-no", (_event, fileId: number, tagId: number) =>
-        setPassNo(fileId, tagId),
+        record(`No for ${tagLabel(tagId)} on ${fileLabel(fileId)} (pass)`, () =>
+            setPassNo(fileId, tagId),
+        ),
     );
     ipcMain.handle("clear-pass-no", (_event, fileId: number, tagId: number) =>
-        clearPassNo(fileId, tagId),
+        record(`Took back the pass no for ${tagLabel(tagId)} on ${fileLabel(fileId)}`, () =>
+            clearPassNo(fileId, tagId),
+        ),
     );
     ipcMain.handle("get-firm-noes", (_event, tagId: number, fileIds: number[]) =>
         getFirmNoes(tagId, fileIds),
@@ -819,16 +1056,23 @@ function registerIpcHandlers(): void {
     // -- Feeds (saved tag filters) and recent filters, see feeds.ts
 
     ipcMain.handle("feeds:list", () => listFeeds());
+    const feedLabel = (id: number) => {
+        const row = getDb().prepare(`SELECT name FROM feeds WHERE id = ?`).get(id) as { name: string } | undefined;
+        return row ? quote(row.name) : "a feed";
+    };
     ipcMain.handle("feeds:create", (_event, name: string, tree: unknown) =>
-        createFeed(name, tree),
+        record(`Saved feed ${quote(name.trim())}`, () => createFeed(name, tree)),
     );
     ipcMain.handle("feeds:update", (_event, id: number, tree: unknown) =>
-        updateFeedTree(id, tree),
+        record(`Updated feed ${feedLabel(id)}`, () => updateFeedTree(id, tree)),
     );
-    ipcMain.handle("feeds:rename", (_event, id: number, name: string) =>
-        renameFeed(id, name),
+    ipcMain.handle("feeds:rename", (_event, id: number, name: string) => {
+        const before = feedLabel(id);
+        return record(`Renamed feed ${before} to ${quote(name.trim())}`, () => renameFeed(id, name));
+    });
+    ipcMain.handle("feeds:delete", (_event, id: number) =>
+        record(`Deleted feed ${feedLabel(id)}`, () => deleteFeed(id)),
     );
-    ipcMain.handle("feeds:delete", (_event, id: number) => deleteFeed(id));
     ipcMain.handle("feeds:history", () => getFeedHistory());
     ipcMain.handle(
         "feeds:push-history",
@@ -866,7 +1110,10 @@ function registerIpcHandlers(): void {
                 console.error("Failed to create folder:", err);
                 return { error: "Couldn't create the folder." };
             }
-            upsertFolder(trimmed, trimmed);
+            const step = beginStep(`Created ${trimmed}`);
+            step.disk({ kind: "mkdir", path: absolutePath, relPath: trimmed });
+            step.db(() => upsertFolder(trimmed, trimmed));
+            step.commit();
             return { relativePath: trimmed };
         },
     );
@@ -874,12 +1121,17 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "add-tag-to-folder",
         (_event, folderRelPath: string, tag: string) => {
-            const folder = upsertFolder(
-                folderRelPath,
-                path.basename(folderRelPath),
+            return record(
+                (res) => (res.ok ? `Added ${quote(tag.trim().toLowerCase())} to ${folderLabel(folderRelPath)}` : null),
+                () => {
+                    const folder = upsertFolder(
+                        folderRelPath,
+                        path.basename(folderRelPath),
+                    );
+                    const { id: tagId } = upsertTag(tag);
+                    return addTagToFolder(folder.id, tagId);
+                },
             );
-            const { id: tagId } = upsertTag(tag);
-            return addTagToFolder(folder.id, tagId);
         },
     );
 
@@ -895,30 +1147,52 @@ function registerIpcHandlers(): void {
         if (!folder || !existing) return { swap: false, removed: [], files: 0 };
         return previewFolderNo(folder.id, existing.id);
     });
-    ipcMain.handle("add-folder-no", (_event, folderRelPath: string, tag: string) => {
-        const folder = upsertFolder(folderRelPath, path.basename(folderRelPath));
-        const { id: tagId } = upsertTag(tag);
-        return addFolderNo(folder.id, tagId);
-    });
+    ipcMain.handle("add-folder-no", (_event, folderRelPath: string, tag: string) =>
+        record(
+            (res) => (res.ok ? `No for ${quote(tag.trim().toLowerCase())} in ${folderLabel(folderRelPath)}` : null),
+            () => {
+                const folder = upsertFolder(folderRelPath, path.basename(folderRelPath));
+                const { id: tagId } = upsertTag(tag);
+                return addFolderNo(folder.id, tagId);
+            },
+        ),
+    );
     ipcMain.handle("remove-folder-no", (_event, folderRelPath: string, tag: string) => {
         const folder = getFolderByPath(folderRelPath);
         const existing = getTagByName(tag);
-        if (folder && existing) removeFolderNo(folder.id, existing.id);
+        if (folder && existing) {
+            record(`Removed the no for ${quote(existing.name)} from ${folderLabel(folderRelPath)}`, () =>
+                removeFolderNo(folder.id, existing.id),
+            );
+        }
     });
 
     // ── Noes on files ──
     ipcMain.handle("get-file-noes", (_event, fileId: number) => getNoesForFile(fileId));
     ipcMain.handle("clear-file-no", (_event, fileId: number, tagId: number) =>
-        clearFileNo(fileId, tagId),
+        record(`Reset ${tagLabel(tagId)} on ${fileLabel(fileId)} to undecided`, () =>
+            clearFileNo(fileId, tagId),
+        ),
     );
     ipcMain.handle("preview-batch-no", (_event, fileIds: number[], tag: string) => {
         const existing = getTagByName(tag.trim().toLowerCase());
         if (!existing) return { removed: [], files: 0, conflicts: 0 };
         return previewBatchNo(fileIds, existing.id);
     });
-    ipcMain.handle("batch-no", (_event, fileIds: number[], tag: string) => {
-        const { id: tagId } = upsertTag(tag);
-        return batchNo(fileIds, tagId);
+    // One tag or several; one history entry either way.
+    ipcMain.handle("batch-no", (_event, fileIds: number[], tag: string | string[]) => {
+        const names = Array.isArray(tag) ? tag : [tag];
+        return record(`Marked ${filesLabel(fileIds)} as no for ${tagsLabel(names)}`, () => {
+            const total = { removed: [] as { name: string; files: number }[], files: 0, conflicts: 0 };
+            for (const name of names) {
+                const { id: tagId } = upsertTag(name);
+                const res = batchNo(fileIds, tagId);
+                total.removed.push(...res.removed);
+                total.files += res.files;
+                total.conflicts += res.conflicts;
+            }
+            return total;
+        });
     });
     ipcMain.handle(
         "get-conflict-files",
@@ -996,7 +1270,13 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "record-comparison",
         (_event, winnerId: number, loserId: number) =>
-            ranksChanged(recordComparison(winnerId, loserId, rootPath ?? "all")),
+            ranksChanged(
+                record(
+                    `Picked ${fileLabel(winnerId)} over ${fileLabel(loserId)}`,
+                    () => recordComparison(winnerId, loserId, rootPath ?? "all"),
+                    { kind: "compare", winnerId, loserId },
+                ),
+            ),
     );
 
     // Placement (see placement.ts).
@@ -1049,32 +1329,25 @@ function registerIpcHandlers(): void {
             bounds: PlacementBounds,
         ) =>
             ranksChanged(
-                recordPlacement(
-                    placingId,
-                    opponentId,
-                    placingWon,
-                    pool(p),
-                    matches,
-                    bounds,
-                    rootPath ?? "all",
+                record(
+                    placingWon
+                        ? `Picked ${fileLabel(placingId)} over ${fileLabel(opponentId)}`
+                        : `Picked ${fileLabel(opponentId)} over ${fileLabel(placingId)}`,
+                    () =>
+                        recordPlacement(
+                            placingId,
+                            opponentId,
+                            placingWon,
+                            pool(p),
+                            matches,
+                            bounds,
+                            rootPath ?? "all",
+                        ),
+                    { kind: "placement", placingId, opponentId },
                 ),
             ),
     );
 
-    ipcMain.handle(
-        "undo-comparison",
-        (_event, comparisonId: number, fileIds: number[]) => {
-            if (!undoComparison(comparisonId)) return null;
-            ranksChanged(null);
-            const db = getDb();
-            return fileIds.map(
-                (id) =>
-                    db.prepare("SELECT * FROM files WHERE id = ?").get(id) as
-                        | DbFile
-                        | undefined,
-            );
-        },
-    );
 
     // tag manager
 
@@ -1083,7 +1356,10 @@ function registerIpcHandlers(): void {
         (_event, name: string, categoryId: number | null) => {
             // An existing tag is returned as is (upsert would move it into
             // this category).
-            return getTagByName(name) ?? upsertTag(name, categoryId);
+            return (
+                getTagByName(name) ??
+                record(`Created tag ${quote(name.trim().toLowerCase())}`, () => upsertTag(name, categoryId))
+            );
         },
     );
 
@@ -1091,27 +1367,44 @@ function registerIpcHandlers(): void {
 
     ipcMain.handle("count-missing-files", () => countMissingFiles());
     ipcMain.handle("get-library-ranks", () => getLibraryRanks());
-    ipcMain.handle("delete-missing-files", () => deleteMissingFiles());
+    ipcMain.handle("delete-missing-files", () =>
+        record((n) => (n > 0 ? `Removed ${plural(n, "missing file")}` : null), () => deleteMissingFiles()),
+    );
 
     ipcMain.handle(
         "merge-tags",
         (_event, sourceId: number, targetId: number) => {
-            return mergeTags(sourceId, targetId);
+            const label = `Merged ${tagLabel(sourceId)} into ${tagLabel(targetId)}`;
+            return record((res) => ((res as { ok?: boolean }).ok === false ? null : label), () =>
+                mergeTags(sourceId, targetId),
+            );
         },
     );
 
+    const categoryLabel = (id: number | null) => {
+        if (id == null) return "Uncategorized";
+        const row = getDb().prepare(`SELECT name FROM tag_categories WHERE id = ?`).get(id) as { name: string } | undefined;
+        return row?.name ?? "a category";
+    };
     ipcMain.handle("set-tag-sweep", (_event, tagId: number, on: boolean) =>
-        setTagSweep(tagId, on),
+        record(`${on ? "Offered" : "Stopped offering"} ${tagLabel(tagId)} in the tag pointer`, () =>
+            setTagSweep(tagId, on),
+        ),
     );
     ipcMain.handle(
         "set-category-tags-sweep",
-        (_event, categoryId: number, on: boolean) => setCategoryTagsSweep(categoryId, on),
+        (_event, categoryId: number, on: boolean) =>
+            record(`${on ? "Offered" : "Stopped offering"} ${categoryLabel(categoryId)} tags in the tag pointer`, () =>
+                setCategoryTagsSweep(categoryId, on),
+            ),
     );
 
     ipcMain.handle(
         "reorder-tags",
         (_event, categoryId: number | null, tagIds: number[]) =>
-            reorderTags(categoryId, tagIds),
+            record(`Reordered tags in ${categoryLabel(categoryId)}`, () =>
+                reorderTags(categoryId, tagIds),
+            ),
     );
 
     // Sweep's full screen: the window's own, so Esc reaches the page
@@ -1130,25 +1423,44 @@ function registerIpcHandlers(): void {
 
     ipcMain.handle(
         "add-tag-implication",
-        (_event, tagId: number, impliesId: number) =>
-            addTagImplication(tagId, impliesId),
+        (_event, tagId: number, impliesId: number) => {
+            const label = `Linked ${tagLabel(tagId)} → ${tagLabel(impliesId)}`;
+            return record((res) => ((res as { ok?: boolean }).ok === false ? null : label), () =>
+                addTagImplication(tagId, impliesId),
+            );
+        },
     );
 
     ipcMain.handle(
         "remove-tag-implication",
         (_event, tagId: number, impliesId: number) =>
-            removeTagImplication(tagId, impliesId),
+            record(`Unlinked ${tagLabel(tagId)} → ${tagLabel(impliesId)}`, () =>
+                removeTagImplication(tagId, impliesId),
+            ),
     );
 
     ipcMain.handle(
         "update-tag",
         (_event, id: number, name: string, categoryId: number | null) => {
-            return updateTag(id, name, categoryId);
+            const beforeName = tagLabel(id);
+            const beforeCat = (getDb().prepare(`SELECT category_id FROM tags WHERE id = ?`).get(id) as
+                | { category_id: number | null }
+                | undefined)?.category_id;
+            const newName = quote(name.trim().toLowerCase());
+            return record(
+                (res) => {
+                    if (!res.ok) return null;
+                    if (beforeName !== newName) return `Renamed tag ${beforeName} to ${newName}`;
+                    if (beforeCat !== categoryId) return `Moved ${newName} to ${categoryLabel(categoryId)}`;
+                    return `Edited tag ${newName}`;
+                },
+                () => updateTag(id, name, categoryId),
+            );
         },
     );
 
     ipcMain.handle("delete-tag", (_event, id: number) => {
-        deleteTag(id);
+        record(`Deleted tag ${tagLabel(id)}`, () => deleteTag(id));
     });
 
     ipcMain.handle("get-all-tag-categories", (_event) => {
@@ -1158,7 +1470,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle(
         "create-tag-category",
         (_event, name: string, color: string, icon: string) => {
-            return upsertTagCategory(name, color, icon);
+            return record(`Created category ${name.trim()}`, () => upsertTagCategory(name, color, icon));
         },
     );
 
@@ -1175,12 +1487,20 @@ function registerIpcHandlers(): void {
                 sweep?: number;
             },
         ) => {
-            updateTagCategory(id, updates);
+            const before = categoryLabel(id);
+            record(
+                updates.name && updates.name.trim() !== before
+                    ? `Renamed category ${before} to ${updates.name.trim()}`
+                    : updates.sweep != null && Object.keys(updates).length === 1
+                      ? `${updates.sweep ? "Offered" : "Stopped offering"} ${before} in the tag pointer`
+                      : `Edited category ${before}`,
+                () => updateTagCategory(id, updates),
+            );
         },
     );
 
     ipcMain.handle("delete-tag-category", (_event, id: number) => {
-        deleteTagCategory(id);
+        record(`Deleted category ${categoryLabel(id)}`, () => deleteTagCategory(id));
     });
 
     ipcMain.on("drag-file-out", (event, file: DbFile) => {
@@ -1231,6 +1551,35 @@ function getDragIcon(thumbnailPath: string): Electron.NativeImage {
         });
     }
     return nativeImage.createFromDataURL(FALLBACK_DRAG_ICON_DATA_URL);
+}
+
+// The standard menus, except Edit's Undo/Redo: the page decides whether
+// ⌘Z undoes typing (in a text field) or the app's history.
+function setAppMenu(): void {
+    const toPage = (action: "undo" | "redo") => () =>
+        BrowserWindow.getAllWindows()[0]?.webContents.send("history:key", action);
+    Menu.setApplicationMenu(
+        Menu.buildFromTemplate([
+            ...(process.platform === "darwin" ? [{ role: "appMenu" as const }] : []),
+            { role: "fileMenu" },
+            {
+                label: "Edit",
+                submenu: [
+                    { label: "Undo", accelerator: "CmdOrCtrl+Z", click: toPage("undo") },
+                    { label: "Redo", accelerator: "Shift+CmdOrCtrl+Z", click: toPage("redo") },
+                    { type: "separator" },
+                    { role: "cut" },
+                    { role: "copy" },
+                    { role: "paste" },
+                    { role: "pasteAndMatchStyle" },
+                    { role: "delete" },
+                    { role: "selectAll" },
+                ],
+            },
+            { role: "viewMenu" },
+            { role: "windowMenu" },
+        ]),
+    );
 }
 
 function createWindow(): void {
@@ -1407,6 +1756,7 @@ app.whenReady().then(() => {
     });
 
     registerIpcHandlers();
+    setAppMenu();
     createWindow();
 
     app.on("activate", () => {

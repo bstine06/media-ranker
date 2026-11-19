@@ -1,5 +1,6 @@
 import { DbTag } from "@renderer/shared/types/types";
 import { useCallback, useEffect, useState } from "react";
+import { useHistoryVersion } from "./useHistoryVersion";
 
 // A file's tags (own and inherited), shared by everything showing them at
 // once (the tag panel and the quick tag bar), so a change made in one shows
@@ -21,9 +22,13 @@ export function useFileTags(fileId: number | null): {
     removeTag: (name: string) => Promise<DbTag[]>;
 } {
     const [tags, setLocal] = useState<DbTag[]>([]);
+    const historyVersion = useHistoryVersion();
+    const [loadedFor, setLoadedFor] = useState<number | null>(null);
 
     useEffect(() => {
-        setLocal([]);
+        // An undo/redo reloads in place; a different file starts empty.
+        if (fileId !== loadedFor) setLocal([]);
+        setLoadedFor(fileId);
         if (fileId == null) return;
         let live = true;
         // A change published while loading is newer than the load.
@@ -41,7 +46,8 @@ export function useFileTags(fileId: number | null): {
             live = false;
             listeners.delete(listener);
         };
-    }, [fileId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fileId, historyVersion]);
 
     const setTags = useCallback(
         (next: DbTag[]) => {

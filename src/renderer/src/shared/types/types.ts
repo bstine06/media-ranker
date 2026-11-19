@@ -227,3 +227,23 @@ export interface TagUsage {
     /** Folders that give it to their files. */
     folders: number;
 }
+
+// ── Undo history (main/undo.ts) ──
+export interface HistoryItem {
+    id: number;
+    label: string;
+    /** Undone: shown dimmed above the "you are here" line, can be redone. */
+    undone: boolean;
+}
+
+export type HistoryMeta =
+    | { kind: "compare"; winnerId: number; loserId: number }
+    | { kind: "placement"; placingId: number; opponentId: number };
+
+export interface HistoryApplied {
+    direction: "undo" | "redo";
+    label: string;
+    meta?: HistoryMeta;
+    /** Couldn't be done; the history was cut back there. */
+    error?: string;
+}

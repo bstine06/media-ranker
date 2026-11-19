@@ -20,6 +20,9 @@ interface Settings {
     togglePauseWhenUnfocused: () => void;
     alwaysShowUnsorted: boolean;
     toggleAlwaysShowUnsorted: () => void;
+    /** The undo history drawer, docked on the right. */
+    showHistory: boolean;
+    toggleShowHistory: () => void;
     /** Show each file's place in the whole library (#12) wherever it appears. */
     showLibraryRank: boolean;
     toggleShowLibraryRank: () => void;
@@ -94,6 +97,8 @@ const SettingsContext = createContext<Settings>({
     togglePauseWhenUnfocused: () => {},
     alwaysShowUnsorted: false,
     toggleAlwaysShowUnsorted: () => {},
+    showHistory: false,
+    toggleShowHistory: () => {},
     showLibraryRank: true,
     toggleShowLibraryRank: () => {},
     compareBothAudio: false,
@@ -204,6 +209,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setAlwaysShowUnsorted((a) => !a);
     }, []);
 
+    const [showHistory, setShowHistory] = useState(() => savedBool("showHistory", false));
+    const toggleShowHistory = useCallback(() => setShowHistory((s) => !s), []);
+
     const [compareBothAudio, setCompareBothAudio] = useState(() => savedBool("compareBothAudio", false));
     const [sweepAllAudio, setSweepAllAudio] = useState(() => savedBool("sweepAllAudio", false));
     const toggleSweepAllAudio = useCallback(() => setSweepAllAudio((a) => !a), []);
@@ -303,6 +311,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     showTagCategoryNames,
                     pauseWhenUnfocused,
                     alwaysShowUnsorted,
+                    showHistory,
                     showLibraryRank,
                     compareBothAudio,
                     sweepAllAudio,
@@ -334,6 +343,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         showTagCategoryNames,
         pauseWhenUnfocused,
         alwaysShowUnsorted,
+        showHistory,
         showLibraryRank,
         compareBothAudio,
         sweepAllAudio,
@@ -372,6 +382,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 togglePauseWhenUnfocused,
                 alwaysShowUnsorted,
                 toggleAlwaysShowUnsorted,
+                showHistory,
+                toggleShowHistory,
                 showLibraryRank,
                 toggleShowLibraryRank,
                 compareBothAudio,

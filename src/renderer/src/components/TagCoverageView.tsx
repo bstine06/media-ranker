@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import type {
     DbFile,
     DbTagWithCategory,
@@ -448,6 +449,7 @@ function ConflictList({
     onClose: () => void;
 }) {
     const [files, setFiles] = useState<(DbFile & { reason: string })[] | null>(null);
+    const historyVersion = useHistoryVersion();
     useEffect(() => {
         let live = true;
         window.api
@@ -460,7 +462,7 @@ function ConflictList({
             live = false;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tag.id]);
+    }, [tag.id, historyVersion]);
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") {

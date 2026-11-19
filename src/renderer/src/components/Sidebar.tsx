@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import { createPortal } from "react-dom";
 import type { DbFile, DbTag, FolderNode, View } from "../shared/types/types";
 import NavItem from "./NavItem";
@@ -78,6 +79,7 @@ function FolderItem({
     const { isDropTarget, dropHandlers } = useFileDropTarget(onDropFiles);
 
     const [profileImageHash, setProfileImageHash] = useState<string | null>();
+    const historyVersion = useHistoryVersion();
 
     useEffect(() => {
     const load = async () => {
@@ -89,7 +91,7 @@ function FolderItem({
         }
     };
     load();
-}, [node, folderMetaVersion]);
+}, [node, folderMetaVersion, historyVersion]);
 
     return (
         <div
@@ -315,6 +317,8 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
         togglePauseWhenUnfocused,
         alwaysShowUnsorted,
         toggleAlwaysShowUnsorted,
+        showHistory,
+        toggleShowHistory,
         compareBothAudio,
         toggleCompareBothAudio,
         showLibraryRank,
@@ -384,6 +388,11 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                         label="Show Unsorted when empty"
                         on={alwaysShowUnsorted}
                         onToggle={toggleAlwaysShowUnsorted}
+                    />
+                    <ToggleRow
+                        label="Show undo history"
+                        on={showHistory}
+                        onToggle={toggleShowHistory}
                     />
                     <ToggleRow
                         label="Sweep: extra lanes vary in speed"
@@ -525,9 +534,10 @@ function MissingRecordsRow({
         onConfirmingChange(confirming);
     }, [confirming, onConfirmingChange]);
 
+    const historyVersion = useHistoryVersion();
     useEffect(() => {
         window.api.countMissingFiles().then(setCount);
-    }, []);
+    }, [historyVersion]);
 
     const clear = async () => {
         setConfirming(false);
@@ -679,6 +689,7 @@ export default function Sidebar({
             window.api.onMediaRemoved(refresh),
             window.api.onMediaRenamed(refresh),
             window.api.onLibraryScanned(refresh),
+            window.api.onHistoryApplied(refresh),
         ];
         return () => {
             if (timer) clearTimeout(timer);
