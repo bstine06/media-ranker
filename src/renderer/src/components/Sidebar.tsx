@@ -505,7 +505,7 @@ function ToggleRow({
             <p className="text-xs text-neutral-400">{label}</p>
             <button
                 onClick={onToggle}
-                className={`text-[10px] rounded px-2 py-0.5 transition-colors font-medium ${
+                className={`w-9 shrink-0 text-center text-[10px] rounded py-0.5 transition-colors font-medium ${
                     on
                         ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
                         : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"

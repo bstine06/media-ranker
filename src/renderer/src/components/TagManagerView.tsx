@@ -389,7 +389,7 @@ function OnOff({
         <button
             onClick={onToggle}
             disabled={disabled}
-            className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`w-9 shrink-0 rounded py-0.5 text-center text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 on
                     ? "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
                     : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
