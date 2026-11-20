@@ -204,6 +204,55 @@ export function useScrollSlots({
         ]);
     }, []);
 
+    // The slots hold snapshots of their records, so refetch them whenever
+    // something may have changed underneath: scores (a Compare pick, an
+    // undo), content (a rotation and its undo), or the path (a Finder
+    // rename the watcher followed, a move and its undo).
+    const slotFilesRef = useRef(slotFiles);
+    slotFilesRef.current = slotFiles;
+    useEffect(() => {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const refresh = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                const ids = slotFilesRef.current.flatMap((f) => (f ? [f.id] : []));
+                if (ids.length === 0) return;
+                window.api
+                    .getFilesByIds(ids)
+                    .then((fresh: DbFile[]) => {
+                        const byId = new Map(fresh.map((f) => [f.id, f]));
+                        setSlotFiles((prev) => {
+                            const next = prev.map((f) => {
+                                const n = f ? byId.get(f.id) : undefined;
+                                if (!f || !n) return f;
+                                const same =
+                                    n.path === f.path &&
+                                    n.filename === f.filename &&
+                                    n.content_hash === f.content_hash &&
+                                    n.elo_score === f.elo_score;
+                                return same ? f : n;
+                            }) as [DbFile | null, DbFile | null];
+                            return next[0] === prev[0] && next[1] === prev[1] ? prev : next;
+                        });
+                    })
+                    .catch(() => {});
+            }, 50);
+        };
+        const onUpdated = ({ file }: { file: DbFile | undefined }) => {
+            if (file) replaceFile(file);
+        };
+        const offs = [
+            window.api.onRanksChanged(refresh),
+            window.api.onMediaRenamed(refresh),
+            window.api.onMediaUpdated(onUpdated),
+            window.api.onHistoryApplied(refresh),
+        ];
+        return () => {
+            offs.forEach((off) => off());
+            if (timer) clearTimeout(timer);
+        };
+    }, [replaceFile]);
+
     return {
         replaceFile,
         slotFiles,

@@ -276,12 +276,36 @@ export function redo(): Promise<Applied | null> {
     return next;
 }
 
+/** Moves in the step under way that followed a Finder rename (see runDisk). */
+let followed: {
+    op: MoveOp;
+    direction: "undo" | "redo";
+    src: string;
+    dest: string;
+    fileId: number;
+    oldName: string;
+    newName: string;
+}[] = [];
+
+/** Takes back a disk op of a step that failed part way. A move that
+ *  followed a rename goes straight back to where it was found. */
+async function revertDisk(op: DiskOp, direction: "undo" | "redo"): Promise<void> {
+    const f = followed.find((x) => x.op === op);
+    if (f) {
+        ignore([f.src, f.dest]);
+        await fs.rename(f.dest, f.src).catch(() => {});
+        return;
+    }
+    await runDisk(op, direction === "undo" ? "redo" : "undo").catch(() => {});
+}
+
 async function step(direction: "undo" | "redo"): Promise<Applied | null> {
     if (busy || !db) return null;
     const from = direction === "undo" ? done : undone;
     const entry = from.at(-1);
     if (!entry) return null;
     busy = true;
+    followed = [];
     const after: (() => void | Promise<void>)[] = [];
     try {
         // Disk first: if a file can't go back, the database is untouched.
@@ -294,9 +318,7 @@ async function step(direction: "undo" | "redo"): Promise<Applied | null> {
             }
         } catch (err) {
             // Put back what already moved, then cut the history here.
-            for (const op of moved.reverse()) {
-                await runDisk(op, direction === "undo" ? "redo" : "undo").catch(() => {});
-            }
+            for (const op of moved.reverse()) await revertDisk(op, direction);
             return fail(entry, direction, err);
         }
 
@@ -309,20 +331,36 @@ async function step(direction: "undo" | "redo"): Promise<Applied | null> {
                 // restored before the parent it points to.
                 database.pragma("defer_foreign_keys = ON");
                 for (const s of sql) database.exec(s);
+                // The recorded rows carry the old name; a followed rename
+                // keeps the new one (recorded too, so redo reverses it).
+                const fix = database.prepare(`UPDATE files SET path = ?, filename = ? WHERE id = ?`);
+                for (const f of followed) fix.run(rel(f.dest), f.newName, f.fileId);
             })();
             const rows = database
                 .prepare(`SELECT sql FROM temp.undo_log ORDER BY seq`)
                 .all() as { sql: string }[];
             entry.sql = rows.map((r) => r.sql);
         } catch (err) {
-            for (const op of [...ops].reverse()) {
-                await runDisk(op, direction === "undo" ? "redo" : "undo").catch(() => {});
-            }
+            for (const op of [...ops].reverse()) await revertDisk(op, direction);
             return fail(entry, direction, err);
         } finally {
             recording = false;
             db.exec(`DELETE FROM temp.undo_log`);
         }
+
+        // A followed rename: the entry now names the file as it is, and its
+        // paths are where the file really went, for the next undo or redo.
+        for (const f of followed) {
+            if (f.direction === "undo") {
+                f.op.to = f.src;
+                f.op.from = f.dest;
+            } else {
+                f.op.from = f.src;
+                f.op.to = f.dest;
+            }
+            entry.label = entry.label.split(f.oldName).join(f.newName);
+        }
+        followed = [];
 
         from.pop();
         (direction === "undo" ? undone : done).push(entry);
@@ -427,12 +465,20 @@ async function runDisk(op: DiskOp, direction: "undo" | "redo"): Promise<() => vo
     }
 
     // A move: undo takes it from `to` back to `from`.
-    const [srcPlanned, dest] = direction === "undo" ? [op.to, op.from] : [op.from, op.to];
+    const [srcPlanned, destPlanned] = direction === "undo" ? [op.to, op.from] : [op.from, op.to];
     let src = srcPlanned;
+    let dest = destPlanned;
     const tracked = op.fileId != null ? host!.fileById(op.fileId) : undefined;
     if (tracked && insideLibrary(srcPlanned) && !op.folder) {
-        // Follow a rename the watcher picked up since.
+        // Follow a rename the watcher picked up since. A new name sticks:
+        // the file goes back under the name it has now, not the old one.
         src = path.join(host!.rootPath()!, tracked.path);
+        const oldName = path.basename(srcPlanned);
+        const newName = path.basename(src);
+        if (newName !== oldName && insideLibrary(destPlanned)) {
+            dest = path.join(path.dirname(destPlanned), newName);
+            followed.push({ op, direction, src, dest, fileId: op.fileId!, oldName, newName });
+        }
     }
     const name = path.basename(dest);
     if (!existsSync(src)) throw new UndoBlocked(`${name} was moved or deleted outside the app.`);
