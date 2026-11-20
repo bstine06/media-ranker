@@ -1515,6 +1515,14 @@ function StripTile({
     // A preview turn: the tile keeps its width and the media is turned
     // inside it, zoomed to fill it. It snaps (no animation).
     const sideways = turns % 2 === 1;
+
+    // The lane's height changed this render (see the width transition).
+    // The ref only moves after commit, so a double render agrees.
+    const lastHeight = useRef(height);
+    const resized = lastHeight.current !== height;
+    useLayoutEffect(() => {
+        lastHeight.current = height;
+    }, [height]);
     const mediaStyle: React.CSSProperties = {
         position: "absolute",
         width: sideways ? height : "100%",
@@ -1530,8 +1538,10 @@ function StripTile({
             className="relative h-full shrink-0 overflow-hidden"
             // A new shape (after a rotation saves) eases in: the left edge
             // stays and the files to the right slide along. (The turn
-            // itself snaps.)
-            style={{ width, transition: "width 250ms ease-out" }}
+            // itself snaps.) A lane resize (H, F, the window, + / −) snaps
+            // too: the row's offset is rescaled at once, so easing the
+            // widths would throw the row off and slide it back.
+            style={{ width, transition: resized ? "none" : "width 250ms ease-out" }}
             onClick={onClick}
         >
             <LaneMedia
