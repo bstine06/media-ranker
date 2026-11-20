@@ -2,6 +2,7 @@ import { useTags } from "@renderer/contexts/TagsContext";
 import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import {
     BatchNoPreview,
+    FolderRuleClash,
     DbFile,
     DbTag,
     DbTagWithCategory,
@@ -24,11 +25,41 @@ function removedText(removed: { name: string; files: number }[]): string {
     return removed.map((r) => `"${r.name}" from ${plural(r.files, "file")}`).join(", ");
 }
 
-// A pending confirm: adding a folder no that takes tags off files, or a
-// batch no that removes tags or meets conflicts.
+/** One line per folder rule a batch takes off its folder. */
+function FolderRuleLines({ rules }: { rules: FolderRuleClash[] }): JSX.Element {
+    const keep = (r: FolderRuleClash, what: string) =>
+        r.others > 0 ? ` The other ${plural(r.others, "file")} there keep ${what} as their own.` : "";
+    return (
+        <ul className="mb-2 flex flex-col gap-1">
+            {rules.map((r) => (
+                <li key={`${r.folderId}:${r.tagId}`}>
+                    {r.kind === "tag"
+                        ? `"${r.tag}" comes off ${r.folder} as a folder tag.${keep(r, "the tag")}`
+                        : `${r.folder}'s no for "${r.tag}" comes off the folder.${keep(r, "the no")}`}
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+/** The same folder rule can turn up once per staged tag. */
+function uniqueRules(rules: FolderRuleClash[]): FolderRuleClash[] {
+    const seen = new Set<string>();
+    return rules.filter((r) => {
+        const key = `${r.folderId}:${r.tagId}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+// A pending confirm: adding a folder no that takes tags off files, a batch
+// no that removes tags or takes folder tags off, or a batch yes that takes
+// folder noes off.
 type Pending =
     | { kind: "folderNo"; name: string; preview: FolderNoPreview }
-    | { kind: "batchNo"; names: string[]; files: DbFile[]; preview: BatchNoPreview };
+    | { kind: "batchNo"; names: string[]; files: DbFile[]; preview: BatchNoPreview }
+    | { kind: "batchYes"; names: string[]; files: DbFile[]; rules: FolderRuleClash[] };
 
 export default function FolderTagPanel({
     folderTags,
@@ -223,40 +254,47 @@ export default function FolderTagPanel({
             const ids = files.map((f) => f.id);
             // All the tags in one call: one undo entry.
             const res = await window.api.batchNo(ids, names);
-            const conflicts = res.conflicts;
+            const rules = uniqueRules(res.folderRules).length;
             await refreshTags();
             onAfterBatchNo?.();
+            onFolderTagsChanged?.();
+            loadNoes();
             setStagedTags([]);
             const what = names.map((n) => `"${n}"`).join(", ");
             setStatus(
                 `Not ${what} on ${plural(files.length, "file")}` +
-                    (conflicts > 0
-                        ? ` · ${plural(conflicts, "conflict")} with a folder (see Coverage)`
-                        : ""),
+                    (rules > 0 ? ` · ${plural(rules, "folder tag")} removed` : ""),
             );
             setTimeout(resetStatus, 4000);
         },
-        [refreshTags, onAfterBatchNo, setStatus, resetStatus],
+        [refreshTags, onAfterBatchNo, onFolderTagsChanged, loadNoes, setStatus, resetStatus],
     );
 
     const executeBatch = useCallback(async () => {
         if (stagedTags.length === 0 || selectedFiles.length === 0) return;
         const tagNames = stagedTags.map((t) => t.name);
+        const ids = selectedFiles.map((f) => f.id);
         if (!batchNoMode) {
+            // A folder no ruling a tag out: confirm taking it off the folder.
+            const rules = await window.api.previewBatchYes(ids, tagNames);
+            if (rules.length > 0) {
+                setPending({ kind: "batchYes", names: tagNames, files: selectedFiles, rules });
+                return;
+            }
             await onExecuteBatchTag?.(tagNames, selectedFiles);
             setStagedTags([]);
             return;
         }
-        // Noes: confirm when tags would come off or a folder disagrees.
-        const ids = selectedFiles.map((f) => f.id);
-        const total: BatchNoPreview = { removed: [], files: 0, conflicts: 0 };
+        // Noes: confirm when tags would come off the files or a folder.
+        const total: BatchNoPreview = { removed: [], files: 0, folderRules: [] };
         for (const name of tagNames) {
             const p = await window.api.previewBatchNo(ids, name);
             total.removed.push(...p.removed);
-            total.conflicts += p.conflicts;
+            total.folderRules.push(...p.folderRules);
             total.files = Math.max(total.files, p.files);
         }
-        if (total.removed.length > 0 || total.conflicts > 0) {
+        total.folderRules = uniqueRules(total.folderRules);
+        if (total.removed.length > 0 || total.folderRules.length > 0) {
             setPending({ kind: "batchNo", names: tagNames, files: selectedFiles, preview: total });
             return;
         }
@@ -442,21 +480,35 @@ export default function FolderTagPanel({
                             {pending.preview.removed.length > 0 && (
                                 <p className="mb-2">Removes {removedText(pending.preview.removed)}.</p>
                             )}
-                            {pending.preview.conflicts > 0 && (
-                                <p>
-                                    {plural(pending.preview.conflicts, "file")} get the tag from
-                                    their folder, which wins. The no is kept for them and shows as a
-                                    conflict in Coverage until the file or folder changes.
-                                </p>
+                            {pending.preview.folderRules.length > 0 && (
+                                <FolderRuleLines rules={pending.preview.folderRules} />
                             )}
                         </>
                     }
-                    confirmText="Mark as no"
+                    confirmText={pending.preview.folderRules.length > 0 ? "Remove from folder and mark as no" : "Mark as no"}
                     onCancel={() => setPending(null)}
                     onConfirm={() => {
                         const { names, files } = pending;
                         setPending(null);
                         void commitBatchNo(names, files);
+                    }}
+                />
+            )}
+            {pending?.kind === "batchYes" && (
+                <ConfirmDialog
+                    title={`Tag ${plural(pending.files.length, "file")} ${pending.names.map((n) => `"${n}"`).join(", ")}?`}
+                    message={<FolderRuleLines rules={pending.rules} />}
+                    confirmText="Remove from folder and tag"
+                    onCancel={() => setPending(null)}
+                    onConfirm={() => {
+                        const { names, files } = pending;
+                        setPending(null);
+                        void (async () => {
+                            await onExecuteBatchTag?.(names, files);
+                            onFolderTagsChanged?.();
+                            loadNoes();
+                            setStagedTags([]);
+                        })();
                     }}
                 />
             )}

@@ -53,13 +53,26 @@ export interface FolderNoPreview {
     files: number;
 }
 
+/** A folder rule a batch clashes with: a folder tag giving a tag being
+ *  marked no, or a folder no ruling out a tag being added. Confirmed, it
+ *  comes off the folder and the folder's other files keep what it gave
+ *  them as their own. */
+export interface FolderRuleClash {
+    folderId: number;
+    folder: string;
+    tagId: number;
+    tag: string;
+    kind: "tag" | "no";
+    /** Files in the folder outside the batch. */
+    others: number;
+}
+
 /** What a batch no would do (or did). */
 export interface BatchNoPreview {
     removed: { name: string; files: number }[];
     files: number;
-    /** Files whose folder gives them the tag: the no is kept but the
-     *  folder wins, so they show as conflicts. */
-    conflicts: number;
+    /** Folder tags that come off their folders first. */
+    folderRules: FolderRuleClash[];
 }
 
 export interface DbTagCategory {

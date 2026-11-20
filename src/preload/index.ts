@@ -387,6 +387,8 @@ const api = {
     batchNo: (fileIds: number[], tag: string | string[]) => ipcRenderer.invoke("batch-no", fileIds, tag),
     batchAddTags: (fileIds: number[], tags: string[]): Promise<void> =>
         ipcRenderer.invoke("batch-add-tags", fileIds, tags),
+    previewBatchYes: (fileIds: number[], tags: string[]) =>
+        ipcRenderer.invoke("preview-batch-yes", fileIds, tags),
     getConflictFiles: (
         tagId: number,
         folderPrefixes: string[] | null = null,

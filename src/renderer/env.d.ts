@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, BatchNoPreview, FolderRuleResult, HistoryItem, HistoryApplied } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, BatchNoPreview, FolderRuleClash, FolderRuleResult, HistoryItem, HistoryApplied } from "./src/shared/types/types";
 
 export {};
 
@@ -176,6 +176,8 @@ declare global {
             batchNo: (fileIds: number[], tag: string | string[]) => Promise<BatchNoPreview>;
             /** Batch Tag (yes): every tag on every file, as one undo entry. */
             batchAddTags: (fileIds: number[], tags: string[]) => Promise<void>;
+            /** Folder noes a batch yes would take off their folders. */
+            previewBatchYes: (fileIds: number[], tags: string[]) => Promise<FolderRuleClash[]>;
             getConflictFiles: (
                 tagId: number,
                 folderPrefixes?: string[] | null,

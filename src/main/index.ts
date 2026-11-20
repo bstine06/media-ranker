@@ -73,6 +73,9 @@ import {
     clearFileNo,
     previewBatchNo,
     batchNo,
+    previewBatchYes,
+    batchYes,
+    type BatchNoPreview,
     getConflictFiles,
     getRelatedTags,
     getTagImplications,
@@ -971,13 +974,21 @@ function registerIpcHandlers(): void {
     });
 
     // Batch Tag (yes): every tag on every file, one history entry.
+    // Folder noes ruling the tags out come off their folders (after the
+    // confirm previewBatchYes fed); one history entry either way.
     ipcMain.handle("batch-add-tags", (_event, fileIds: number[], tags: string[]) => {
         record(`Tagged ${filesLabel(fileIds)} ${tagsLabel(tags)}`, () => {
             for (const tag of tags) {
                 const { id: tagId } = upsertTag(tag, undefined);
-                for (const fileId of fileIds) addTagToFile(fileId, tagId);
+                batchYes(fileIds, tagId);
             }
         });
+    });
+    ipcMain.handle("preview-batch-yes", (_event, fileIds: number[], tags: string[]) => {
+        const ids = tags
+            .map((t) => getTagByName(t.trim().toLowerCase())?.id)
+            .filter((id): id is number => id != null);
+        return previewBatchYes(fileIds, ids);
     });
 
     ipcMain.handle("remove-tag", (_event, fileId: number, tag: string) => {
@@ -1213,20 +1224,20 @@ function registerIpcHandlers(): void {
     );
     ipcMain.handle("preview-batch-no", (_event, fileIds: number[], tag: string) => {
         const existing = getTagByName(tag.trim().toLowerCase());
-        if (!existing) return { removed: [], files: 0, conflicts: 0 };
+        if (!existing) return { removed: [], files: 0, folderRules: [] };
         return previewBatchNo(fileIds, existing.id);
     });
     // One tag or several; one history entry either way.
     ipcMain.handle("batch-no", (_event, fileIds: number[], tag: string | string[]) => {
         const names = Array.isArray(tag) ? tag : [tag];
         return record(`Marked ${filesLabel(fileIds)} as no for ${tagsLabel(names)}`, () => {
-            const total = { removed: [] as { name: string; files: number }[], files: 0, conflicts: 0 };
+            const total: BatchNoPreview = { removed: [], files: 0, folderRules: [] };
             for (const name of names) {
                 const { id: tagId } = upsertTag(name);
                 const res = batchNo(fileIds, tagId);
                 total.removed.push(...res.removed);
                 total.files += res.files;
-                total.conflicts += res.conflicts;
+                total.folderRules.push(...res.folderRules);
             }
             return total;
         });
