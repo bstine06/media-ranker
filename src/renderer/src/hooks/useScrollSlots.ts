@@ -16,7 +16,7 @@ export interface ScrollSlotsState {
     cursor: number;
     setCursor: (i: number) => void;
     handleWheel: (e: React.WheelEvent) => void;
-    navigate: (dir: "up" | "down") => void;
+    navigate: (dir: "up" | "down", file?: DbFile) => void;
     /** Swap in a fresh record for a file already showing (e.g. after a rotate). */
     replaceFile: (file: DbFile) => void;
 }
@@ -61,13 +61,15 @@ export function useScrollSlots({
     const videoRef1 = useRef<HTMLVideoElement>(null);
     const videoRefs = [videoRef0, videoRef1];
 
-    const navigate = useCallback(async (dir: "up" | "down") => {
+    // `file`: slide that file in (from above or below) instead of asking
+    // the resolver for the next one.
+    const navigate = useCallback(async (dir: "up" | "down", file?: DbFile) => {
         if (lockedRef.current) return;
 
         lockedRef.current = true;
         videoRefs[frontSlot].current?.pause();
 
-        const incoming = await resolver(dir, cursor);
+        const incoming = file ?? (await resolver(dir, cursor));
         if (!incoming) {
             lockedRef.current = false;
             return;

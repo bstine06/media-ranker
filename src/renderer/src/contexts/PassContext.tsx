@@ -461,6 +461,26 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
         }
     }, [arrive, setRun]);
 
+    // Undoing a pass no: back to that file, but only from the very next
+    // spot (3 moves on by one); from further on, the run stays put.
+    useEffect(
+        () =>
+            window.api.onHistoryApplied((a) => {
+                if (a.direction !== "undo" || a.error || a.meta?.kind !== "pass-no") return;
+                const r = runRef.current;
+                if (!r) return;
+                const { fileId, tagId } = a.meta;
+                const prev = prevSpot(r, r.t, r.pos);
+                if (!prev) return;
+                const [t, pos] = prev;
+                const tr = r.tags[t];
+                if (pos < 0 || !tr || (tr.tagId !== tagId && tr.upperId !== tagId)) return;
+                if (tr.files?.[pos]?.id !== fileId) return;
+                setRun({ ...r, t, pos });
+            }),
+        [setRun],
+    );
+
     const back = useCallback(() => {
         const r = runRef.current;
         if (!r || busy.current) return;

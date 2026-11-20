@@ -938,6 +938,7 @@ function registerIpcHandlers(): void {
                 failed.push(file.filename);
             }
         }
+        step.meta = { kind: "delete", fileIds };
         step.commit();
         return failed;
     };
@@ -1032,6 +1033,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle("set-pass-no", (_event, fileId: number, tagId: number) =>
         record(`No for ${tagLabel(tagId)} on ${fileLabel(fileId)} (pass)`, () =>
             setPassNo(fileId, tagId),
+            { kind: "pass-no", fileId, tagId },
         ),
     );
     ipcMain.handle("clear-pass-no", (_event, fileId: number, tagId: number) =>

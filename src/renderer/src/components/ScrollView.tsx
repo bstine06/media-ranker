@@ -35,6 +35,7 @@ export default function ScrollView({
     onCrown,
     onPlace,
     allowRotate = false,
+    jumpTo = null,
 }: {
     initialFile: DbFile | null;
     resolver: SlotResolver;
@@ -54,6 +55,9 @@ export default function ScrollView({
     onPlace?: (file: DbFile) => void;
     /** Show the rotate-left button (single file view). */
     allowRotate?: boolean;
+    /** Slide this file in (each new `n` once), e.g. a file an undo just
+     *  brought back. */
+    jumpTo?: { file: DbFile; dir: "up" | "down"; n: number } | null;
 }): JSX.Element {
     const {
         slotFiles,
@@ -132,6 +136,11 @@ export default function ScrollView({
     useEffect(() => {
         if (currentFile) onFileChange?.(currentFile);
     }, [currentFile]);
+
+    useEffect(() => {
+        if (jumpTo) navigate(jumpTo.dir, jumpTo.file);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [jumpTo?.n]);
 
     // R: rotate the file on screen left. K: send it to Compare as king.
     // (The rest of the keys: lib/keys.ts.)

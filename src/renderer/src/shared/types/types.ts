@@ -251,7 +251,9 @@ export interface HistoryItem {
 
 export type HistoryMeta =
     | { kind: "compare"; winnerId: number; loserId: number }
-    | { kind: "placement"; placingId: number; opponentId: number };
+    | { kind: "placement"; placingId: number; opponentId: number }
+    | { kind: "pass-no"; fileId: number; tagId: number }
+    | { kind: "delete"; fileIds: number[] };
 
 export interface HistoryApplied {
     direction: "undo" | "redo";

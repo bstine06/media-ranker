@@ -52,7 +52,10 @@ const TRACKED_TABLES = [
 /** What the renderer needs to react to an entry being undone or redone. */
 export type EntryMeta =
     | { kind: "compare"; winnerId: number; loserId: number }
-    | { kind: "placement"; placingId: number; opponentId: number };
+    | { kind: "placement"; placingId: number; opponentId: number }
+    /** Views showing the file may step back to it on undo. */
+    | { kind: "pass-no"; fileId: number; tagId: number }
+    | { kind: "delete"; fileIds: number[] };
 
 /** A file or folder moved by the action. `from`/`to` are absolute. For a
  *  library file with `fileId`, its current path is read from the database

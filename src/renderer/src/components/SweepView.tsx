@@ -21,7 +21,7 @@ import SingleFileView from "./SingleFileView";
 import { TagPill } from "./TagPill";
 import { ScopeSummary } from "./ScopeSummary";
 import { usePass } from "@renderer/contexts/PassContext";
-import { filterKey } from "@renderer/lib/tagFilters";
+import { filterKey, pruneFilter } from "@renderer/lib/tagFilters";
 
 // Sweep: tag one tag at a time, over files that don't have it yet. The tag
 // can be picked at random and rerolled on an interval.
@@ -1437,16 +1437,28 @@ function LaneEndCard({
     const feedName =
         loadedFeed && filterKey(loadedFeed.tree) === filterKey(filter) ? loadedFeed.name : null;
     const firm = ending.skipAnswered && tag;
+    // Say plainly what's narrowing the pool: collections and the tag
+    // filter both count, and either can be why it ran out.
+    const someCollections = !!folderPrefixes && folderPrefixes.length > 0;
+    const filtered = !!pruneFilter(activeFilter);
+    const limits = [someCollections && "collections", filtered && "tag filter"].filter(Boolean);
     return (
         <div
-            className="relative flex h-full shrink-0 flex-col items-center justify-center gap-3 overflow-hidden bg-neutral-900 p-5 text-center"
+            className="relative flex h-full shrink-0 flex-col items-center justify-center gap-3 overflow-y-auto bg-neutral-900 p-5 text-center"
             style={{ width: size }}
         >
             {tag && <TagPill tag={tag} applied />}
             <span className="text-sm text-neutral-200">
-                {firm ? "Nothing left without a firm answer here" : "No more files here"}
+                {firm ? "Nothing left without a firm answer" : "No more files"}
+                {limits.length > 0 ? ` in the selected ${limits.join(" and ")}` : ""}
             </span>
-            <ScopeSummary folderPrefixes={folderPrefixes} filter={activeFilter} feedName={feedName} />
+            <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wide text-neutral-500">
+                    {limits.length > 0 ? "Limited to" : "Looking at"}
+                </span>
+                <ScopeSummary folderPrefixes={folderPrefixes} filter={activeFilter} feedName={feedName} />
+                {!filtered && <span className="text-[11px] text-neutral-500">No tag filter</span>}
+            </div>
             <span className="text-[11px] text-neutral-500">Tab another tag · ` random</span>
             {firm && ending.onPassTag && (
                 <button

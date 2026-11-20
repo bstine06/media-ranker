@@ -625,6 +625,46 @@ export default function BrowseView({
         };
     }, [rootPath, activeFolder, showUnsorted, activeFilter, getFilesForFolder]);
 
+    // The file view's place follows the list: when files come and go, the
+    // index moves with the file on screen (or the next step would skip or
+    // repeat one). And an undone delete brings its file back on screen,
+    // but only if it lands right next to where the view is now (one file).
+    const shownIdRef = useRef<number | null>(null);
+    const restoreIds = useRef<number[] | null>(null);
+    const [jumpTo, setJumpTo] = useState<{ file: DbFile; dir: "up" | "down"; n: number } | null>(null);
+    useEffect(
+        () =>
+            window.api.onHistoryApplied((a) => {
+                if (a.direction === "undo" && !a.error && a.meta?.kind === "delete") {
+                    restoreIds.current = a.meta.fileIds;
+                }
+            }),
+        [],
+    );
+    useEffect(() => {
+        if (browseScrollIndex === null) {
+            restoreIds.current = null;
+            return;
+        }
+        const shown = shownIdRef.current;
+        let at = shown != null ? sortedFiles.findIndex((f) => f.id === shown) : -1;
+        if (at >= 0 && at !== browseScrollIndex) setBrowseScrollIndex(at);
+        if (at < 0) at = browseScrollIndex;
+        const ids = restoreIds.current;
+        if (!ids) return;
+        const found = ids
+            .map((id) => sortedFiles.findIndex((f) => f.id === id))
+            .filter((i) => i >= 0);
+        if (found.length === 0) return; // the list hasn't caught up yet
+        restoreIds.current = null;
+        const near = found.filter((i) => i !== at && Math.abs(i - at) <= 1);
+        if (near.length === 0) return;
+        const to = near[0];
+        setBrowseScrollIndex(to);
+        setJumpTo((j) => ({ file: sortedFiles[to], dir: to < at ? "up" : "down", n: (j?.n ?? 0) + 1 }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sortedFiles]);
+
     const resolver: SlotResolver = useCallback(
         async (dir, cursor) => {
             if (browseScrollIndex === null) return null;
@@ -671,6 +711,10 @@ export default function BrowseView({
                 }}
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}
                 onClose={() => setBrowseScrollIndex(null)}
+                onFileChange={(f) => {
+                    shownIdRef.current = f.id;
+                }}
+                jumpTo={jumpTo}
                 onCrown={crownAndCompare}
                 onPlace={(file) => {
                     startSession({ kind: "file", file, returnTo: "browse" });
