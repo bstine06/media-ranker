@@ -833,12 +833,76 @@ export function addTagToFolder(folderId: number, tagId: number): FolderRuleResul
             const clash = folderContradiction(folderId);
             if (clash) throw new RuleError(contradictionMessage(clash));
             dropTagsCoveredByInheritance({ folderId });
+            clearNoesUnderFolderTag(folderId, tagId);
         })();
     } catch (err) {
         if (err instanceof RuleError) return { ok: false, error: err.message };
         throw err;
     }
     return { ok: true };
+}
+
+// SQL (alias c = a tag_checks row): the tag (the 1st parameter) is c's
+// tag or implies it.
+const GIVES_C_TAG = `(c.tag_id = ? OR EXISTS (
+    SELECT 1 FROM tag_implied ti WHERE ti.tag_id = ? AND ti.implied_id = c.tag_id))`;
+
+// A new folder tag wins over its files' own noes: a hard no or pass no on
+// it (or a tag it implies) is cleared; any Sweep seconds stay. Only on a
+// deliberate act the user confirmed, so no conflict is left behind. Noes
+// under the folder's other tags are left alone.
+function clearNoesUnderFolderTag(folderId: number, tagId: number): void {
+    getDb()
+        .prepare(
+            `UPDATE tag_checks AS c SET rejected = 0, passed = 0, updated_at = datetime('now')
+             WHERE (c.rejected = 1 OR c.passed = 1)
+               AND c.file_id IN (SELECT id FROM files WHERE folder_id = ?)
+               AND ${GIVES_C_TAG}`,
+        )
+        .run(folderId, tagId, tagId);
+}
+
+/** What adding a folder tag would clear, for the confirm: files in the
+ *  folder marked no for the tag (or a tag it implies). */
+export interface FolderTagPreview {
+    /** Noes cleared, per tag. */
+    cleared: { name: string; files: number }[];
+    /** Active files losing at least one no (count, and some names). */
+    files: number;
+    names: string[];
+}
+
+// Found by adding it and rolling back, like previewFolderNo.
+export function previewFolderTag(
+    folderId: number,
+    tagId: number,
+): FolderTagPreview | { error: string } {
+    const db = getDb();
+    db.exec("SAVEPOINT preview_folder_tag");
+    try {
+        db.prepare(`DELETE FROM folder_noes WHERE folder_id = ? AND tag_id = ?`).run(folderId, tagId);
+        db.prepare(`INSERT OR IGNORE INTO folder_tags (folder_id, tag_id) VALUES (?, ?)`).run(
+            folderId,
+            tagId,
+        );
+        const clash = folderContradiction(folderId);
+        if (clash) return { error: contradictionMessage(clash) };
+        const rows = db
+            .prepare(
+                `SELECT c.file_id, c.tag_id, f.filename FROM tag_checks c
+                 JOIN files f ON f.id = c.file_id
+                 WHERE f.folder_id = ? AND f.status = 'active'
+                   AND (c.rejected = 1 OR c.passed = 1) AND ${GIVES_C_TAG}
+                 ORDER BY f.filename`,
+            )
+            .all(folderId, tagId, tagId) as { file_id: number; tag_id: number; filename: string }[];
+        const { removed, files } = summarizeRemoved(rows);
+        const names = [...new Map(rows.map((r) => [r.file_id, r.filename])).values()];
+        return { cleared: removed, files, names: names.slice(0, 20) };
+    } finally {
+        db.exec("ROLLBACK TO preview_folder_tag");
+        db.exec("RELEASE preview_folder_tag");
+    }
 }
 
 export function removeTagFromFolder(folderId: number, tagId: number): void {

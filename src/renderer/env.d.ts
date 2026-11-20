@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, BatchNoPreview, FolderRuleClash, FolderRuleResult, HistoryItem, HistoryApplied } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, FolderTagPreview, BatchNoPreview, FolderRuleClash, FolderRuleResult, HistoryItem, HistoryApplied } from "./src/shared/types/types";
 
 export {};
 
@@ -161,6 +161,7 @@ declare global {
             ) => Promise<FolderRuleResult>;
             getFolderNoes: (folderRelPath: string) => Promise<DbTag[]>;
             /** What adding a folder no would take off files (or why it can't). */
+            previewFolderTag: (folderRelPath: string, tag: string) => Promise<FolderTagPreview | { error: string }>;
             previewFolderNo: (
                 folderRelPath: string,
                 tag: string,

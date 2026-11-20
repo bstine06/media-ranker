@@ -373,6 +373,8 @@ const api = {
 
     getFolderNoes: (folderRelPath: string): Promise<DbTag[]> =>
         ipcRenderer.invoke("get-folder-noes", folderRelPath),
+    previewFolderTag: (folderRelPath: string, tag: string) =>
+        ipcRenderer.invoke("preview-folder-tag", folderRelPath, tag),
     previewFolderNo: (folderRelPath: string, tag: string) =>
         ipcRenderer.invoke("preview-folder-no", folderRelPath, tag),
     addFolderNo: (folderRelPath: string, tag: string) =>

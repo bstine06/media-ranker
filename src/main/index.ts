@@ -66,6 +66,7 @@ import {
     getTagCoverage,
     getNoesForFolder,
     previewFolderNo,
+    previewFolderTag,
     addFolderNo,
     removeFolderNo,
     tagsRuledOutByFolder,
@@ -1184,6 +1185,14 @@ function registerIpcHandlers(): void {
             );
         },
     );
+
+    ipcMain.handle("preview-folder-tag", (_event, folderRelPath: string, tag: string) => {
+        const folder = getFolderByPath(folderRelPath);
+        const existing = getTagByName(tag.trim().toLowerCase());
+        // A brand-new tag or folder row: no file can be marked no for it.
+        if (!folder || !existing) return { cleared: [], files: 0, names: [] };
+        return previewFolderTag(folder.id, existing.id);
+    });
 
     // ── Folder noes ──
     ipcMain.handle("get-folder-noes", (_event, folderRelPath: string) => {

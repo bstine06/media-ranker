@@ -67,6 +67,15 @@ export interface FolderRuleClash {
     others: number;
 }
 
+/** What adding a folder tag would clear: files in the folder marked no
+ *  for it (or a tag it implies). */
+export interface FolderTagPreview {
+    cleared: { name: string; files: number }[];
+    files: number;
+    /** Some of their filenames (up to 20). */
+    names: string[];
+}
+
 /** What a batch no would do (or did). */
 export interface BatchNoPreview {
     removed: { name: string; files: number }[];

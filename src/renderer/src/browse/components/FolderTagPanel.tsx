@@ -3,6 +3,7 @@ import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import {
     BatchNoPreview,
     FolderRuleClash,
+    FolderTagPreview,
     DbFile,
     DbTag,
     DbTagWithCategory,
@@ -57,6 +58,7 @@ function uniqueRules(rules: FolderRuleClash[]): FolderRuleClash[] {
 // no that removes tags or takes folder tags off, or a batch yes that takes
 // folder noes off.
 type Pending =
+    | { kind: "folderTag"; name: string; preview: FolderTagPreview }
     | { kind: "folderNo"; name: string; preview: FolderNoPreview }
     | { kind: "batchNo"; names: string[]; files: DbFile[]; preview: BatchNoPreview }
     | { kind: "batchYes"; names: string[]; files: DbFile[]; rules: FolderRuleClash[] };
@@ -135,10 +137,8 @@ export default function FolderTagPanel({
 
     // Picking an existing tag or creating one: add-tag-to-folder upserts the
     // tag without touching its category. A tag that's a folder no swaps.
-    const addFolderTag = useCallback(
-        async (name: string) => {
-            const trimmed = name.trim().toLowerCase();
-            if (!trimmed || folderTags.some((t) => t.name === trimmed)) return;
+    const commitFolderTag = useCallback(
+        async (trimmed: string) => {
             const wasNo = folderNoes.some((t) => t.name === trimmed);
             const res = await onAddFolderTag(trimmed);
             await refreshTags();
@@ -152,7 +152,29 @@ export default function FolderTagPanel({
                 setGlow(findTagId(trimmed));
             }
         },
-        [folderTags, folderNoes, onAddFolderTag, refreshTags, loadNoes, findTagId],
+        [folderNoes, onAddFolderTag, refreshTags, loadNoes, findTagId],
+    );
+
+    // Files in the folder marked no for the tag: confirm clearing those
+    // noes first; refused outright when the folder would contradict itself.
+    const addFolderTag = useCallback(
+        async (name: string) => {
+            const trimmed = name.trim().toLowerCase();
+            if (!trimmed || folderTags.some((t) => t.name === trimmed)) return;
+            if (activeFolder) {
+                const preview = await window.api.previewFolderTag(activeFolder, trimmed);
+                if ("error" in preview) {
+                    setError(preview.error);
+                    return;
+                }
+                if (preview.files > 0) {
+                    setPending({ kind: "folderTag", name: trimmed, preview });
+                    return;
+                }
+            }
+            await commitFolderTag(trimmed);
+        },
+        [activeFolder, folderTags, commitFolderTag],
     );
 
     const removeFolderTag = useCallback(
@@ -449,6 +471,38 @@ export default function FolderTagPanel({
                 </div>
             </div>
 
+            {pending?.kind === "folderTag" && (
+                <ConfirmDialog
+                    title={`Add "${pending.name}" to ${activeFolder}?`}
+                    message={
+                        <>
+                            <p className="mb-2">
+                                {plural(pending.preview.files, "file")} in {activeFolder}{" "}
+                                {pending.preview.files === 1 ? "is" : "are"} marked no for{" "}
+                                {pending.preview.cleared.map((c) => `"${c.name}"`).join(", ")}.
+                                Adding it to the folder clears those noes.
+                            </p>
+                            <ul className="max-h-40 overflow-y-auto text-xs text-neutral-400">
+                                {pending.preview.names.map((n) => (
+                                    <li key={n} className="truncate">
+                                        {n}
+                                    </li>
+                                ))}
+                                {pending.preview.files > pending.preview.names.length && (
+                                    <li>and {plural(pending.preview.files - pending.preview.names.length, "more file")}</li>
+                                )}
+                            </ul>
+                        </>
+                    }
+                    confirmText="Clear the noes and add"
+                    onCancel={() => setPending(null)}
+                    onConfirm={() => {
+                        const name = pending.name;
+                        setPending(null);
+                        void commitFolderTag(name);
+                    }}
+                />
+            )}
             {pending?.kind === "folderNo" && (
                 <ConfirmDialog
                     title={`Not "${pending.name}" in ${activeFolder}?`}
