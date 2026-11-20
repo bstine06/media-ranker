@@ -26,7 +26,7 @@ export default function SingleFileView({
         null,
     );
 
-    const { rootPath, setActiveFolder, folderMetaVersion } = useFolders();
+    const { rootPath, setActiveFolder, setShowUnsorted, folderMetaVersion } = useFolders();
     const { startSession } = usePlacement();
 
     //resolver to appease ScrollView
@@ -62,6 +62,7 @@ export default function SingleFileView({
             folderProfileHash={folderProfileHash}
             onFolderClick={(folderName) => {
                 setActiveFolder(folderName);
+                if (folderName === null) setShowUnsorted(true);
                 setView("browse");
             }}
             onFileClick={(file) => showInFolder(rootPath!, file.path)}

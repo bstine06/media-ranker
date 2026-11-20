@@ -68,6 +68,11 @@ export default function BrowseView({
     const [draftProfileImage, setDraftProfileImage] = useState<
         string | undefined
     >();
+    // However editing ends (Save, Cancel, another folder, an undo), the
+    // picked picture goes with it, or its tile stays highlighted.
+    useEffect(() => {
+        if (!editingMetadata) setDraftProfileImage(undefined);
+    }, [editingMetadata]);
     const [draftName, setDraftName] = useState<string>("");
     const [renameError, setRenameError] = useState<string | null>(null);
 
@@ -104,6 +109,7 @@ export default function BrowseView({
         setActiveFolder,
         handleFolderMetadataChanged,
         showUnsorted,
+        setShowUnsorted,
     } = useFolders();
     const { refreshTags, activeFilter } = useTags();
     const {
@@ -648,6 +654,7 @@ export default function BrowseView({
                 }
                 onFolderClick={(folderName) => {
                     setActiveFolder(folderName);
+                    if (folderName === null) setShowUnsorted(true);
                     setView("browse");
                 }}
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}

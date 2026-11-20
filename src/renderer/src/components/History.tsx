@@ -119,7 +119,7 @@ export function HistoryDrawer(): JSX.Element | null {
             </div>
             <div className="flex-1 overflow-y-auto py-1 text-xs">
                 {redoable.map((i) => (
-                    <div key={i.id} className="px-3 py-1 text-neutral-600" title={i.label}>
+                    <div key={i.id} className="border-b border-neutral-800/70 px-3 py-1.5 text-neutral-600" title={i.label}>
                         <span className="line-clamp-2 break-words">{i.label}</span>
                     </div>
                 ))}
@@ -129,7 +129,7 @@ export function HistoryDrawer(): JSX.Element | null {
                     <div className="h-px flex-1 bg-sky-500/60" />
                 </div>
                 {done.map((i) => (
-                    <div key={i.id} className="px-3 py-1 text-neutral-300" title={i.label}>
+                    <div key={i.id} className="border-b border-neutral-800/70 px-3 py-1.5 text-neutral-300" title={i.label}>
                         <span className="line-clamp-2 break-words">{i.label}</span>
                     </div>
                 ))}

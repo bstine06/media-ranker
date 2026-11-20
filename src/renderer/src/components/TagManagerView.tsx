@@ -12,7 +12,7 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 import { usePass } from "@renderer/contexts/PassContext";
 import TagCoverageView, { TagCoverageSummary, useTagCoverage } from "./TagCoverageView";
 import ConfirmDialog from "./ConfirmDialog";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
 import { TagPill } from "./TagPill";
 import { byTagOrder } from "@renderer/lib/tagGroups";
@@ -110,6 +110,24 @@ function CategoryEditor({
             setCustomIcon(char);
         }
     };
+
+    // Saved values changed from outside (an undo or redo): the fields follow,
+    // unless the name holds an unsaved edit.
+    const shownName = useRef(liveCategory?.name);
+    useEffect(() => {
+        if (!liveCategory) return;
+        const prev = shownName.current;
+        shownName.current = liveCategory.name;
+        if (prev !== undefined && prev !== liveCategory.name) {
+            setName((n) => (n.trim().toLowerCase() === prev ? liveCategory.name : n));
+        }
+    }, [liveCategory?.name]);
+    useEffect(() => {
+        if (liveCategory?.color) setColor(liveCategory.color);
+    }, [liveCategory?.color]);
+    useEffect(() => {
+        if (liveCategory?.icon) setIcon(liveCategory.icon);
+    }, [liveCategory?.icon]);
 
     const trimmedName = name.trim().toLowerCase();
     const nameChanged =
@@ -504,6 +522,19 @@ function TagEditor({
     // Same lowercase enforcement here: renaming a tag to mixed case would
     // silently break the lowercase-based matching in TagPanel /
     // FolderTagPanel just as badly as creating one with capitals would.
+    // The saved name or category changed from outside (an undo or redo):
+    // the fields follow, unless the name holds an unsaved edit.
+    const shownName = useRef(savedName);
+    useEffect(() => {
+        const prev = shownName.current;
+        shownName.current = savedName;
+        if (prev !== savedName) setName((n) => (n.trim().toLowerCase() === prev ? savedName : n));
+    }, [savedName]);
+    const savedCategoryId = tagMap.get(tag.id)?.category_id;
+    useEffect(() => {
+        if (savedCategoryId !== undefined) setCategoryId(savedCategoryId);
+    }, [savedCategoryId]);
+
     const trimmed = name.trim().toLowerCase();
     const nameChanged = trimmed !== "" && trimmed !== savedName;
 

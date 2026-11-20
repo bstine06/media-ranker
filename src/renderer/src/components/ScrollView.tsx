@@ -41,7 +41,9 @@ export default function ScrollView({
     active: boolean;
     rootPath: string;
     folderProfileHash: string | null;
-    onFolderClick: (folderName: string) => void;
+    /** A collection by name, or null for Unsorted (the file sits directly
+     *  in the library folder). */
+    onFolderClick: (folderName: string | null) => void;
     onFileClick: (file: DbFile) => void;
     onClose?: () => void;
     progress?: { index: number; total: number };
@@ -184,6 +186,9 @@ export default function ScrollView({
         }
     };
 
+    // Directly in the library folder: it belongs to Unsorted, not a folder.
+    const unsorted = !!currentFile && !currentFile.path.includes("/");
+
     if (!currentFile)
         return (
             <div className="flex flex-1 items-center justify-center text-neutral-500">
@@ -307,7 +312,7 @@ export default function ScrollView({
                     <div
                         className="cursor-pointer flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
                         onClick={() =>
-                            onFolderClick(currentFile.path.split("/")[0])
+                            onFolderClick(unsorted ? null : currentFile.path.split("/")[0])
                         }
                     >
                         {folderProfileHash ? (
@@ -321,7 +326,7 @@ export default function ScrollView({
                             </div>
                         )}
                         <span className="text-neutral-400 text-sm truncate">
-                            {currentFile.path.split("/")[0]}
+                            {unsorted ? "Unsorted" : currentFile.path.split("/")[0]}
                         </span>
                     </div>
                     <span
