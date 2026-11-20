@@ -264,6 +264,11 @@ declare global {
             createFolder: (
                 name: string,
             ) => Promise<{ relativePath: string } | { error: string }>;
+            /** Makes the folder and moves the files in: one undo step. */
+            moveIntoNewFolder: (
+                absPaths: string[],
+                name: string,
+            ) => Promise<{ relativePath: string; moved: number; errors: string[] } | { error: string }>;
             /** `enforceNoes`: the user agreed to lose own tags the target
              *  folder's noes rule out. */
             moveIntoFolder: (

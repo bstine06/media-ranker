@@ -812,16 +812,25 @@ export default function Sidebar({
         setFilingError(null);
         let target = "";
         if (filingTarget.kind === "folder") target = filingTarget.path;
+        let result: { moved: number; errors: string[] } | null;
         if (filingTarget.kind === "new") {
-            const made = await makeFolder(filingTarget.name);
+            // A new folder has no noes, so no confirm; made and filled in
+            // one step, so one undo takes back both.
+            const paths = folders.map((n) => n.relativePath);
+            const wasAllChecked = paths.every((p) => checkedFolders.has(p));
+            const made = await window.api.moveIntoNewFolder(filing, filingTarget.name);
             if ("error" in made) {
                 setFilingError(made.error);
                 setFilingBusy(false);
                 return;
             }
+            await refreshFolders();
+            if (wasAllChecked) setAllChecked([...paths, made.relativePath]);
             target = made.relativePath;
+            result = made;
+        } else {
+            result = await guardedMove(filing, target);
         }
-        const result = await guardedMove(filing, target);
         if (!result) {
             setFilingBusy(false);
             return;

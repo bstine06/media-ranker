@@ -1090,31 +1090,68 @@ function registerIpcHandlers(): void {
 
     // Create a new top-level folder in the library. Returns its relative path,
     // or an error message for the UI.
+    // Makes the folder on disk and records it in `step` (not committed).
+    const makeFolder = async (
+        name: string,
+        step: Step,
+    ): Promise<{ relativePath: string } | { error: string }> => {
+        if (!rootPath) return { error: "No library open." };
+        const trimmed = name.trim();
+        const invalid = folderNameError(trimmed);
+        if (invalid) return { error: invalid };
+        const absolutePath = join(rootPath, trimmed);
+        try {
+            await fs.mkdir(absolutePath);
+        } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+                return { error: "A folder with that name already exists." };
+            }
+            console.error("Failed to create folder:", err);
+            return { error: "Couldn't create the folder." };
+        }
+        step.disk({ kind: "mkdir", path: absolutePath, relPath: trimmed });
+        step.db(() => upsertFolder(trimmed, trimmed));
+        return { relativePath: trimmed };
+    };
+
     ipcMain.handle(
         "create-folder",
         async (
             _event,
             name: string,
         ): Promise<{ relativePath: string } | { error: string }> => {
-            if (!rootPath) return { error: "No library open." };
-            const trimmed = name.trim();
-            const invalid = folderNameError(trimmed);
-            if (invalid) return { error: invalid };
-            const absolutePath = join(rootPath, trimmed);
-            try {
-                await fs.mkdir(absolutePath);
-            } catch (err) {
-                if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-                    return { error: "A folder with that name already exists." };
-                }
-                console.error("Failed to create folder:", err);
-                return { error: "Couldn't create the folder." };
+            const step = beginStep("");
+            const made = await makeFolder(name, step);
+            if ("relativePath" in made) {
+                step.label = `Created ${made.relativePath}`;
+                step.commit();
             }
-            const step = beginStep(`Created ${trimmed}`);
-            step.disk({ kind: "mkdir", path: absolutePath, relPath: trimmed });
-            step.db(() => upsertFolder(trimmed, trimmed));
-            step.commit();
-            return { relativePath: trimmed };
+            return made;
+        },
+    );
+
+    // Filing into a folder made for the purpose: one undo step, so undo
+    // puts the files back AND removes the folder.
+    ipcMain.handle(
+        "move-into-new-folder",
+        async (
+            _event,
+            absPaths: string[],
+            name: string,
+        ): Promise<{ relativePath: string; moved: number; errors: string[] } | { error: string }> => {
+            const step = beginStep("");
+            const made = await makeFolder(name, step);
+            if ("error" in made) return made;
+            try {
+                const res = await moveIntoFolder(absPaths, made.relativePath, false, step);
+                return { relativePath: made.relativePath, ...res };
+            } finally {
+                const n = step.ops.filter((o) => o.kind === "move").length;
+                step.label = n > 0
+                    ? `Moved ${plural(n, "file")} to new folder ${made.relativePath}`
+                    : `Created ${made.relativePath}`;
+                step.commit();
+            }
         },
     );
 

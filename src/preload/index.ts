@@ -137,6 +137,12 @@ const api = {
     ): Promise<{ relativePath: string } | { error: string }> =>
         ipcRenderer.invoke("create-folder", name),
 
+    moveIntoNewFolder: (
+        absPaths: string[],
+        name: string,
+    ): Promise<{ relativePath: string; moved: number; errors: string[] } | { error: string }> =>
+        ipcRenderer.invoke("move-into-new-folder", absPaths, name),
+
     moveIntoFolder: (
         absPaths: string[],
         targetFolder: string,
