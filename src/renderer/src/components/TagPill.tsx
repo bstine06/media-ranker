@@ -151,7 +151,7 @@ export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia
         {conflict && (
           <span className="text-[10px] font-bold leading-none text-red-400 flex-shrink-0">!</span>
         )}
-        {no && <span className="text-[10px] leading-none text-red-400 flex-shrink-0">✕</span>}
+        {no && <span className="text-[10px] leading-none text-red-400 flex-shrink-0">⊘</span>}
         {tag.category && !showTagCategoryNames && (
           <span className="text-[10px] leading-none flex-shrink-0" style={{ color }}>
             {icon}

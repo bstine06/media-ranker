@@ -855,7 +855,7 @@ function NoMarks({
             <>
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-red-500" />
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] bg-red-500" />
-                <span className={`${badge} top-2`}>✕ no</span>
+                <span className={`${badge} top-2`}>⊘ no</span>
             </>
         );
     }
@@ -865,13 +865,13 @@ function NoMarks({
             {upperNo && (
                 <>
                     <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-red-500" />
-                    <span className={`${badge} top-2`}>✕ {tagMap.get(tr.upperId)?.name ?? "no"}</span>
+                    <span className={`${badge} top-2`}>⊘ {tagMap.get(tr.upperId)?.name ?? "no"}</span>
                 </>
             )}
             {lowerNo && (
                 <>
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] bg-red-500" />
-                    <span className={`${badge} bottom-2`}>✕ {tagMap.get(tr.tagId)?.name ?? "no"}</span>
+                    <span className={`${badge} bottom-2`}>⊘ {tagMap.get(tr.tagId)?.name ?? "no"}</span>
                 </>
             )}
         </>

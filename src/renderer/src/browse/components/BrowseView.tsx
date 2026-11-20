@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import type {
     DbFile,
@@ -79,6 +79,15 @@ export default function BrowseView({
     const [folderTags, setFolderTags] = useState<DbTag[]>([]);
 
     const [files, setFiles] = useState<DbFile[]>([]);
+    // The grid unmounts while a file is open; coming back puts it where it
+    // was. A different folder starts at the top.
+    const listScroll = useRef(0);
+    const saveScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+        listScroll.current = e.currentTarget.scrollTop;
+    }, []);
+    const restoreScroll = useCallback((el: HTMLDivElement | null) => {
+        if (el) el.scrollTop = listScroll.current;
+    }, []);
     const [browseScrollIndex, setBrowseScrollIndex] = useState<number | null>(
         null,
     );
@@ -111,6 +120,9 @@ export default function BrowseView({
         showUnsorted,
         setShowUnsorted,
     } = useFolders();
+    useEffect(() => {
+        listScroll.current = 0;
+    }, [activeFolder, showUnsorted]);
     const { refreshTags, activeFilter } = useTags();
     const {
         tileSize,
@@ -920,6 +932,8 @@ export default function BrowseView({
                     </div>
                 ) : viewMode === "grid" ? (
                     <div
+                        ref={restoreScroll}
+                        onScroll={saveScroll}
                         className="flex-1 overflow-y-auto overflow-x-hidden select-none"
                         style={{ scrollbarGutter: "stable" }}
                     >
@@ -971,7 +985,11 @@ export default function BrowseView({
                         </div>
                     </div>
                 ) : (
-                    <div className="overflow-y-auto flex-1 select-none">
+                    <div
+                        ref={restoreScroll}
+                        onScroll={saveScroll}
+                        className="overflow-y-auto flex-1 select-none"
+                    >
                         {sortedFiles.map((file, index) => (
                             <BrowseRow
                                 key={file.id}

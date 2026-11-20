@@ -136,7 +136,9 @@ export async function rotateTrackedFile(
             await keepPreviousVersion(rootPath, src, file.content_hash);
         }
         // The old version's thumbnail stays: undo brings that version back.
-        const held = await holdingPath(basename(relPath));
+        // The original is another version of a file that stays: it's
+        // deleted at quit, not sent to the Trash.
+        const held = await holdingPath(basename(relPath), { discard: true });
         await replaceTrackedFile(rootPath, relPath, tmp, ignoredPaths, { hold: held }, runDb);
         return held;
     } finally {

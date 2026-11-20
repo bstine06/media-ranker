@@ -162,12 +162,27 @@ function holdingDir(): string | null {
     return root ? path.join(root, HOLDING_DIR) : null;
 }
 
-/** A fresh path in the holding folder for a file or folder named `name`. */
-export async function holdingPath(name: string): Promise<string> {
+/** Held files that are only another version of a file still in the
+ *  library (a rotation's original) start with this, and are deleted for
+ *  good when they leave the holding folder instead of going to the Trash.
+ *  Every other held name starts with a digit, so nothing else matches. */
+const DISCARD_PREFIX = "discard-";
+
+/** A fresh path in the holding folder for a file or folder named `name`.
+ *  `discard`: see DISCARD_PREFIX. */
+export async function holdingPath(name: string, opts: { discard?: boolean } = {}): Promise<string> {
     const dir = holdingDir();
     if (!dir) throw new Error("No library open");
     await fs.mkdir(dir, { recursive: true });
-    return path.join(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${name}`);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${name}`;
+    return path.join(dir, opts.discard ? DISCARD_PREFIX + unique : unique);
+}
+
+/** A held file leaving the holding folder: deleted for good if it's a
+ *  discard (DISCARD_PREFIX), else sent to the Trash. */
+async function releaseHeld(p: string): Promise<void> {
+    if (path.basename(p).startsWith(DISCARD_PREFIX)) await fs.rm(p, { recursive: true, force: true });
+    else await shell.trashItem(p);
 }
 
 // ── Recording ───────────────────────────────────────────────────────────────
@@ -566,11 +581,12 @@ function heldBy(entry: Entry, isDone: boolean): string[] {
     return out;
 }
 
-/** An entry leaves the history: its held files go to the Trash. */
+/** An entry leaves the history: its held files go to the Trash (or, for
+ *  discards, are deleted). */
 function purge(entry: Entry, isDone: boolean): void {
     for (const p of heldBy(entry, isDone)) {
         if (existsSync(p)) {
-            shell.trashItem(p).catch((err) => console.error("Couldn't trash held file:", p, err));
+            releaseHeld(p).catch((err) => console.error("Couldn't release held file:", p, err));
         }
     }
 }
@@ -583,15 +599,15 @@ export function clearHistory(): void {
     broadcastList();
 }
 
-/** Sends everything in a library's holding folder to the Trash (quitting,
- *  or leftovers from a crash at launch). */
+/** Empties a library's holding folder (quitting, or leftovers from a crash
+ *  at launch): to the Trash, except discards, which are deleted. */
 export async function flushHolding(root: string): Promise<void> {
     const dir = path.join(root, HOLDING_DIR);
     const names = await fs.readdir(dir).catch(() => [] as string[]);
     for (const n of names) {
         if (n === ".DS_Store") continue;
-        await shell.trashItem(path.join(dir, n)).catch((err) =>
-            console.error("Couldn't trash held file:", n, err),
+        await releaseHeld(path.join(dir, n)).catch((err) =>
+            console.error("Couldn't release held file:", n, err),
         );
     }
     await fs.rm(path.join(dir, ".DS_Store"), { force: true }).catch(() => {});
