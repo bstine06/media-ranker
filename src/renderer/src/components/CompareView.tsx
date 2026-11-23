@@ -870,7 +870,7 @@ export default function CompareView({
         if (folderPrefixes) {
             return (
                 <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
-                    Not enough files to compare in the collections ticked in
+                    Not enough files to compare in the collections selected in
                     the sidebar.
                 </div>
             );

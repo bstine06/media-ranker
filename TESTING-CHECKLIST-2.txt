@@ -169,3 +169,52 @@ Folder panel: turning a folder rule into one on each file
 [ ] (Optional) Put a file with the same name where a deleted file used
     to be, then undo the delete: refused with a red toast, nothing lost
 [ ] (Optional) The history holds 200 steps; older ones drop off
+
+
+======================================================================
+6. SIDEBAR
+======================================================================
+
+Collections
+[ ] Every view (Browse included) shows a checkbox, then the picture,
+    then the name. Names sit in the same place in every view
+[ ] The checkboxes are the app's own (rounded, white with a dark check
+    when checked, lighter on hover), not the browser's grey ones
+[ ] Clicking a checkbox (or just around it) selects/unselects
+[ ] Clicking a NAME opens that collection in Browse, from any view
+    (Sweep, Compare, Pass, Tag Manager). From the side-panel file view
+    too: the file closes and Browse opens
+[ ] Collections stay in name order; selecting one doesn't move it
+[ ] Dropping files on a collection still moves them there
+
+Top rows
+[ ] "All files" opens every file in Browse, from any view; dropping
+    files on it moves them to the library folder
+[ ] "Unsorted" (when shown) opens Unsorted in Browse, from any view
+[ ] Library name at the very top: still shows the library in Finder
+[ ] Nothing selected: the row reads "All collections · select all"
+[ ] "select all" selects every collection; uncheck one to leave it out
+    (Sweep / Compare / Pass then skip it)
+[ ] Some selected: "N selected · show only · clear"
+[ ] "show only" lists just the selected collections; it turns into
+    "show all". Unchecking one while shown only keeps it listed until
+    "show all"
+[ ] Searching while "show only" is on searches every collection
+[ ] "clear" unselects everything (= all collections again)
+[ ] The text in Compare (not enough files) and the Pass lobby says
+    "selected", not "ticked"
+
+Bottom
+[ ] ⚙ at the end of the view buttons opens Settings
+[ ] Settings → Library has Rescan and Change library…; both work and
+    close Settings. They're gone from the bottom of the sidebar
+[ ] Status messages (e.g. after moving files) float just above the
+    view buttons and nothing moves when they appear or go. Clicking
+    one hides it
+
+Width
+[ ] Drag the sidebar's right edge: it resizes, 208px (today's width)
+    up to about 400px. Long names show more
+[ ] The width is kept after restarting
+[ ] File view: the tag panel's width is kept too (closing and opening
+    file view, and after restarting)

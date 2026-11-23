@@ -78,6 +78,12 @@ interface Settings {
     passOrder: PassOrder;
     setPassOrder: (order: PassOrder) => void;
     passDirection: SortDirection;
+    /** The left sidebar's and the file view's tag panel's widths (px),
+     *  set by dragging their edges. */
+    sidebarWidth: number;
+    setSidebarWidth: (px: number) => void;
+    tagPanelWidth: number;
+    setTagPanelWidth: (px: number) => void;
     setPassDirection: (direction: SortDirection) => void;
     setCoverageSeconds: (seconds: number) => void;
 }
@@ -135,6 +141,10 @@ const SettingsContext = createContext<Settings>({
     passOrder: "alphabetical",
     setPassOrder: () => {},
     passDirection: "down",
+    sidebarWidth: 208,
+    setSidebarWidth: () => {},
+    tagPanelWidth: 288,
+    setTagPanelWidth: () => {},
     setPassDirection: () => {},
     setCoverageSeconds: () => {},
 });
@@ -259,6 +269,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     const [passDirection, setPassDirection] = useState<SortDirection>(() =>
         savedOneOf("passDirection", ["up", "down"], "down"),
     );
+    const [sidebarWidth, setSidebarWidth] = useState(() => savedNum("sidebarWidth", 208, 208, 400));
+    const [tagPanelWidth, setTagPanelWidth] = useState(() => savedNum("tagPanelWidth", 288, 200, 600));
 
     const [pauseWhenUnfocused, setPauseWhenUnfocused] = useState(() => savedBool("pauseWhenUnfocused", true));
     const togglePauseWhenUnfocused = useCallback(() => {
@@ -331,6 +343,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                     coverageScope,
                     passOrder,
                     passDirection,
+                    sidebarWidth,
+                    tagPanelWidth,
                 })
                 .catch(() => {});
         }, 300);
@@ -363,6 +377,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         coverageScope,
         passOrder,
         passDirection,
+        sidebarWidth,
+        tagPanelWidth,
     ]);
 
     return (
@@ -422,6 +438,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 setPassOrder,
                 passDirection,
                 setPassDirection,
+                sidebarWidth,
+                setSidebarWidth,
+                tagPanelWidth,
+                setTagPanelWidth,
             }}
         >
             {children}

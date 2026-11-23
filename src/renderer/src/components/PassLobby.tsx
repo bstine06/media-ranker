@@ -169,7 +169,7 @@ export default function PassLobby(): JSX.Element | null {
                             files={scopeFiles}
                         />
                         <p className="text-[11px] text-neutral-600">
-                            The collections ticked in the sidebar and the tag filter. Change them
+                            The collections selected in the sidebar and the tag filter. Change them
                             there and this updates.
                         </p>
                     </div>

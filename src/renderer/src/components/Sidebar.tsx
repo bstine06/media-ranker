@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import { createPortal } from "react-dom";
 import type { DbFile, DbTag, FolderNode, View } from "../shared/types/types";
@@ -18,6 +18,8 @@ import { TagIcon } from "./icons/TagIcon";
 import { filterKey } from "@renderer/lib/tagFilters";
 import FilterBuilder from "./FilterBuilder";
 import { useGuardedMove } from "@renderer/hooks/useGuardedMove";
+import { useEdgeResize } from "@renderer/hooks/useEdgeResize";
+import { usePendingChange } from "@renderer/contexts/PendingChangeContext";
 
 // Makes an element a drop target for files dragged from Browse / the media
 // player / Finder. dragenter/leave also fire for child elements, so track
@@ -54,95 +56,145 @@ function useFileDropTarget(onDropFiles: (absPaths: string[]) => void) {
     };
 }
 
+/**
+ * The sidebar's checkbox (in place of the browser's own): a rounded square,
+ * filled with a dark check when checked. The click area is the whole
+ * gutter around it, not just the box.
+ */
+function SideCheck({
+    checked,
+    onToggle,
+    label,
+}: {
+    checked: boolean;
+    onToggle: () => void;
+    label: string;
+}): JSX.Element {
+    return (
+        <button
+            role="checkbox"
+            aria-checked={checked}
+            aria-label={label}
+            onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+            }}
+            className="group/check flex shrink-0 items-center self-stretch pl-3 pr-2"
+        >
+            <span
+                className={`flex h-3.5 w-3.5 items-center justify-center rounded-[4px] border transition-colors ${
+                    checked
+                        ? "border-neutral-100 bg-neutral-100 group-hover/check:border-white group-hover/check:bg-white"
+                        : "border-neutral-500 group-hover/check:border-neutral-300 group-hover/check:bg-neutral-800"
+                }`}
+            >
+                {checked && (
+                    <svg viewBox="0 0 12 12" className="h-2.5 w-2.5 text-neutral-900" fill="none">
+                        <path
+                            d="M2.5 6.2 5 8.6 9.5 3.6"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        />
+                    </svg>
+                )}
+            </span>
+        </button>
+    );
+}
+
+/** A word-link in the selection row (select all, show only, clear). */
+function SelectionLink({
+    onClick,
+    title,
+    children,
+}: {
+    onClick: () => void;
+    title: string;
+    children: React.ReactNode;
+}): JSX.Element {
+    return (
+        <button
+            onClick={onClick}
+            title={title}
+            className="shrink-0 rounded px-0.5 text-neutral-400 underline-offset-2 transition-colors hover:text-neutral-100 hover:underline"
+        >
+            {children}
+        </button>
+    );
+}
+
+/** The space a row without a checkbox leaves, so names line up. */
+const CHECK_GUTTER = <span className="w-[2.125rem] shrink-0" />;
+
 function FolderItem({
     node,
-    activeFolder,
-    isFilterable,
-    checkedFolders,
-    onSelectFolder,
-    onToggleFolder,
+    isActive,
+    isChecked,
+    onOpen,
+    onToggle,
     folderMetaVersion,
     onDropFiles,
 }: {
     node: FolderNode;
-    activeFolder: string | null;
-    isFilterable: boolean;
-    checkedFolders: Set<string>;
-    onSelectFolder: (relativePath: string) => void;
-    onToggleFolder: (relativePath: string, allPaths: string[]) => void;
+    /** Open in Browse right now. */
+    isActive: boolean;
+    isChecked: boolean;
+    onOpen: () => void;
+    onToggle: () => void;
     folderMetaVersion: number;
     onDropFiles: (absPaths: string[]) => void;
 }): JSX.Element {
-    const isActive = activeFolder === node.relativePath;
-    const isChecked = checkedFolders.has(node.relativePath);
-
     const { isDropTarget, dropHandlers } = useFileDropTarget(onDropFiles);
 
     const [profileImageHash, setProfileImageHash] = useState<string | null>();
     const historyVersion = useHistoryVersion();
 
     useEffect(() => {
-    const load = async () => {
-        try {
-            const folder = await window.api.getFolder(node.relativePath);
-            setProfileImageHash(folder?.profile_image_hash ?? null);
-        } catch {
-            setProfileImageHash(null);
-        }
-    };
-    load();
-}, [node, folderMetaVersion, historyVersion]);
+        const load = async () => {
+            try {
+                const folder = await window.api.getFolder(node.relativePath);
+                setProfileImageHash(folder?.profile_image_hash ?? null);
+            } catch {
+                setProfileImageHash(null);
+            }
+        };
+        load();
+    }, [node, folderMetaVersion, historyVersion]);
 
     return (
         <div
-            className={`flex items-center pr-4 transition-colors ${
+            className={`flex items-center pr-2 transition-colors ${
                 isDropTarget
                     ? "bg-neutral-700 ring-1 ring-inset ring-neutral-400"
                     : "hover:bg-neutral-800"
             }`}
             {...dropHandlers}
         >
-            <span className="mr-1 w-4" />
-            {isFilterable && (
-                <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() =>
-                        onToggleFolder(node.relativePath, [node.relativePath])
-                    }
-                    className="mr-2 shrink-0 accent-white cursor-pointer"
-                    onClick={(e) => e.stopPropagation()}
-                />
-            )}
+            <SideCheck
+                checked={isChecked}
+                onToggle={onToggle}
+                label={`Select ${node.name}`}
+            />
             <button
-                onClick={() => {
-                    if (isFilterable)
-                        onToggleFolder(node.relativePath, [node.relativePath]);
-                    else onSelectFolder(node.relativePath);
-                }}
-                className={`flex-1 truncate rounded-md py-1 pr-2 text-left text-sm transition-colors ${
-                    !isFilterable
-                        ? isActive
-                            ? "text-white font-medium"
-                            : "text-neutral-400 hover:text-white"
-                        : isChecked
-                          ? "text-white"
-                          : "text-neutral-300"
+                onClick={onOpen}
+                title={`Open ${node.name} in Browse`}
+                className={`flex min-w-0 flex-1 items-center rounded-md py-1 pr-1 text-left text-sm transition-colors ${
+                    isActive ? "font-medium text-white" : "text-neutral-300 hover:text-white"
                 }`}
             >
-                <div className="flex items-center">
-                    {profileImageHash ? (
-                        <ThumbnailImage
-                            contentHash={profileImageHash}
-                            className="w-6 h-6 rounded-full mr-2"
-                        />
-                    ) : (
-                        <div className="bg-neutral-700 rounded-full mr-2">
-                            <FolderIcon className="w-4 h-4 m-1 text-neutral-500" />
-                        </div>
-                    )}
-                    {node.name}
-                </div>
+                {profileImageHash ? (
+                    <ThumbnailImage
+                        contentHash={profileImageHash}
+                        className="mr-2 h-6 w-6 shrink-0 rounded-full"
+                    />
+                ) : (
+                    <div className="mr-2 shrink-0 rounded-full bg-neutral-700">
+                        <FolderIcon className="m-1 h-4 w-4 text-neutral-500" />
+                    </div>
+                )}
+                <span className="truncate">{node.name}</span>
             </button>
         </div>
     );
@@ -185,25 +237,24 @@ function UnsortedItem({
     const { isDropTarget, dropHandlers } = useFileDropTarget(onDropFiles);
     return (
         <div
-            className={`flex items-center pr-4 transition-colors ${
+            className={`flex items-center pr-2 transition-colors ${
                 isDropTarget
                     ? "bg-neutral-700 ring-1 ring-inset ring-neutral-400"
-                    : ""
+                    : "hover:bg-neutral-800"
             }`}
             {...dropHandlers}
         >
-            {/* Same leading spacer as the All Collections row */}
-            <span className="mr-1 w-4" />
+            {CHECK_GUTTER}
             <button
                 onClick={onSelect}
                 title="Files sitting directly in the library folder"
-                className={`flex flex-1 items-center justify-between truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
+                className={`flex min-w-0 flex-1 items-center justify-between rounded-md py-1.5 pr-1 text-left text-sm transition-colors ${
                     active
                         ? "text-white font-medium"
                         : "text-neutral-400 hover:text-white"
                 }`}
             >
-                <span>Unsorted</span>
+                <span className="truncate">Unsorted</span>
                 <span className="text-xs tabular-nums text-neutral-500">
                     {count}
                 </span>
@@ -284,24 +335,15 @@ function FilingRow({
     );
 }
 
-function SettingsSection(): JSX.Element {
-    const [open, setOpen] = useState(false);
-    return (
-        <>
-            <button
-                onClick={() => setOpen(true)}
-                className="flex items-center justify-between w-full mb-1 px-2 group"
-            >
-                <p className="w-full rounded-md px-1 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
-                    ⚙ Settings
-                </p>
-            </button>
-            {open && <SettingsModal onClose={() => setOpen(false)} />}
-        </>
-    );
-}
-
-function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
+function SettingsModal({
+    onClose,
+    onRescanLibrary,
+    onChangeLibrary,
+}: {
+    onClose: () => void;
+    onRescanLibrary: () => void;
+    onChangeLibrary: () => void;
+}): JSX.Element {
     const {
         hoverPreviewEnabled,
         toggleHoverPreview,
@@ -462,6 +504,22 @@ function SettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
                 </SettingsGroup>
 
                 <SettingsGroup title="Library">
+                    <ActionRow
+                        label="Look for files added, moved or removed outside the app"
+                        button="Rescan"
+                        onClick={() => {
+                            onClose();
+                            onRescanLibrary();
+                        }}
+                    />
+                    <ActionRow
+                        label="Open a different library folder"
+                        button="Change library…"
+                        onClick={() => {
+                            onClose();
+                            onChangeLibrary();
+                        }}
+                    />
                     <MissingRecordsRow
                         onConfirmingChange={(c) => {
                             confirmOpen.current = c;
@@ -488,6 +546,28 @@ function SettingsGroup({
             </h3>
             <div className="divide-y divide-neutral-800">{children}</div>
         </section>
+    );
+}
+
+function ActionRow({
+    label,
+    button,
+    onClick,
+}: {
+    label: string;
+    button: string;
+    onClick: () => void;
+}): JSX.Element {
+    return (
+        <div className="flex items-center justify-between gap-3 py-2">
+            <p className="text-xs text-neutral-400">{label}</p>
+            <button
+                onClick={onClick}
+                className="shrink-0 rounded bg-neutral-800 px-2 py-0.5 text-[10px] font-medium text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-white"
+            >
+                {button}
+            </button>
+        </div>
     );
 }
 
@@ -883,26 +963,28 @@ export default function Sidebar({
         if (await createFolderNamed(newFolderName)) cancelCreateFolder();
     };
 
-    // Everywhere but Browse, collections tick: the one shared selection
-    // (Sweep, Compare, Tag Manager's coverage). Browse opens one instead.
-    const isFilterable = !view.startsWith("browse");
     const isSearching = search.trim().length > 0;
 
-    // Ticked collections first, so it's easy to see what's selected among
-    // hundreds; then by name.
-    const ticked = (path: string) => isFilterable && checkedFolders.has(path);
-    const sortedFolders = folders.sort((f1, f2) => {
-        const t1 = ticked(f1.relativePath);
-        const t2 = ticked(f2.relativePath);
-        if (t1 !== t2) return t1 ? -1 : 1;
-        return f1.name.toLowerCase() < f2.name.toLowerCase() ? -1 : 1;
-    });
+    // The collections in name order, always (selecting one doesn't move it).
+    const byName = [...folders].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
+    const selectedCount = folders.filter((n) => checkedFolders.has(n.relativePath)).length;
 
+    // "show only": the list cut down to the selected collections. Ones
+    // unselected meanwhile stay until "show all", so a slip is easy to undo.
+    const [showOnly, setShowOnly] = useState<Set<string> | null>(null);
+    useEffect(() => {
+        if (showOnly && selectedCount === 0) setShowOnly(null);
+    }, [showOnly, selectedCount]);
+    useEffect(() => setShowOnly(null), [rootPath]);
+
+    // Searching looks through every collection, shown only or not.
     const visibleFolders = isSearching
-        ? folders.filter((n) =>
-              n.name.toLowerCase().includes(search.trim().toLowerCase()),
-          )
-        : sortedFolders;
+        ? byName.filter((n) => n.name.toLowerCase().includes(search.trim().toLowerCase()))
+        : showOnly
+          ? byName.filter((n) => showOnly.has(n.relativePath) || checkedFolders.has(n.relativePath))
+          : byName;
 
     // Searching for a name no folder has exactly (ignoring case): offer to
     // make it, at the end of the results.
@@ -910,11 +992,27 @@ export default function Sidebar({
     const offerCreate =
         isSearching && !folders.some((n) => n.name.toLowerCase() === searchName.toLowerCase());
 
-    const allPaths = folders.map((n) => n.relativePath);
-    const allChecked = allPaths.every((p) => checkedFolders.has(p));
-    const someChecked = allPaths.some((p) => checkedFolders.has(p));
-    const isIndeterminate = someChecked && !allChecked;
+    // A collection's name (or All files, Unsorted) opens it in Browse, from
+    // any view; the checkbox is what selects.
+    const { setOpenFile } = usePendingChange();
+    const openInBrowse = (folder: string | null, unsorted = false) => {
+        setOpenFile(null);
+        if (view !== "browse") setView("browse");
+        setActiveFolder(folder);
+        setShowUnsorted(unsorted);
+    };
+    const inBrowse = view === "browse";
 
+    // Settings, the sidebar's width (drag its right edge; remembered).
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const { sidebarWidth, setSidebarWidth } = useSettings();
+    const resize = useEdgeResize({
+        width: sidebarWidth,
+        save: setSidebarWidth,
+        min: 208,
+        max: 400,
+        edge: "right",
+    });
 
     const handleShowInFolder = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -923,8 +1021,19 @@ export default function Sidebar({
     };
 
     return (
-        <aside className={`flex w-52 shrink-0 flex-col border-r border-neutral-800 bg-neutral-900 h-full ${isFullscreen ? "pt-3" : ""}`}>
-            {sortedFolders.length > 0 && (
+        <aside
+            style={{ width: resize.width }}
+            className={`relative flex shrink-0 flex-col border-r border-neutral-800 bg-neutral-900 h-full ${isFullscreen ? "pt-3" : ""}`}
+        >
+            {/* Drag to resize. */}
+            <div
+                onMouseDown={resize.onMouseDown}
+                title="Drag to resize"
+                className={`absolute inset-y-0 -right-1 z-30 w-2 cursor-ew-resize transition-colors ${
+                    resize.dragging ? "bg-neutral-600" : "hover:bg-neutral-600/70"
+                }`}
+            />
+            {folders.length > 0 && (
                 <div className="flex flex-col flex-1 pb-3 min-h-0">
                     <h1
                         className="cursor-pointer text-lg px-3 font-semibold tracking-wide text-neutral-300"
@@ -1067,7 +1176,7 @@ export default function Sidebar({
                                     placeholder={
                                         searchDrop.isDropTarget
                                             ? "Drop to add to a folder…"
-                                            : `Search ${sortedFolders.length} folders…`
+                                            : `Search ${folders.length} folders…`
                                     }
                                     className={`flex-1 min-w-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300 placeholder-neutral-600 outline-none focus:ring-1 focus:ring-neutral-600 transition-colors ${
                                         searchDrop.isDropTarget ? "ring-2 ring-neutral-300" : ""
@@ -1102,85 +1211,77 @@ export default function Sidebar({
 
                     {!isSearching && (
                         <FileDropRow onDropFiles={(paths) => handleDropOnFolder("", paths)}>
-                            <span className="mr-1 w-4" />
-                            {isFilterable && (
-                                <input
-                                    type="checkbox"
-                                    checked={allChecked}
-                                    ref={(el) => {
-                                        if (el)
-                                            el.indeterminate = isIndeterminate;
-                                    }}
-                                    onChange={checkAll}
-                                    className="mr-2 shrink-0 accent-white cursor-pointer"
-                                />
-                            )}
+                            {CHECK_GUTTER}
                             <button
-                                onClick={() => {
-                                    if (isFilterable) {
-                                        checkAll();
-                                        return;
-                                    }
-                                    if (view==="tag-manager") setView("browse");
-                                    setShowUnsorted(false);
-                                    setActiveFolder(null);
-                                }}
-                                className={`flex-1 truncate rounded-md py-1.5 pr-2 pl-8 text-left text-sm transition-colors ${
-                                    !isFilterable && activeFolder === null && !showUnsorted
+                                onClick={() => openInBrowse(null)}
+                                title="Every file in the library, in Browse"
+                                className={`flex-1 truncate rounded-md py-1.5 pr-2 text-left text-sm transition-colors ${
+                                    inBrowse && activeFolder === null && !showUnsorted
                                         ? "text-white font-medium"
-                                        : isFilterable && allChecked
-                                          ? "text-white"
-                                          : isFilterable && someChecked
-                                            ? "text-neutral-300"
-                                            : "text-neutral-400 hover:text-white"
+                                        : "text-neutral-400 hover:text-white"
                                 }`}
                             >
-                                All Collections
+                                All files
                             </button>
                         </FileDropRow>
                     )}
 
-                    {!isSearching &&
-                        !isFilterable &&
-                        (unsortedCount > 0 || alwaysShowUnsorted) && (
+                    {!isSearching && (unsortedCount > 0 || alwaysShowUnsorted) && (
                         <UnsortedItem
-                            active={showUnsorted}
+                            active={inBrowse && showUnsorted}
                             count={unsortedCount}
-                            onSelect={() => {
-                                if (view === "tag-manager") setView("browse");
-                                setActiveFolder(null);
-                                setShowUnsorted(true);
-                            }}
+                            onSelect={() => openInBrowse(null, true)}
                             onDropFiles={(paths) => handleDropOnFolder("", paths)}
                         />
                     )}
 
+                    {/* The selection (Sweep, Pass, Compare, Coverage use it). */}
+                    <div className="mt-1 flex items-center gap-1 border-y border-neutral-800 px-3 py-1 text-[11px] text-neutral-500">
+                        {selectedCount === 0 ? (
+                            <>
+                                <span className="truncate">All collections</span>
+                                <span>·</span>
+                                <SelectionLink onClick={checkAll} title="Select every collection, then uncheck the ones to leave out">
+                                    select all
+                                </SelectionLink>
+                            </>
+                        ) : (
+                            <>
+                                <span className="truncate tabular-nums text-neutral-400">
+                                    {selectedCount.toLocaleString()} selected
+                                </span>
+                                <span>·</span>
+                                <SelectionLink
+                                    onClick={() =>
+                                        setShowOnly((cur) => (cur ? null : new Set(checkedFolders)))
+                                    }
+                                    title={showOnly ? "Show every collection" : "List only the selected collections"}
+                                >
+                                    {showOnly ? "show all" : "show only"}
+                                </SelectionLink>
+                                <span>·</span>
+                                <SelectionLink onClick={() => setAllChecked([])} title="Unselect every collection">
+                                    clear
+                                </SelectionLink>
+                            </>
+                        )}
+                    </div>
+
                     <div className="overflow-y-auto flex-1 min-h-0">
                         {visibleFolders.length > 0 ? (
-                            visibleFolders.map((node, i) => (
-                                <Fragment key={node.relativePath}>
-                                {/* A subtle line between the ticked collections and the rest. */}
-                                {i > 0 &&
-                                    ticked(visibleFolders[i - 1].relativePath) &&
-                                    !ticked(node.relativePath) && (
-                                        <div className="mx-4 my-1 border-t border-neutral-700/70" />
-                                    )}
+                            visibleFolders.map((node) => (
                                 <FolderItem
+                                    key={node.relativePath}
                                     node={node}
-                                    activeFolder={activeFolder}
-                                    isFilterable={isFilterable}
-                                    checkedFolders={checkedFolders}
-                                    onSelectFolder={() => {
-                                        if (view==="tag-manager") setView("browse")
-                                        setActiveFolder(node.name)
-                                    }}
-                                    onToggleFolder={toggleFolder}
+                                    isActive={inBrowse && !showUnsorted && activeFolder === node.relativePath}
+                                    isChecked={checkedFolders.has(node.relativePath)}
+                                    onOpen={() => openInBrowse(node.relativePath)}
+                                    onToggle={() => toggleFolder(node.relativePath, [node.relativePath])}
                                     folderMetaVersion={folderMetaVersion}
                                     onDropFiles={(paths) =>
                                         handleDropOnFolder(node.relativePath, paths)
                                     }
                                 />
-                                </Fragment>
                             ))
                         ) : (
                             !offerCreate && (
@@ -1211,7 +1312,21 @@ export default function Sidebar({
 
 
             <TagFilterSection />
-            <div className="flex gap-1 p-3 shrink-0 bg-neutral-950/40 rounded-2xl">
+            <div className="relative shrink-0">
+            {/* The status, floating just above the buttons while there's a
+                message; it never moves anything. */}
+            {status !== "Ready" && (
+                <div className="pointer-events-none absolute inset-x-2 bottom-full z-20 mb-1 flex justify-center">
+                    <p
+                        title={`${status}\n(click to hide)`}
+                        onClick={resetStatus}
+                        className="pointer-events-auto cursor-default line-clamp-3 rounded-lg border border-neutral-700 bg-neutral-800/95 px-3 py-1.5 text-center text-[11px] text-neutral-300 shadow-lg"
+                    >
+                        {status}
+                    </p>
+                </div>
+            )}
+            <div className="flex gap-1 p-3 bg-neutral-950/40 rounded-2xl">
                 <NavItem
                     title={"Browse"}
                     icon={<FolderIcon className="w-5"/>}
@@ -1245,28 +1360,21 @@ export default function Sidebar({
                     active={view === "tag-manager"}
                     onClick={() => setView("tag-manager")}
                 />
+                <NavItem
+                    title={"Settings"}
+                    icon={<span className="text-base leading-5">⚙</span>}
+                    active={settingsOpen}
+                    onClick={() => setSettingsOpen(true)}
+                />
             </div>
-
-            <div className="shrink-0 p-3 border-t border-neutral-800">
-                <div className="flex gap-1 p-3 pb-0 shrink-0">
-                    <p className="w-full rounded-md px-3 py-2 text-left text-xs text-neutral-500">
-                        Status: {status}
-                    </p>
-                </div>
-                <button
-                    onClick={onRescanLibrary}
-                    className="w-full rounded-md px-3 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-                >
-                    ↻ Rescan Library
-                </button>
-                <button
-                    onClick={onChangeLibrary}
-                    className="w-full rounded-md px-3 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-                >
-                    ⌂ Change library
-                </button>
-                <SettingsSection />
             </div>
+            {settingsOpen && (
+                <SettingsModal
+                    onClose={() => setSettingsOpen(false)}
+                    onRescanLibrary={onRescanLibrary}
+                    onChangeLibrary={onChangeLibrary}
+                />
+            )}
             {moveDialog}
         </aside>
     );

@@ -17,6 +17,8 @@ import { PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
 import { useLibraryRank, useRankedTotal } from "@renderer/contexts/RankContext";
 import { usePointerTarget, useTagPointerSurface } from "@renderer/contexts/TagPointerContext";
 import { MediaFlash } from "./TagPointer";
+import { useSettings } from "@renderer/contexts/SettingsContext";
+import { useEdgeResize } from "@renderer/hooks/useEdgeResize";
 
 /** How close to the top of the media the mouse must be to show Rotate. */
 const NEAR_TOP_PX = 96;
@@ -92,46 +94,17 @@ export default function ScrollView({
 
     const videoRefs = [videoRef0, videoRef1];
 
-    const [sidebarWidth, setSidebarWidth] = useState(288); // 288px = w-72
-    const [isDragging, setIsDragging] = useState(false);
+    // The tag panel's width: drag its left edge; remembered (settings).
+    const { tagPanelWidth, setTagPanelWidth } = useSettings();
+    const panelResize = useEdgeResize({
+        width: tagPanelWidth,
+        save: setTagPanelWidth,
+        min: 200,
+        max: 600,
+        edge: "left",
+    });
+    const sidebarWidth = panelResize.width;
     const [showConfirm, setShowConfirm] = useState(false);
-
-    const handleMouseDown = (e: React.MouseEvent) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
-
-    useEffect(() => {
-        const handleMouseMove = (e: MouseEvent) => {
-            if (!isDragging) return;
-
-            // Calculate new width from the right edge of the viewport
-            const newWidth = window.innerWidth - e.clientX;
-
-            // Constrain between min and max widths
-            const minWidth = 200;
-            const maxWidth = 600;
-            setSidebarWidth(Math.max(minWidth, Math.min(maxWidth, newWidth)));
-        };
-
-        const handleMouseUp = () => {
-            setIsDragging(false);
-        };
-
-        if (isDragging) {
-            document.addEventListener("mousemove", handleMouseMove);
-            document.addEventListener("mouseup", handleMouseUp);
-            document.body.style.cursor = "ew-resize";
-            document.body.style.userSelect = "none";
-        }
-
-        return () => {
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-            document.body.style.cursor = "";
-            document.body.style.userSelect = "";
-        };
-    }, [isDragging]);
 
     useEffect(() => {
         if (currentFile) onFileChange?.(currentFile);
@@ -308,7 +281,7 @@ export default function ScrollView({
             {/* Draggable divider */}
             <div
                 className="relative w-1 bg-neutral-800 hover:bg-neutral-600 cursor-ew-resize group z-30"
-                onMouseDown={handleMouseDown}
+                onMouseDown={panelResize.onMouseDown}
             >
                 <div className="absolute inset-y-0 -left-1 -right-1" />
             </div>
