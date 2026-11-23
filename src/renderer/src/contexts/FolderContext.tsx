@@ -5,6 +5,7 @@ import {
     useState,
     useCallback,
     useEffect,
+    useRef,
 } from "react";
 
 
@@ -28,7 +29,9 @@ interface FolderContextValue {
     toggleFolder: (path: string, allPaths: string[]) => void;
     checkAll: () => void;
     setAllChecked: (paths: string[]) => void;
-    folderPrefixes: string[] | null; // derived — null means "all"
+    /** Derived: null = every collection selected (no limit, Unsorted
+     *  included), [] = none selected (no files), else the selected ones. */
+    folderPrefixes: string[] | null;
 
     // Compare's per-side folder checkboxes (session only). Same rules as
     // checkedFolders: none or all checked means no folder limit.
@@ -144,6 +147,27 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
         setFolderMetaVersion((v) => v + 1);
     }, []);
 
+    // The folders as of now, for callbacks that outlive a render.
+    const foldersRef = useRef(folders);
+    foldersRef.current = folders;
+    const loadedOnce = useRef(false);
+    useEffect(() => {
+        loadedOnce.current = false;
+    }, [rootPath]);
+
+    // New folders join the selection when every folder was selected, so
+    // "all collections" stays all (from the app or from Finder).
+    const joinIfAllSelected = useCallback((added: string[]) => {
+        if (added.length === 0) return;
+        const before = getAllPaths(foldersRef.current);
+        setCheckedFolders((prev) => {
+            if (!before.every((p) => prev.has(p))) return prev;
+            const next = new Set(prev);
+            added.forEach((p) => next.add(p));
+            return next;
+        });
+    }, []);
+
     // on mount, try to restore saved root path
     useEffect(() => {
         window.api.getRootPath().then((path) => {
@@ -186,6 +210,7 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
             window.api.onFolderAdded(({ relativePath }) => {
                 const depth = relativePath.split("/").filter(Boolean).length;
                 if (depth !== 1) return;
+                joinIfAllSelected([relativePath]);
                 setFolders((prev) => prev.some((f) => f.relativePath === relativePath) ? prev : [
                     ...prev,
                     {
@@ -210,16 +235,18 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
     }, [folders]);
 
     const refreshFolders = useCallback(async () => {
-        const folders = await window.api.getSubfolders();
-        setFolders(folders);
-        // on first load, check everything
-        setCheckedFolders((prev) => {
-            if (prev.size === 0) {
-                return new Set(getAllPaths(folders));
-            }
-            return prev;
-        });
-    }, []);
+        const next = await window.api.getSubfolders();
+        // The library's first load selects everything. After that, new
+        // folders join the selection only while everything is selected.
+        if (!loadedOnce.current) {
+            loadedOnce.current = true;
+            setCheckedFolders(new Set(getAllPaths(next)));
+        } else {
+            const known = new Set(getAllPaths(foldersRef.current));
+            joinIfAllSelected(getAllPaths(next).filter((p) => !known.has(p)));
+        }
+        setFolders(next);
+    }, [joinIfAllSelected]);
 
     const toggleFolder = useCallback((path: string, allPaths: string[]) => {
         setCheckedFolders((prev) => {
@@ -247,12 +274,11 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
 
     }, []);
 
-    // derived — null means no folder filter (all checked or none checked)
+    // Derived: see folderPrefixes above.
     const allPaths = getAllPaths(folders);
-    const folderPrefixes =
-        checkedFolders.size === 0 || checkedFolders.size === allPaths.length
-            ? null
-            : [...checkedFolders];
+    const folderPrefixes = allPaths.every((p) => checkedFolders.has(p))
+        ? null
+        : allPaths.filter((p) => checkedFolders.has(p));
 
     return (
         <FolderContext.Provider

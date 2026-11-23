@@ -1439,7 +1439,7 @@ function LaneEndCard({
     const firm = ending.skipAnswered && tag;
     // Say plainly what's narrowing the pool: collections and the tag
     // filter both count, and either can be why it ran out.
-    const someCollections = !!folderPrefixes && folderPrefixes.length > 0;
+    const someCollections = !!folderPrefixes;
     const filtered = !!pruneFilter(activeFilter);
     const limits = [someCollections && "collections", filtered && "tag filter"].filter(Boolean);
     return (
@@ -1449,8 +1449,10 @@ function LaneEndCard({
         >
             {tag && <TagPill tag={tag} applied />}
             <span className="text-sm text-neutral-200">
-                {firm ? "Nothing left without a firm answer" : "No more files"}
-                {limits.length > 0 ? ` in the selected ${limits.join(" and ")}` : ""}
+                {folderPrefixes?.length === 0
+                    ? "No collections selected"
+                    : (firm ? "Nothing left without a firm answer" : "No more files") +
+                      (limits.length > 0 ? ` in the selected ${limits.join(" and ")}` : "")}
             </span>
             <div className="flex flex-col items-center gap-1">
                 <span className="text-[10px] uppercase tracking-wide text-neutral-500">

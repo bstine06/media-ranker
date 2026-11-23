@@ -1,4 +1,4 @@
-import { getDb, folderLikePattern } from "./db";
+import { getDb, folderScopeSql } from "./db";
 import type { DbFile } from "./db";
 import { filterSql, type FilterNode } from "./tagFilter";
 
@@ -21,12 +21,10 @@ export function getRandomFile(
         params.push(...excludeIds);
     }
 
-    if (folderPrefixes && folderPrefixes.length > 0) {
-        const folderConds = folderPrefixes
-            .map(() => "f.path LIKE ? ESCAPE '\\'")
-            .join(" OR ");
-        conditions.push(`(${folderConds})`);
-        params.push(...folderPrefixes.map(folderLikePattern));
+    const inFolders = folderScopeSql(folderPrefixes);
+    if (inFolders) {
+        conditions.push(inFolders.sql);
+        params.push(...inFolders.params);
     }
 
     if (withoutTagId != null) {

@@ -746,7 +746,7 @@ export default function Sidebar({
             setTimeout(resetStatus, 2500);
         }
     };
-    const { rootPath, folders, checkedFolders, checkAll, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion, refreshFolders, setAllChecked } = useFolders();
+    const { rootPath, folders, checkedFolders, toggleFolder, activeFolder, setActiveFolder, folderMetaVersion, refreshFolders, setAllChecked } = useFolders();
     const { openLobby } = usePass();
     const { showUnsorted, setShowUnsorted } = useFolders();
     const { alwaysShowUnsorted } = useSettings();
@@ -819,15 +819,11 @@ export default function Sidebar({
     // Makes a folder (the + box, the search's "Create folder" row, filing
     // dropped files). Returns its path, or the error.
     const makeFolder = async (name: string): Promise<{ relativePath: string } | { error: string }> => {
-        // If every folder was checked, keep it that way so the new folder
-        // isn't silently filtered out of Compare etc.
-        const paths = folders.map((n) => n.relativePath);
-        const wasAllChecked = paths.every((p) => checkedFolders.has(p));
-
+        // (A new folder joins the selection if everything was selected:
+        // FolderContext.)
         const result = await window.api.createFolder(name);
         if ("error" in result) return result;
         await refreshFolders();
-        if (wasAllChecked) setAllChecked([...paths, result.relativePath]);
         return result;
     };
     // The same, with a failure shown under the search box.
@@ -896,8 +892,6 @@ export default function Sidebar({
         if (filingTarget.kind === "new") {
             // A new folder has no noes, so no confirm; made and filled in
             // one step, so one undo takes back both.
-            const paths = folders.map((n) => n.relativePath);
-            const wasAllChecked = paths.every((p) => checkedFolders.has(p));
             const made = await window.api.moveIntoNewFolder(filing, filingTarget.name);
             if ("error" in made) {
                 setFilingError(made.error);
@@ -905,7 +899,6 @@ export default function Sidebar({
                 return;
             }
             await refreshFolders();
-            if (wasAllChecked) setAllChecked([...paths, made.relativePath]);
             target = made.relativePath;
             result = made;
         } else {
@@ -970,13 +963,17 @@ export default function Sidebar({
         a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     );
     const selectedCount = folders.filter((n) => checkedFolders.has(n.relativePath)).length;
+    // Everything selected = all collections (Unsorted too); none = no files.
+    const allSelected = selectedCount === folders.length;
+    const selectAll = () => setAllChecked(folders.map((n) => n.relativePath));
 
     // "show only": the list cut down to the selected collections. Ones
     // unselected meanwhile stay until "show all", so a slip is easy to undo.
     const [showOnly, setShowOnly] = useState<Set<string> | null>(null);
+    // It's for a few: selecting all or none ends it.
     useEffect(() => {
-        if (showOnly && selectedCount === 0) setShowOnly(null);
-    }, [showOnly, selectedCount]);
+        if (showOnly && (selectedCount === 0 || allSelected)) setShowOnly(null);
+    }, [showOnly, selectedCount, allSelected]);
     useEffect(() => setShowOnly(null), [rootPath]);
 
     // Searching looks through every collection, shown only or not.
@@ -1237,11 +1234,19 @@ export default function Sidebar({
 
                     {/* The selection (Sweep, Pass, Compare, Coverage use it). */}
                     <div className="mt-1 flex items-center gap-1 border-y border-neutral-800 px-3 py-1 text-[11px] text-neutral-500">
-                        {selectedCount === 0 ? (
+                        {allSelected ? (
                             <>
                                 <span className="truncate">All collections</span>
                                 <span>·</span>
-                                <SelectionLink onClick={checkAll} title="Select every collection, then uncheck the ones to leave out">
+                                <SelectionLink onClick={() => setAllChecked([])} title="Unselect every collection, then check the ones you want">
+                                    clear
+                                </SelectionLink>
+                            </>
+                        ) : selectedCount === 0 ? (
+                            <>
+                                <span className="truncate text-amber-300/80">None selected</span>
+                                <span>·</span>
+                                <SelectionLink onClick={selectAll} title="Select every collection">
                                     select all
                                 </SelectionLink>
                             </>
@@ -1260,8 +1265,8 @@ export default function Sidebar({
                                     {showOnly ? "show all" : "show only"}
                                 </SelectionLink>
                                 <span>·</span>
-                                <SelectionLink onClick={() => setAllChecked([])} title="Unselect every collection">
-                                    clear
+                                <SelectionLink onClick={selectAll} title="Select every collection again">
+                                    reset
                                 </SelectionLink>
                             </>
                         )}

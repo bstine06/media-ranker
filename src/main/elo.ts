@@ -1,4 +1,4 @@
-import { getDb, folderLikePattern, updateEloScores } from "./db";
+import { getDb, folderScopeSql, updateEloScores } from "./db";
 import type { DbFile } from "./db";
 import { filterSql, type FilterNode } from "./tagFilter";
 
@@ -94,12 +94,10 @@ export function getFilteredFiles(
     const conditions: string[] = [`f.status = 'active'`];
     const params: unknown[] = [];
 
-    if (folderPrefixes && folderPrefixes.length > 0) {
-        const folderConds = folderPrefixes
-            .map(() => "f.path LIKE ? ESCAPE '\\'")
-            .join(" OR ");
-        conditions.push(`(${folderConds})`);
-        params.push(...folderPrefixes.map(folderLikePattern));
+    const inFolders = folderScopeSql(folderPrefixes);
+    if (inFolders) {
+        conditions.push(inFolders.sql);
+        params.push(...inFolders.params);
     }
 
     const tagFilter = filterSql(filter);

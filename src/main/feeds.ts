@@ -3,7 +3,7 @@
 // filter builder shows. Trees are stored as JSON (see tagFilter.ts); they're
 // validated on the way in and on the way out.
 
-import { getDb, folderLikePattern } from "./db";
+import { getDb, folderScopeSql } from "./db";
 import { filterSql, filterRefs, validateFilter, type FilterNode } from "./tagFilter";
 
 export interface Feed {
@@ -160,9 +160,7 @@ export function countFilter(
     const total = count("", []);
     const matches = filter ? count(where, params) : total;
     let inFolders: number | null = null;
-    if (folderPrefixes && folderPrefixes.length > 0) {
-        const folderSql = `AND (${folderPrefixes.map(() => "f.path LIKE ? ESCAPE '\\'").join(" OR ")})`;
-        inFolders = count(`${folderSql} ${where}`, [...folderPrefixes.map(folderLikePattern), ...params]);
-    }
+    const scope = folderScopeSql(folderPrefixes);
+    if (scope) inFolders = count(`AND ${scope.sql} ${where}`, [...scope.params, ...params]);
     return { matches, total, inFolders };
 }

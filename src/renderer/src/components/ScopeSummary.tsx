@@ -28,7 +28,11 @@ export function ScopeSummary({
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
-                {folderPrefixes && folderPrefixes.length > 0 ? (
+                {folderPrefixes && folderPrefixes.length === 0 ? (
+                    <span className="rounded-full bg-amber-950/60 px-2.5 py-1 text-xs text-amber-200">
+                        No collections selected
+                    </span>
+                ) : folderPrefixes ? (
                     folderPrefixes.map((p) => <CollectionChip key={p} path={p} />)
                 ) : (
                     <span className="rounded-full bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300">

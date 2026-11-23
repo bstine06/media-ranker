@@ -867,6 +867,13 @@ export default function CompareView({
     }
 
     if (!pair) {
+        if (folderPrefixes?.length === 0) {
+            return (
+                <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
+                    No collections selected in the sidebar.
+                </div>
+            );
+        }
         if (folderPrefixes) {
             return (
                 <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">

@@ -192,15 +192,28 @@ Top rows
     files on it moves them to the library folder
 [ ] "Unsorted" (when shown) opens Unsorted in Browse, from any view
 [ ] Library name at the very top: still shows the library in Finder
-[ ] Nothing selected: the row reads "All collections · select all"
-[ ] "select all" selects every collection; uncheck one to leave it out
-    (Sweep / Compare / Pass then skip it)
-[ ] Some selected: "N selected · show only · clear"
+[ ] On opening the app (and after switching library) everything is
+    selected; the row reads "All collections · clear"
+[ ] Uncheck one: "N selected · show only · reset"; Sweep / Compare /
+    Pass leave that collection out
+[ ] "reset" selects everything again
+[ ] "clear" (from All collections) unchecks everything: the row reads
+    "None selected · select all"; check a few to pick just those
+[ ] With none selected: Sweep says "No collections selected", Compare
+    says "No collections selected in the sidebar.", the Pass lobby and
+    Coverage (selection) show a "No collections selected" chip / 0 files
+[ ] "select all" selects everything again
 [ ] "show only" lists just the selected collections; it turns into
     "show all". Unchecking one while shown only keeps it listed until
     "show all"
 [ ] Searching while "show only" is on searches every collection
-[ ] "clear" unselects everything (= all collections again)
+[ ] Everything selected, then make a folder (+ button, or file dropped
+    files into a new folder): the new folder is checked too
+[ ] Everything selected, then make a folder IN FINDER: it shows up
+    checked, and Sweep / Compare include its files
+[ ] Only some selected (or none), then make a folder: it's NOT checked
+[ ] Clear, then make a folder: the boxes stay empty (they used to all
+    fill in)
 [ ] The text in Compare (not enough files) and the Pass lobby says
     "selected", not "ticked"
 

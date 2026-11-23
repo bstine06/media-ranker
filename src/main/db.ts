@@ -2421,9 +2421,10 @@ export function scopeSql(
 ): { sql: string; params: unknown[] } {
     const conds = [`f.status = 'active'`];
     const params: unknown[] = [];
-    if (folderPrefixes && folderPrefixes.length > 0) {
-        conds.push(`(${folderPrefixes.map(() => "f.path LIKE ? ESCAPE '\\'").join(" OR ")})`);
-        params.push(...folderPrefixes.map(folderLikePattern));
+    const inFolders = folderScopeSql(folderPrefixes);
+    if (inFolders) {
+        conds.push(inFolders.sql);
+        params.push(...inFolders.params);
     }
     const tagFilter = filterSql(filter);
     if (tagFilter) {
@@ -2699,6 +2700,19 @@ export function getAllActiveFiles(): DbFile[] {
 export function folderLikePattern(folderRelPath: string): string {
     const escaped = folderRelPath.replace(/[\\%_]/g, (c) => `\\${c}`);
     return `${escaped}/%`;
+}
+
+/** The collection selection as a WHERE condition on `f.path`: null = all
+ *  collections (no condition), [] = none selected (matches nothing). */
+export function folderScopeSql(
+    folderPrefixes: string[] | null,
+): { sql: string; params: string[] } | null {
+    if (folderPrefixes === null) return null;
+    if (folderPrefixes.length === 0) return { sql: "0", params: [] };
+    return {
+        sql: `(${folderPrefixes.map(() => "f.path LIKE ? ESCAPE '\\'").join(" OR ")})`,
+        params: folderPrefixes.map(folderLikePattern),
+    };
 }
 
 export function getFilesByFolder(folderRelPath: string): DbFile[] {
