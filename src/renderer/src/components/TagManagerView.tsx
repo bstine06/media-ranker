@@ -796,7 +796,12 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
     useEffect(() => setHighlighted(0), [query]);
 
     const changesNothing = (p: TagImplicationPreview) =>
-        p.files === 0 && p.convertedFiles === 0 && p.convertedFolders === 0;
+        p.files === 0 &&
+        p.convertedFiles === 0 &&
+        p.convertedFolders === 0 &&
+        p.folderNoes.length === 0 &&
+        p.noesClearedFiles === 0 &&
+        p.tagsRemovedFiles === 0;
 
     const link = async (target: DbTagWithCategory) => {
         setError(null);
@@ -869,6 +874,24 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
                 `"${target.name}" and will get it from "${tag.name}" instead, ` +
                 `so ${one ? "it loses" : "they lose"} it if "${tag.name}" is ` +
                 `removed or this link is deleted.`;
+        }
+        const list = (items: { name: string; files: number }[]) =>
+            items.map((i) => `"${i.name}" (${count(i.files, "file")})`).join(", ");
+        for (const n of preview.folderNoes) {
+            message +=
+                ` "${n.folder}" has a no for "${n.tag}", which its tags would now give it,` +
+                ` so that no comes off the folder.`;
+        }
+        if (preview.noesClearedFiles > 0) {
+            message +=
+                ` ${count(preview.noesClearedFiles, "file")} marked as no for a tag` +
+                ` ${preview.noesClearedFiles === 1 ? "its" : "their"} folder would now give` +
+                ` ${preview.noesClearedFiles === 1 ? "loses that no" : "lose those noes"}: ${list(preview.noesCleared)}.`;
+        }
+        if (preview.tagsRemovedFiles > 0) {
+            message +=
+                ` ${count(preview.tagsRemovedFiles, "file")} ${preview.tagsRemovedFiles === 1 ? "has a tag its" : "have tags their"}` +
+                ` folder would now rule out, and ${preview.tagsRemovedFiles === 1 ? "loses it" : "lose them"}: ${list(preview.tagsRemoved)}.`;
         }
         return message;
     };

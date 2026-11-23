@@ -207,6 +207,14 @@ export interface TagImplicationPreview {
     convertedFiles: number;
     /** Folders whose own copy becomes inherited (adding only). */
     convertedFolders: number;
+    /** Folder noes taken off because the folder's tags now imply them. */
+    folderNoes: { folder: string; tag: string }[];
+    /** Files' noes cleared because their folder now gives the tag. */
+    noesCleared: { name: string; files: number }[];
+    noesClearedFiles: number;
+    /** Files' own tags taken off because their folder now rules them out. */
+    tagsRemoved: { name: string; files: number }[];
+    tagsRemovedFiles: number;
 }
 
 /** What coverage is worked out from (see getTagCoverage). */

@@ -1624,6 +1624,79 @@ function unlinkTags(tagId: number, impliesId: number): void {
     rebuildTagImplied();
 }
 
+// What a new link clashes with, worked out as it's applied. The link wins
+// over folder rules it contradicts, and folder rules win over files:
+//  (i)   a folder whose tag now implies one of its noes: that no comes off;
+//  (ii)  a file's own no (hard or pass) on a tag its folder now gives: the
+//        no is cleared (Sweep seconds kept);
+//  (iii) a file's own tag its folder's no now rules out: the tag comes off.
+// Only what the link newly causes is touched: older conflicts (files moved
+// in Finder) stay as they are.
+interface LinkClashes {
+    folderNoes: { folder: string; tag: string }[];
+    noesCleared: { file_id: number; tag_id: number }[];
+    tagsRemoved: { file_id: number; tag_id: number }[];
+}
+
+function linkWithRules(tagId: number, impliesId: number): LinkClashes {
+    const db = getDb();
+    const pairs = (sql: string) =>
+        db.prepare(sql).all() as { file_id: number; tag_id: number }[];
+    const noesUnderFolderTags = () =>
+        pairs(
+            `SELECT c.file_id, c.tag_id FROM tag_checks c
+             WHERE (c.rejected = 1 OR c.passed = 1) AND ${FOLDER_GIVES}`,
+        );
+    const ruledOutOwnTags = () =>
+        pairs(
+            `SELECT DISTINCT ft.file_id, ft.tag_id FROM file_tags ft
+             JOIN file_folder_noes n ON n.file_id = ft.file_id AND n.tag_id = ft.tag_id`,
+        );
+    const key = (r: { file_id: number; tag_id: number }) => `${r.file_id}:${r.tag_id}`;
+    const noesBefore = new Set(noesUnderFolderTags().map(key));
+    const tagsBefore = new Set(ruledOutOwnTags().map(key));
+
+    linkTags(tagId, impliesId);
+
+    // (i) The folder's own contradictions: its no gives way.
+    const contradictions = db
+        .prepare(
+            `SELECT DISTINCT n.folder_id, n.tag_id, fo.name AS folder, t.name AS tag
+             FROM folder_tags y
+             JOIN folder_noes n ON n.folder_id = y.folder_id
+             JOIN folders fo ON fo.id = n.folder_id
+             JOIN tags t ON t.id = n.tag_id
+             WHERE y.tag_id = n.tag_id OR EXISTS (
+                 SELECT 1 FROM tag_implied ti
+                 WHERE ti.tag_id = y.tag_id AND ti.implied_id = n.tag_id)
+             ORDER BY fo.name, t.name`,
+        )
+        .all() as { folder_id: number; tag_id: number; folder: string; tag: string }[];
+    const dropNo = db.prepare(`DELETE FROM folder_noes WHERE folder_id = ? AND tag_id = ?`);
+    for (const c of contradictions) dropNo.run(c.folder_id, c.tag_id);
+
+    // (ii) Files' noes under what their folder now gives.
+    const noesCleared = noesUnderFolderTags().filter((r) => !noesBefore.has(key(r)));
+    const clear = db.prepare(
+        `UPDATE tag_checks SET rejected = 0, passed = 0, updated_at = datetime('now')
+         WHERE file_id = ? AND tag_id = ?`,
+    );
+    for (const r of noesCleared) clear.run(r.file_id, r.tag_id);
+
+    // (iii) Files' own tags their folder now rules out.
+    const tagsRemoved = ruledOutOwnTags().filter((r) => !tagsBefore.has(key(r)));
+    const del = db.prepare(`DELETE FROM file_tags WHERE file_id = ? AND tag_id = ?`);
+    for (const r of tagsRemoved) del.run(r.file_id, r.tag_id);
+
+    return {
+        folderNoes: contradictions.map(({ folder, tag }) => ({ folder, tag })),
+        noesCleared,
+        tagsRemoved,
+    };
+}
+
+// The confirm said what the link clears (see linkWithRules), so it's
+// never refused for a clash.
 export function addTagImplication(
     tagId: number,
     impliesId: number,
@@ -1631,19 +1704,7 @@ export function addTagImplication(
     const error = implicationError(tagId, impliesId);
     if (error) return { ok: false, error };
     const db = getDb();
-    try {
-        db.transaction(() => {
-            linkTags(tagId, impliesId);
-            const clash = folderContradiction();
-            if (clash) throw new RuleError(contradictionMessage(clash));
-        })();
-    } catch (err) {
-        if (err instanceof RuleError) {
-            rebuildTagImplied();
-            return { ok: false, error: err.message };
-        }
-        throw err;
-    }
+    db.transaction(() => linkWithRules(tagId, impliesId))();
     return { ok: true };
 }
 
@@ -1662,6 +1723,14 @@ export interface TagImplicationPreview {
     convertedFiles: number;
     /** Folders whose own copy becomes inherited (adding only). */
     convertedFolders: number;
+    /** Folder noes taken off because the folder's tags now imply them. */
+    folderNoes: { folder: string; tag: string }[];
+    /** Files' noes cleared because their folder now gives the tag. */
+    noesCleared: { name: string; files: number }[];
+    noesClearedFiles: number;
+    /** Files' own tags taken off because their folder now rules them out. */
+    tagsRemoved: { name: string; files: number }[];
+    tagsRemovedFiles: number;
 }
 
 export function previewTagImplication(
@@ -1689,23 +1758,38 @@ export function previewTagImplication(
         ),
         ownFolders: count(`SELECT COUNT(*) AS n FROM folder_tags WHERE tag_id = ?`),
     });
+    const active = (rows: { file_id: number; tag_id: number }[]) => {
+        const ok = db.prepare(`SELECT 1 FROM files WHERE id = ? AND status = 'active'`);
+        return rows.filter((r) => ok.get(r.file_id));
+    };
     const before = measure();
     let after = before;
+    let clashes: LinkClashes = { folderNoes: [], noesCleared: [], tagsRemoved: [] };
     db.exec("SAVEPOINT preview_tag_implication");
     try {
-        if (action === "add") linkTags(tagId, impliesId);
+        if (action === "add") clashes = linkWithRules(tagId, impliesId);
         else unlinkTags(tagId, impliesId);
-        const clash = action === "add" ? folderContradiction() : undefined;
-        if (clash) return { error: contradictionMessage(clash) };
         after = measure();
+        clashes = {
+            folderNoes: clashes.folderNoes,
+            noesCleared: active(clashes.noesCleared),
+            tagsRemoved: active(clashes.tagsRemoved),
+        };
     } finally {
         db.exec("ROLLBACK TO preview_tag_implication");
         db.exec("RELEASE preview_tag_implication");
     }
+    const noes = summarizeRemoved(clashes.noesCleared);
+    const tags = summarizeRemoved(clashes.tagsRemoved);
     return {
         files: after.files - before.files,
         convertedFiles: before.ownFiles - after.ownFiles,
         convertedFolders: before.ownFolders - after.ownFolders,
+        folderNoes: clashes.folderNoes,
+        noesCleared: noes.removed,
+        noesClearedFiles: noes.files,
+        tagsRemoved: tags.removed,
+        tagsRemovedFiles: tags.files,
     };
 }
 
