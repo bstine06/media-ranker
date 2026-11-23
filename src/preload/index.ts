@@ -384,13 +384,14 @@ const api = {
     getFileNoes: (fileId: number) => ipcRenderer.invoke("get-file-noes", fileId),
     clearFileNo: (fileId: number, tagId: number): Promise<void> =>
         ipcRenderer.invoke("clear-file-no", fileId, tagId),
-    previewBatchNo: (fileIds: number[], tag: string) =>
-        ipcRenderer.invoke("preview-batch-no", fileIds, tag),
-    batchNo: (fileIds: number[], tag: string | string[]) => ipcRenderer.invoke("batch-no", fileIds, tag),
-    batchAddTags: (fileIds: number[], tags: string[]): Promise<void> =>
-        ipcRenderer.invoke("batch-add-tags", fileIds, tags),
-    previewBatchYes: (fileIds: number[], tags: string[]) =>
-        ipcRenderer.invoke("preview-batch-yes", fileIds, tags),
+    previewBatchApply: (selected: number[], rest: number[], tags: string[], mode: "yes" | "no") =>
+        ipcRenderer.invoke("preview-batch-apply", selected, rest, tags, mode),
+    batchApply: (selected: number[], rest: number[], tags: string[], mode: "yes" | "no") =>
+        ipcRenderer.invoke("batch-apply", selected, rest, tags, mode),
+    countFolderFiles: (folderRelPath: string): Promise<number> =>
+        ipcRenderer.invoke("folder:count-files", folderRelPath),
+    convertFolderRule: (folderRelPath: string, tag: string, kind: "tag" | "no"): Promise<number> =>
+        ipcRenderer.invoke("folder:convert-rule", folderRelPath, tag, kind),
     getConflictFiles: (
         tagId: number,
         folderPrefixes: string[] | null = null,

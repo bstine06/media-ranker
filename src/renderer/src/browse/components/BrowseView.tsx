@@ -461,15 +461,10 @@ export default function BrowseView({
         }
     };
 
-    const handleExecuteBatchTag = async (tagNames: string[], files: DbFile[]) => {
-        try {
-            // All in one call: one undo entry.
-            await window.api.batchAddTags(files.map((f) => f.id), tagNames);
-        } catch (error) {
-            console.error("Batch tag failed:", error);
-        }
+    // After a batch (Batch Tag): the selection is kept so the same files
+    // can be dragged/moved next.
+    const handleAfterBatch = () => {
         refreshTags();
-        // Keep the selection so the same files can be dragged/moved next.
     };
 
     const sortedFiles = useMemo(
@@ -1060,7 +1055,8 @@ export default function BrowseView({
                         onRemoveFolderTag={handleRemoveFolderTag}
                         onFolderTagsChanged={reloadFolderTags}
                         selectedFiles={selectedFiles}
-                        onExecuteBatchTag={handleExecuteBatchTag}
+                        shownFiles={sortedFiles}
+                        onAfterBatch={handleAfterBatch}
                     />
                 </div>
             )}

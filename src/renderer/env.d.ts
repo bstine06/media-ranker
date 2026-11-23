@@ -1,4 +1,4 @@
-import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, FolderTagPreview, BatchNoPreview, FolderRuleClash, FolderRuleResult, HistoryItem, HistoryApplied } from "./src/shared/types/types";
+import { DbFile, DbTag, DbFolder, DbTagCategory, ComparisonResult, PoolFilter, FilterNode, Feed, FeedHistoryEntry, TagUsage, TagCoverageRaw, PlacementBounds, TagImplication, TagImplicationPreview, FileNo, FolderNoPreview, FolderTagPreview, BatchTagResult, FolderRuleResult, HistoryItem, HistoryApplied } from "./src/shared/types/types";
 
 export {};
 
@@ -172,13 +172,24 @@ declare global {
             getFileNoes: (fileId: number) => Promise<FileNo[]>;
             /** Back to unchecked for that tag (hard, pass and Sweep time). */
             clearFileNo: (fileId: number, tagId: number) => Promise<void>;
-            previewBatchNo: (fileIds: number[], tag: string) => Promise<BatchNoPreview>;
-            /** One tag or several, as one undo entry. */
-            batchNo: (fileIds: number[], tag: string | string[]) => Promise<BatchNoPreview>;
-            /** Batch Tag (yes): every tag on every file, as one undo entry. */
-            batchAddTags: (fileIds: number[], tags: string[]) => Promise<void>;
-            /** Folder noes a batch yes would take off their folders. */
-            previewBatchYes: (fileIds: number[], tags: string[]) => Promise<FolderRuleClash[]>;
+            /** What a batch would do, per tag (see batchApply). */
+            previewBatchApply: (
+                selected: number[],
+                rest: number[],
+                tags: string[],
+                mode: "yes" | "no",
+            ) => Promise<BatchTagResult[]>;
+            /** Batch Tag: selected get the tags (yes) or noes (no); the rest
+             *  get the opposite where undecided. One undo entry. */
+            batchApply: (
+                selected: number[],
+                rest: number[],
+                tags: string[],
+                mode: "yes" | "no",
+            ) => Promise<BatchTagResult[]>;
+            countFolderFiles: (folderRelPath: string) => Promise<number>;
+            /** Folder tag/no → each file's own tag / no; returns file count. */
+            convertFolderRule: (folderRelPath: string, tag: string, kind: "tag" | "no") => Promise<number>;
             getConflictFiles: (
                 tagId: number,
                 folderPrefixes?: string[] | null,

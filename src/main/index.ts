@@ -72,11 +72,10 @@ import {
     tagsRuledOutByFolder,
     getNoesForFile,
     clearFileNo,
-    previewBatchNo,
-    batchNo,
-    previewBatchYes,
-    batchYes,
-    type BatchNoPreview,
+    previewBatchApply,
+    batchApply,
+    convertFolderRule,
+    countFolderFiles,
     getConflictFiles,
     getRelatedTags,
     getTagImplications,
@@ -977,24 +976,6 @@ function registerIpcHandlers(): void {
         return getTagsForFile(fileId);
     });
 
-    // Batch Tag (yes): every tag on every file, one history entry.
-    // Folder noes ruling the tags out come off their folders (after the
-    // confirm previewBatchYes fed); one history entry either way.
-    ipcMain.handle("batch-add-tags", (_event, fileIds: number[], tags: string[]) => {
-        record(`Tagged ${filesLabel(fileIds)} ${tagsLabel(tags)}`, () => {
-            for (const tag of tags) {
-                const { id: tagId } = upsertTag(tag, undefined);
-                batchYes(fileIds, tagId);
-            }
-        });
-    });
-    ipcMain.handle("preview-batch-yes", (_event, fileIds: number[], tags: string[]) => {
-        const ids = tags
-            .map((t) => getTagByName(t.trim().toLowerCase())?.id)
-            .filter((id): id is number => id != null);
-        return previewBatchYes(fileIds, ids);
-    });
-
     ipcMain.handle("remove-tag", (_event, fileId: number, tag: string) => {
         const existing = getTagByName(tag);
         if (existing) {
@@ -1235,27 +1216,46 @@ function registerIpcHandlers(): void {
             clearFileNo(fileId, tagId),
         ),
     );
-    ipcMain.handle("preview-batch-no", (_event, fileIds: number[], tag: string) => {
-        const existing = getTagByName(tag.trim().toLowerCase());
-        if (!existing) return { removed: [], files: 0, folderRules: [], affected: [] };
-        return previewBatchNo(fileIds, existing.id);
+    // Batch Tag: the selected files get the tags (yes) or noes (no); the
+    // rest of the files shown, if given, get the opposite where undecided
+    // (a pass no / the tag). Folder rules win. One history entry.
+    const batchTagIds = (tags: string[]) =>
+        tags
+            .map((t) => getTagByName(t.trim().toLowerCase())?.id)
+            .filter((id): id is number => id != null);
+    ipcMain.handle(
+        "preview-batch-apply",
+        (_event, selected: number[], rest: number[], tags: string[], mode: "yes" | "no") =>
+            previewBatchApply(selected, rest, batchTagIds(tags), mode),
+    );
+    ipcMain.handle(
+        "batch-apply",
+        (_event, selected: number[], rest: number[], tags: string[], mode: "yes" | "no") => {
+            const what = mode === "yes" ? `Tagged ${filesLabel(selected)} ${tagsLabel(tags)}` : `Marked ${filesLabel(selected)} as no for ${tagsLabel(tags)}`;
+            const label = rest.length > 0 ? `${what} (and the opposite on ${plural(rest.length, "other file")})` : what;
+            return record(label, () => batchApply(selected, rest, batchTagIds(tags), mode));
+        },
+    );
+
+    // A folder rule turned into one on each file (the folder's files keep
+    // it as their own; new files won't get it).
+    ipcMain.handle("folder:count-files", (_event, folderRelPath: string) => {
+        const folder = getFolderByPath(folderRelPath);
+        return folder ? countFolderFiles(folder.id) : 0;
     });
-    // One tag or several; one history entry either way.
-    ipcMain.handle("batch-no", (_event, fileIds: number[], tag: string | string[]) => {
-        const names = Array.isArray(tag) ? tag : [tag];
-        return record(`Marked ${filesLabel(fileIds)} as no for ${tagsLabel(names)}`, () => {
-            const total: BatchNoPreview = { removed: [], files: 0, folderRules: [], affected: [] };
-            for (const name of names) {
-                const { id: tagId } = upsertTag(name);
-                const res = batchNo(fileIds, tagId);
-                total.removed.push(...res.removed);
-                total.files += res.files;
-                total.folderRules.push(...res.folderRules);
-                total.affected.push(...res.affected);
-            }
-            return total;
-        });
-    });
+    ipcMain.handle(
+        "folder:convert-rule",
+        (_event, folderRelPath: string, tag: string, kind: "tag" | "no") => {
+            const folder = getFolderByPath(folderRelPath);
+            const existing = getTagByName(tag);
+            if (!folder || !existing) return 0;
+            const label =
+                kind === "tag"
+                    ? `Gave each file in ${folder.name} the tag ${quote(existing.name)}`
+                    : `Gave each file in ${folder.name} a no for ${quote(existing.name)}`;
+            return record(label, () => convertFolderRule(folder.id, existing.id, kind));
+        },
+    );
     ipcMain.handle(
         "get-conflict-files",
         (_event, tagId: number, folderPrefixes: string[] | null = null, filter: unknown = null) =>

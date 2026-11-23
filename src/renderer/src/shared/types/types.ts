@@ -62,20 +62,6 @@ export interface FolderNoPreview {
     affected: AffectedFile[];
 }
 
-/** A folder rule a batch clashes with: a folder tag giving a tag being
- *  marked no, or a folder no ruling out a tag being added. Confirmed, it
- *  comes off the folder and the folder's other files keep what it gave
- *  them as their own. */
-export interface FolderRuleClash {
-    folderId: number;
-    folder: string;
-    tagId: number;
-    tag: string;
-    kind: "tag" | "no";
-    /** Files in the folder outside the batch. */
-    others: number;
-}
-
 /** What adding a folder tag would clear: files in the folder marked no
  *  for it (or a tag it implies). */
 export interface FolderTagPreview {
@@ -86,14 +72,26 @@ export interface FolderTagPreview {
     affected: AffectedFile[];
 }
 
-/** What a batch no would do (or did). */
-export interface BatchNoPreview {
-    removed: { name: string; files: number }[];
+/** A folder rule that keeps some selected files out of a batch (the rule
+ *  wins): a folder no ruling the tag out, or a folder tag giving it. */
+export interface BatchBlock {
+    folder: string;
+    /** The folder rule's tag. */
+    tag: string;
     files: number;
-    /** Folder tags that come off their folders first. */
-    folderRules: FolderRuleClash[];
-    /** Files losing own tags. */
-    affected: AffectedFile[];
+}
+
+/** What a batch does (or would) for one tag. */
+export interface BatchTagResult {
+    tag: string;
+    selectedChanged: number;
+    blocked: BatchBlock[];
+    /** Own tags taken off the selected files (no mode). */
+    removed: { name: string; files: number }[];
+    /** Other shown files that get the opposite (undecided ones only). */
+    restChanged: number;
+    /** Other shown files left alone (already have it or already a no). */
+    restUnchanged: number;
 }
 
 export interface DbTagCategory {

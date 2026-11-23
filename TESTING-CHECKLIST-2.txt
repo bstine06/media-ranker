@@ -58,14 +58,6 @@ Holding folder
 2. CONFIRMS INSTEAD OF CONFLICTS
 ======================================================================
 
-Batch tag
-[ ] Batch NO on files whose folder has that tag as a folder tag:
-    confirm says the tag comes off the folder. After Confirm, the
-    folder's OTHER files still have it (as their own tag)
-[ ] Batch YES on files whose folder has a no for that tag: confirm says
-    the folder's no comes off. After Confirm, the folder's other files
-    still have the no (as their own no)
-
 Folder tag
 [ ] Add a folder tag to a folder where some files are marked no for it
     (or for a tag it implies): confirm lists them, "Clear noes on N
@@ -93,8 +85,8 @@ The one conflict left: files moved in outside the app
 ======================================================================
 
 The confirms that list files (move into a folder with noes, folder tag
-over noes, folder no that removes tags, batch yes/no from section 2,
-clashing tag links) now show:  Manage… · Cancel · Confirm
+over noes, folder no that removes tags, clashing tag links) now show:
+Manage… · Cancel · Confirm.  (Batch Tag has its own confirm, section 4.)
 
 [ ] Cancel does nothing; Confirm works as before
 [ ] Manage… opens a panel on the right, in place of the undo history
@@ -122,7 +114,52 @@ clashing tag links) now show:  Manage… · Cancel · Confirm
 
 
 ======================================================================
-4. LEFTOVERS FROM TEST PASS 1
+4. BATCH TAG: SELECTED + THE REST  (Browse → select → Batch Tag)
+======================================================================
+
+Apply now ALWAYS asks first. Cancel has focus.
+
+Yes mode
+[ ] Confirm says how many OTHER files shown get a pass no (big, bold
+    line), how many selected get the tag, and how many others already
+    have it or are marked no (they don't change)
+[ ] Main button "Yes on N · no on M" tags the selection AND gives the
+    other shown files a pass no
+[ ] "Only the N selected" tags just the selection, nothing else
+[ ] Others that already have the tag (own, from their folder, or via a
+    linked tag) or are already marked no: untouched
+[ ] With a tag filter on, files hidden by the filter are untouched
+[ ] Several staged tags: one block per tag in the confirm
+
+No mode
+[ ] Main button "No on N · yes on M" marks the selection no AND tags
+    the other shown files (red button)
+[ ] Others already marked no for it stay no; others that have it stay
+[ ] Selected files that have the tag as their own lose it (confirm
+    says "Takes off …")
+
+Folder rules win
+[ ] Yes: a selected file in a folder with a no for the tag is skipped;
+    the confirm explains (amber "!") and says how to allow it
+[ ] No: a selected file whose folder has the tag as a folder tag is
+    skipped, same kind of note
+[ ] Batch never takes anything off a folder any more
+
+Each batch is ONE undo step (the rest included).
+
+Folder panel: turning a folder rule into one on each file
+[ ] Right-click a folder tag pill → "Turn into a tag on each file":
+    confirm says how many files and that new files won't get it. After:
+    the pill leaves the folder tags; every file has the tag as its own
+[ ] Right-click a "Not in this folder" pill → "Turn into a no on each
+    file": every file gets its own no; the folder no is gone
+[ ] Then the batch from "Folder rules win" works on those files
+[ ] One undo step each
+[ ] The usual category options are still in the right-click menu
+
+
+======================================================================
+5. LEFTOVERS FROM TEST PASS 1
 ======================================================================
 
 [ ] "Show undo history" is remembered after restarting

@@ -2051,118 +2051,220 @@ export function clearFileNo(fileId: number, tagId: number): void {
     getDb().prepare(`DELETE FROM tag_checks WHERE file_id = ? AND tag_id = ?`).run(fileId, tagId);
 }
 
-/** A folder rule a batch would clash with: a folder tag giving the files
- *  a tag being marked no, or a folder no ruling out a tag being added. */
-export interface FolderRuleClash {
-    folderId: number;
+/** A folder rule that keeps some selected files out of a batch: a folder
+ *  no ruling out the tag (yes) or a folder tag giving it (no). The rule
+ *  wins; those files are skipped. */
+export interface BatchBlock {
     folder: string;
-    tagId: number;
+    /** The folder rule's tag (may differ from the batch tag via implication). */
     tag: string;
-    kind: "tag" | "no";
-    /** Files in the folder outside the batch: they keep what they have, as
-     *  their own tag (or own no). */
-    others: number;
-}
-
-/** What a batch no would do, for the confirm. */
-export interface BatchNoPreview {
-    /** Own tags taken off, per tag (the tag itself, or tags implying it). */
-    removed: { name: string; files: number }[];
-    /** Files losing at least one tag. */
     files: number;
-    /** Folder tags that come off their folders first (see FolderRuleClash). */
-    folderRules: FolderRuleClash[];
-    /** Files losing own tags (files under a dissolved folder tag aren't
-     *  listed: they're the batch). */
-    affected: AffectedFile[];
 }
 
-// The folder rules a batch for `tagId` meets on `fileIds`. "no": folder
-// tags giving the tag (itself, or a tag implying it). "yes": folder noes
-// ruling it out (itself, or a tag it implies).
-export function folderRuleClashes(
+/** What a batch does for one tag (or would, as a preview). */
+export interface BatchTagResult {
+    tag: string;
+    /** Selected files that change. */
+    selectedChanged: number;
+    /** Selected files a folder rule keeps out. */
+    blocked: BatchBlock[];
+    /** Own tags taken off the selected files (no mode). */
+    removed: { name: string; files: number }[];
+    /** The rest: files that get the opposite (only undecided ones). */
+    restChanged: number;
+    /** The rest: files left alone (already have it or already a no). */
+    restUnchanged: number;
+}
+
+// SQL: the file (1st param) has no say yet on the tag (2nd): doesn't have
+// it (own, folder or implied), no no of its own, no folder no ruling it out.
+const UNDECIDED = `NOT EXISTS (SELECT 1 FROM file_effective_tags e
+                                WHERE e.file_id = f.id AND e.tag_id = @tagId)
+    AND NOT EXISTS (SELECT 1 FROM tag_checks c
+                    WHERE c.file_id = f.id AND c.tag_id = @tagId
+                      AND (c.rejected = 1 OR c.passed = 1))
+    AND NOT EXISTS (SELECT 1 FROM file_folder_noes n
+                    WHERE n.file_id = f.id AND n.tag_id = @tagId)`;
+
+// Selected files a folder rule keeps out, per folder rule.
+function batchBlocks(
     fileIds: number[],
     tagId: number,
     mode: "yes" | "no",
-): FolderRuleClash[] {
+): { fileIds: Set<number>; blocks: BatchBlock[] } {
     const db = getDb();
-    const ids = JSON.stringify(fileIds);
-    const rules = (
-        mode === "no"
+    const rows = (
+        mode === "yes"
             ? db
                   .prepare(
-                      `SELECT DISTINCT fo.folder_id, fo.tag_id FROM files f
-                       JOIN folder_tags fo ON fo.folder_id = f.folder_id
-                       WHERE f.id IN (SELECT value FROM json_each(?))
-                         AND (fo.tag_id = ? OR EXISTS (
-                             SELECT 1 FROM tag_implied ti
-                             WHERE ti.tag_id = fo.tag_id AND ti.implied_id = ?))`,
+                      `SELECT DISTINCT n.file_id, fo.name AS folder, t.name AS tag
+                       FROM file_folder_noes n
+                       JOIN folders fo ON fo.id = n.folder_id
+                       JOIN tags t ON t.id = n.no_tag_id
+                       WHERE n.file_id IN (SELECT value FROM json_each(@ids)) AND n.tag_id = @tagId`,
                   )
-                  .all(ids, tagId, tagId)
+                  .all({ ids: JSON.stringify(fileIds), tagId })
             : db
                   .prepare(
-                      `SELECT DISTINCT n.folder_id, n.no_tag_id AS tag_id FROM file_folder_noes n
-                       WHERE n.file_id IN (SELECT value FROM json_each(?)) AND n.tag_id = ?`,
+                      `SELECT DISTINCT f.id AS file_id, fo.name AS folder, t.name AS tag
+                       FROM files f
+                       JOIN folder_tags ft ON ft.folder_id = f.folder_id
+                       JOIN folders fo ON fo.id = ft.folder_id
+                       JOIN tags t ON t.id = ft.tag_id
+                       WHERE f.id IN (SELECT value FROM json_each(@ids))
+                         AND (ft.tag_id = @tagId OR EXISTS (
+                             SELECT 1 FROM tag_implied ti
+                             WHERE ti.tag_id = ft.tag_id AND ti.implied_id = @tagId))`,
                   )
-                  .all(ids, tagId)
-    ) as { folder_id: number; tag_id: number }[];
-    const info = db.prepare(
-        `SELECT fo.name AS folder, t.name AS tag,
-                (SELECT COUNT(*) FROM files f
-                 WHERE f.folder_id = fo.id
-                   AND f.id NOT IN (SELECT value FROM json_each(?))) AS others
-         FROM folders fo, tags t WHERE fo.id = ? AND t.id = ?`,
-    );
-    return rules.map((r) => {
-        const i = info.get(ids, r.folder_id, r.tag_id) as { folder: string; tag: string; others: number };
-        return {
-            folderId: r.folder_id,
-            folder: i.folder,
-            tagId: r.tag_id,
-            tag: i.tag,
-            kind: mode === "no" ? "tag" : "no",
-            others: i.others,
-        };
-    });
+                  .all({ ids: JSON.stringify(fileIds), tagId })
+    ) as { file_id: number; folder: string; tag: string }[];
+    const byRule = new Map<string, BatchBlock & { ids: Set<number> }>();
+    for (const r of rows) {
+        const key = `${r.folder}\u0000${r.tag}`;
+        const b = byRule.get(key) ?? { folder: r.folder, tag: r.tag, files: 0, ids: new Set<number>() };
+        b.ids.add(r.file_id);
+        b.files = b.ids.size;
+        byRule.set(key, b);
+    }
+    return {
+        fileIds: new Set(rows.map((r) => r.file_id)),
+        blocks: [...byRule.values()].map(({ folder, tag, files }) => ({ folder, tag, files })),
+    };
 }
 
-// Takes a folder rule off its folder, the files outside the batch keeping
-// what it gave them as their own: a folder tag becomes their own tag, a
-// folder no their own hard no. Nothing changes for them; the batch's files
-// are then free to take the batch.
-function dissolveFolderRule(rule: FolderRuleClash, fileIds: number[]): void {
+// One tag of a batch. Yes: the selected files get the tag; the rest, if
+// any, get a pass no where undecided. No: the selected files get a hard no
+// (own sources of the tag come off); the rest get the tag where undecided.
+// Folder rules win: selected files they cover are skipped.
+function batchOneTag(
+    selected: number[],
+    rest: number[],
+    tagId: number,
+    mode: "yes" | "no",
+): BatchTagResult {
     const db = getDb();
-    const ids = JSON.stringify(fileIds);
-    if (rule.kind === "tag") {
-        db.prepare(
-            `INSERT OR IGNORE INTO file_tags (file_id, tag_id)
-             SELECT f.id, ? FROM files f
-             WHERE f.folder_id = ? AND f.id NOT IN (SELECT value FROM json_each(?))`,
-        ).run(rule.tagId, rule.folderId, ids);
-        db.prepare(`DELETE FROM folder_tags WHERE folder_id = ? AND tag_id = ?`).run(
-            rule.folderId,
-            rule.tagId,
-        );
-        dropTagsCoveredByInheritance({ folderId: rule.folderId });
+    const { fileIds: blockedIds, blocks } = batchBlocks(selected, tagId, mode);
+    const open = selected.filter((id) => !blockedIds.has(id));
+    const has = db.prepare(
+        `SELECT 1 FROM file_effective_tags WHERE file_id = ? AND tag_id = ? LIMIT 1`,
+    );
+    const hardNo = db.prepare(
+        `SELECT 1 FROM tag_checks WHERE file_id = ? AND tag_id = ? AND rejected = 1`,
+    );
+    let selectedChanged = 0;
+    let removed: { name: string; files: number }[] = [];
+    if (mode === "yes") {
+        for (const id of open) {
+            if (has.get(id, tagId)) continue;
+            addTagToFile(id, tagId);
+            if (has.get(id, tagId)) selectedChanged++;
+        }
     } else {
-        db.prepare(
-            `INSERT INTO tag_checks (file_id, tag_id, rejected)
-             SELECT f.id, ?, 1 FROM files f
-             WHERE f.folder_id = ? AND f.id NOT IN (SELECT value FROM json_each(?))
-             ON CONFLICT (file_id, tag_id)
-             DO UPDATE SET rejected = 1, updated_at = datetime('now')`,
-        ).run(rule.tagId, rule.folderId, ids);
-        db.prepare(`DELETE FROM folder_noes WHERE folder_id = ? AND tag_id = ?`).run(
-            rule.folderId,
-            rule.tagId,
-        );
+        selectedChanged = open.filter((id) => has.get(id, tagId) || !hardNo.get(id, tagId)).length;
+        removed = summarizeRemoved(applyBatchNo(open, tagId)).removed;
     }
+    const undecided = rest.length
+        ? (
+              db
+                  .prepare(
+                      `SELECT f.id FROM files f
+                       WHERE f.id IN (SELECT value FROM json_each(@ids)) AND f.status = 'active'
+                         AND ${UNDECIDED}`,
+                  )
+                  .all({ ids: JSON.stringify(rest), tagId }) as { id: number }[]
+          ).map((r) => r.id)
+        : [];
+    // (The same no as 3 in a pass, see pass.ts setPassNo.)
+    const passNo = db.prepare(
+        `INSERT INTO tag_checks (file_id, tag_id, passed) VALUES (?, ?, 1)
+         ON CONFLICT (file_id, tag_id) DO UPDATE SET passed = 1, updated_at = datetime('now')`,
+    );
+    if (mode === "yes") for (const id of undecided) passNo.run(id, tagId);
+    else for (const id of undecided) addTagToFile(id, tagId);
+    return {
+        tag: tagName(tagId) ?? "?",
+        selectedChanged,
+        blocked: blocks,
+        removed,
+        restChanged: undecided.length,
+        restUnchanged: rest.length - undecided.length,
+    };
+}
+
+/** A batch over several tags (one undo step from the caller). */
+export function batchApply(
+    selected: number[],
+    rest: number[],
+    tagIds: number[],
+    mode: "yes" | "no",
+): BatchTagResult[] {
+    const db = getDb();
+    return db.transaction(() => tagIds.map((t) => batchOneTag(selected, rest, t, mode)))();
+}
+
+/** What batchApply would do, worked out by doing it and rolling back. */
+export function previewBatchApply(
+    selected: number[],
+    rest: number[],
+    tagIds: number[],
+    mode: "yes" | "no",
+): BatchTagResult[] {
+    const db = getDb();
+    db.exec("SAVEPOINT preview_batch_apply");
+    try {
+        return tagIds.map((t) => batchOneTag(selected, rest, t, mode));
+    } finally {
+        db.exec("ROLLBACK TO preview_batch_apply");
+        db.exec("RELEASE preview_batch_apply");
+    }
+}
+
+// ── Turning a folder rule into one on each file ──────────────────────────────
+
+// Every file in the folder gets the rule as its own (a folder tag → its
+// own tag, a folder no → a hard no), then the rule comes off the folder.
+// Files added to the folder later don't get it. Returns the file count.
+export function convertFolderRule(folderId: number, tagId: number, kind: "tag" | "no"): number {
+    const db = getDb();
+    return db.transaction(() => {
+        const files = (
+            db.prepare(`SELECT COUNT(*) AS n FROM files WHERE folder_id = ? AND status = 'active'`).get(folderId) as {
+                n: number;
+            }
+        ).n;
+        if (kind === "tag") {
+            db.prepare(
+                `INSERT OR IGNORE INTO file_tags (file_id, tag_id)
+                 SELECT f.id, ? FROM files f WHERE f.folder_id = ?`,
+            ).run(tagId, folderId);
+            db.prepare(`DELETE FROM folder_tags WHERE folder_id = ? AND tag_id = ?`).run(folderId, tagId);
+            dropTagsCoveredByInheritance({ folderId });
+        } else {
+            db.prepare(
+                `INSERT INTO tag_checks (file_id, tag_id, rejected)
+                 SELECT f.id, ?, 1 FROM files f WHERE f.folder_id = ?
+                 ON CONFLICT (file_id, tag_id)
+                 DO UPDATE SET rejected = 1, updated_at = datetime('now')`,
+            ).run(tagId, folderId);
+            db.prepare(`DELETE FROM folder_noes WHERE folder_id = ? AND tag_id = ?`).run(folderId, tagId);
+        }
+        return files;
+    })();
+}
+
+/** Active files in a folder (for the convert confirm). */
+export function countFolderFiles(folderId: number): number {
+    return (
+        getDb()
+            .prepare(`SELECT COUNT(*) AS n FROM files WHERE folder_id = ? AND status = 'active'`)
+            .get(folderId) as { n: number }
+    ).n;
 }
 
 // A batch no for one tag. Each file's own sources of the tag (the tag
 // itself, or an own tag implying it) come off, each as a hard no, and the
-// tag itself gets a hard no. Never refused. (Folder tags giving the tag are
-// dissolved first, see batchNo.)
+// tag itself gets a hard no. (Files whose folder gives the tag are left
+// out by the caller: the folder rule wins.)
 function applyBatchNo(fileIds: number[], tagId: number): { file_id: number; tag_id: number }[] {
     const db = getDb();
     const sources = db.prepare(
@@ -2190,57 +2292,6 @@ function applyBatchNo(fileIds: number[], tagId: number): { file_id: number; tag_
     return gone;
 }
 
-// Folder tags giving the tag come off their folders first (the files
-// outside the batch keep it as their own), then the batch no.
-function batchNoWithRules(fileIds: number[], tagId: number): BatchNoPreview {
-    const folderRules = folderRuleClashes(fileIds, tagId, "no");
-    for (const r of folderRules) dissolveFolderRule(r, fileIds);
-    const gone = applyBatchNo(fileIds, tagId);
-    return { ...summarizeRemoved(gone), folderRules, affected: affectedFiles(gone) };
-}
-
-export function previewBatchNo(fileIds: number[], tagId: number): BatchNoPreview {
-    const db = getDb();
-    db.exec("SAVEPOINT preview_batch_no");
-    try {
-        return batchNoWithRules(fileIds, tagId);
-    } finally {
-        db.exec("ROLLBACK TO preview_batch_no");
-        db.exec("RELEASE preview_batch_no");
-    }
-}
-
-/** A batch no; folder tags giving the tag come off their folders first
- *  (the confirm said so). */
-export function batchNo(fileIds: number[], tagId: number): BatchNoPreview {
-    const db = getDb();
-    return db.transaction(() => batchNoWithRules(fileIds, tagId))();
-}
-
-/** Folder noes a batch yes would take off their folders, for the confirm. */
-export function previewBatchYes(fileIds: number[], tagIds: number[]): FolderRuleClash[] {
-    const seen = new Set<string>();
-    const out: FolderRuleClash[] = [];
-    for (const tagId of tagIds) {
-        for (const r of folderRuleClashes(fileIds, tagId, "yes")) {
-            const key = `${r.folderId}:${r.tagId}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            out.push(r);
-        }
-    }
-    return out;
-}
-
-/** A batch yes; folder noes ruling the tag out come off their folders
- *  first (the confirm said so). */
-export function batchYes(fileIds: number[], tagId: number): void {
-    const db = getDb();
-    db.transaction(() => {
-        for (const r of folderRuleClashes(fileIds, tagId, "yes")) dissolveFolderRule(r, fileIds);
-        for (const fileId of fileIds) addTagToFile(fileId, tagId);
-    })();
-}
 
 /** Files with a conflict for a tag (in a scope), and why. */
 export function getConflictFiles(

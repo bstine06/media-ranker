@@ -11,9 +11,11 @@ type CategoryGroupProps = {
     onAddTag: (tagName: string) => void;
     /** Briefly highlight this tag (it just moved here, e.g. a swap). */
     glowTagId?: number | null;
+    /** Extra right-click actions for each pill. */
+    pillMenu?: (tag: DbTagWithCategory) => { label: string; onClick: () => void }[];
 };
 
-const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag, glowTagId }: CategoryGroupProps) => {
+const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag, glowTagId, pillMenu }: CategoryGroupProps) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(false);
@@ -86,6 +88,7 @@ const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag, glow
                                 className={glowTagId === tag.id ? "ring-2 ring-amber-300/70 animate-pulse" : ""}
                                 onRemove={isActive && !isInherited ? () => onRemoveTag(tag) : undefined}
                                 onAdd={!isActive ? () => onAddTag(tag.name) : undefined}
+                                menuItems={isActive && !isInherited ? pillMenu?.(tag) : undefined}
                             />
                         );
                     })}

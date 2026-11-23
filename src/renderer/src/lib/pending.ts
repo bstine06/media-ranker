@@ -1,4 +1,4 @@
-import type { AffectedFile, FolderRuleClash } from "@renderer/shared/types/types";
+import type { AffectedFile } from "@renderer/shared/types/types";
 import type { PendingItem } from "@renderer/contexts/PendingChangeContext";
 
 export const plural = (n: number, word: string): string =>
@@ -21,22 +21,6 @@ export function affectedItems(list: AffectedFile[]): PendingItem[] {
 /** Own tags removed in all. */
 export const removesCount = (list: AffectedFile[]): number =>
     list.reduce((n, a) => n + a.loses.length, 0);
-
-/** One line for a folder rule a batch takes off its folder. */
-export function folderRuleText(r: FolderRuleClash): string {
-    const keep = (what: string) =>
-        r.others > 0 ? ` The other ${plural(r.others, "file")} there keep ${what} as their own.` : "";
-    return r.kind === "tag"
-        ? `"${r.tag}" comes off ${r.folder} as a folder tag.${keep("the tag")}`
-        : `${r.folder}'s no for "${r.tag}" comes off the folder.${keep("the no")}`;
-}
-
-/** What a folder rule does to one file of the batch in that folder. */
-export function folderRuleDetail(r: FolderRuleClash): string {
-    return r.kind === "tag"
-        ? `"${r.tag}" comes off ${r.folder} as a folder tag`
-        : `${r.folder}'s no for "${r.tag}" comes off`;
-}
 
 /** Merges items for the same file (details joined). */
 export function mergeItems(items: PendingItem[]): PendingItem[] {

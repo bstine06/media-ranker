@@ -1,8 +1,7 @@
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import {
-    AffectedFile,
-    FolderRuleClash,
+    BatchTagResult,
     DbFile,
     DbTag,
     DbTagWithCategory,
@@ -14,15 +13,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryGroup from "@renderer/components/CategoryGroup";
 import { TagInput } from "@renderer/components/TagInput";
 import { TagPill } from "@renderer/components/TagPill";
-import { PendingItem, PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
-import {
-    affectedItems,
-    folderRuleDetail,
-    folderRuleText,
-    mergeItems,
-    plural,
-    removesCount,
-} from "@renderer/lib/pending";
+import ConfirmDialog from "@renderer/components/ConfirmDialog";
+import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
+import { affectedItems, plural, removesCount } from "@renderer/lib/pending";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { useStatus } from "@renderer/contexts/StatusContext";
 import { groupTagsByCategory } from "@renderer/lib/tagGroups";
@@ -32,56 +25,63 @@ function removedText(removed: { name: string; files: number }[]): string {
     return removed.map((r) => `"${r.name}" from ${plural(r.files, "file")}`).join(", ");
 }
 
-/** The same folder rule can turn up once per staged tag. */
-function uniqueRules(rules: FolderRuleClash[]): FolderRuleClash[] {
-    const seen = new Set<string>();
-    return rules.filter((r) => {
-        const key = `${r.folderId}:${r.tagId}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-}
-
 const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(", ");
 
-// A batch's files in a folder whose rule comes off, each with what happens
-// (fresh records: a file may have been moved since).
-async function batchRuleItems(fileIds: number[], rules: FolderRuleClash[]): Promise<PendingItem[]> {
-    if (rules.length === 0) return [];
-    const files: DbFile[] = await window.api.getFilesByIds(fileIds);
-    const out: PendingItem[] = [];
-    for (const f of files) {
-        for (const r of rules) {
-            if (f.folder_id === r.folderId) out.push({ fileId: f.id, detail: folderRuleDetail(r) });
-        }
-    }
-    return out;
-}
+/** A batch about to run: the selection, the other files shown, and what
+ *  it would do per tag. */
+type BatchConfirm = {
+    names: string[];
+    selected: number[];
+    rest: number[];
+    mode: "yes" | "no";
+    preview: BatchTagResult[];
+};
 
-// What a batch no would do right now, over all its tags.
-async function batchNoState(fileIds: number[], names: string[]): Promise<PendingState> {
-    const affected: AffectedFile[] = [];
-    let rules: FolderRuleClash[] = [];
-    for (const name of names) {
-        const p = await window.api.previewBatchNo(fileIds, name);
-        affected.push(...p.affected);
-        rules.push(...p.folderRules);
-    }
-    rules = uniqueRules(rules);
-    return {
-        items: mergeItems([...affectedItems(affected), ...(await batchRuleItems(fileIds, rules))]),
-        lines: rules.map(folderRuleText),
-        removes: removesCount(affected),
-    };
-}
+/** A folder rule about to be turned into one on each file. */
+type ConvertConfirm = { tag: string; kind: "tag" | "no"; files: number };
 
-async function batchYesState(fileIds: number[], names: string[]): Promise<PendingState> {
-    const rules = await window.api.previewBatchYes(fileIds, names);
-    return {
-        items: mergeItems(await batchRuleItems(fileIds, rules)),
-        lines: rules.map(folderRuleText),
-    };
+/** What the confirm says for one tag of a batch. */
+function BatchTagLines({ r, selected, mode }: { r: BatchTagResult; selected: number; mode: "yes" | "no" }) {
+    const blocked = r.blocked.reduce((n, b) => n + b.files, 0);
+    const going = selected - blocked;
+    return (
+        <div className="flex flex-col gap-1.5">
+            {r.restChanged > 0 && (
+                <p className="text-sm font-semibold text-neutral-100">
+                    {mode === "yes"
+                        ? `⊘ ${plural(r.restChanged, "other file")} shown get a pass no for "${r.tag}"`
+                        : `✓ ${plural(r.restChanged, "other file")} shown get "${r.tag}"`}
+                </p>
+            )}
+            {going > 0 && (
+                <p>
+                    {mode === "yes"
+                        ? `✓ ${plural(going, "selected file")} get "${r.tag}"`
+                        : `⊘ ${plural(going, "selected file")} get a no for "${r.tag}"`}
+                </p>
+            )}
+            {r.removed.length > 0 && (
+                <p>
+                    Takes off{" "}
+                    {r.removed.map((x) => `"${x.name}" (${plural(x.files, "file")})`).join(", ")}.
+                </p>
+            )}
+            {r.restUnchanged > 0 && r.restChanged + r.restUnchanged > 0 && (
+                <p className="text-neutral-500">
+                    {plural(r.restUnchanged, "other file")} shown already{" "}
+                    {r.restUnchanged === 1 ? "has" : "have"} "{r.tag}" or{" "}
+                    {r.restUnchanged === 1 ? "is" : "are"} marked no, and won't change.
+                </p>
+            )}
+            {r.blocked.map((b) => (
+                <p key={`${b.folder}:${b.tag}`} className="text-amber-200/90">
+                    {mode === "yes"
+                        ? `! ${plural(b.files, "selected file")} ${b.files === 1 ? "is" : "are"} in ${b.folder}, which has a no for "${b.tag}", so ${b.files === 1 ? "it" : "they"} won't be tagged. To tag ${b.files === 1 ? "it" : "them"}: open ${b.folder}'s folder panel, right-click "${b.tag}", choose "Turn into a no on each file". ${b.folder}'s files keep the no, but files added to ${b.folder} later won't get it.`
+                        : `! ${plural(b.files, "selected file")} ${b.files === 1 ? "is" : "are"} in ${b.folder}, which has the folder tag "${b.tag}", so ${b.files === 1 ? "it" : "they"} won't be marked no. To mark ${b.files === 1 ? "it" : "them"}: open ${b.folder}'s folder panel, right-click "${b.tag}", choose "Turn into a tag on each file". ${b.folder}'s files keep the tag, but files added to ${b.folder} later won't get it.`}
+                </p>
+            ))}
+        </div>
+    );
 }
 
 export default function FolderTagPanel({
@@ -90,8 +90,8 @@ export default function FolderTagPanel({
     onRemoveFolderTag,
     onFolderTagsChanged,
     selectedFiles = [],
-    onExecuteBatchTag,
-    onAfterBatchNo,
+    shownFiles = [],
+    onAfterBatch,
 }: {
     folderTags: DbTag[];
     onAddFolderTag: (tag: string) => Promise<FolderRuleResult>;
@@ -99,8 +99,10 @@ export default function FolderTagPanel({
     /** A folder no swapped out one of the folder's tags: reread them. */
     onFolderTagsChanged: () => Promise<void>;
     selectedFiles?: DbFile[]; // Current Browse selection
-    onExecuteBatchTag?: (tagNames: string[], files: DbFile[]) => Promise<void>;
-    onAfterBatchNo?: () => void;
+    /** Every file Browse shows now (the batch's "other files shown"). */
+    shownFiles?: DbFile[];
+    /** After a batch ran (refresh what it changed). */
+    onAfterBatch?: () => void;
 }): JSX.Element {
     // Staged tags for batch operation
     const [stagedTags, setStagedTags] = useState<DbTag[]>([]);
@@ -114,6 +116,8 @@ export default function FolderTagPanel({
     const [folderNoes, setFolderNoes] = useState<DbTag[]>([]);
     const [error, setError] = useState<string | null>(null);
     const { requestChange } = usePendingChange();
+    const [batchConfirm, setBatchConfirm] = useState<BatchConfirm | null>(null);
+    const [convert, setConvert] = useState<ConvertConfirm | null>(null);
     // A tag that just moved between the folder's tags and noes (a swap).
     const [glow, setGlow] = useState<number | null>(null);
 
@@ -347,116 +351,65 @@ export default function FolderTagPanel({
         setStagedTags((prev) => prev.filter((t) => t.id !== tag.id));
     }, []);
 
-    const commitBatchNo = useCallback(
-        async (names: string[], files: DbFile[]) => {
-            const ids = files.map((f) => f.id);
-            // All the tags in one call: one undo entry.
-            const res = await window.api.batchNo(ids, names);
-            const rules = uniqueRules(res.folderRules).length;
+    // Apply: always confirms, with what it does to the selection and to the
+    // other files shown (frozen now).
+    const executeBatch = useCallback(async () => {
+        if (stagedTags.length === 0 || selectedFiles.length === 0) return;
+        const names = stagedTags.map((t) => t.name);
+        const selected = selectedFiles.map((f) => f.id);
+        const chosen = new Set(selected);
+        const rest = shownFiles.filter((f) => !chosen.has(f.id)).map((f) => f.id);
+        const mode = batchNoMode ? "no" : "yes";
+        const preview = await window.api.previewBatchApply(selected, rest, names, mode);
+        setBatchConfirm({ names, selected, rest, mode, preview });
+    }, [stagedTags, selectedFiles, shownFiles, batchNoMode]);
+
+    const runBatch = useCallback(
+        async (b: BatchConfirm, withRest: boolean) => {
+            setBatchConfirm(null);
+            const res = await window.api.batchApply(b.selected, withRest ? b.rest : [], b.names, b.mode);
             await refreshTags();
-            onAfterBatchNo?.();
+            onAfterBatch?.();
             onFolderTagsChanged?.();
             loadNoes();
             setStagedTags([]);
-            const what = names.map((n) => `"${n}"`).join(", ");
+            const others = Math.max(0, ...res.map((r) => r.restChanged));
+            const skipped = Math.max(0, ...res.map((r) => r.blocked.reduce((n, x) => n + x.files, 0)));
             setStatus(
-                `Not ${what} on ${plural(files.length, "file")}` +
-                    (rules > 0 ? ` · ${plural(rules, "folder tag")} removed` : ""),
+                (b.mode === "yes"
+                    ? `Tagged ${plural(b.selected.length - skipped, "file")} ${quoted(b.names)}`
+                    : `Not ${quoted(b.names)} on ${plural(b.selected.length - skipped, "file")}`) +
+                    (others > 0
+                        ? b.mode === "yes"
+                            ? ` · pass no on ${plural(others, "other file")}`
+                            : ` · tagged ${plural(others, "other file")}`
+                        : "") +
+                    (skipped > 0 ? ` · ${plural(skipped, "file")} skipped (folder rule)` : ""),
             );
             setTimeout(resetStatus, 4000);
         },
-        [refreshTags, onAfterBatchNo, onFolderTagsChanged, loadNoes, setStatus, resetStatus],
+        [refreshTags, onAfterBatch, onFolderTagsChanged, loadNoes, setStatus, resetStatus],
     );
 
-    const executeBatch = useCallback(async () => {
-        if (stagedTags.length === 0 || selectedFiles.length === 0) return;
-        const tagNames = stagedTags.map((t) => t.name);
-        const ids = selectedFiles.map((f) => f.id);
-        const files = selectedFiles;
-        const n = plural(files.length, "file");
-        if (!batchNoMode) {
-            // A folder no ruling a tag out: confirm taking it off the folder.
-            const initial = await batchYesState(ids, tagNames);
-            if (initial.lines && initial.lines.length > 0) {
-                await requestChange({
-                    title: `Tag ${n} ${quoted(tagNames)}?`,
-                    message: (
-                        <ul className="flex flex-col gap-1">
-                            {initial.lines.map((l) => (
-                                <li key={l}>{l}</li>
-                            ))}
-                        </ul>
-                    ),
-                    dockTitle: `Batch tag pending: ${quoted(tagNames)} on ${n}`,
-                    initial,
-                    load: () => batchYesState(ids, tagNames),
-                    confirm: {
-                        label: (live) =>
-                            live.lines && live.lines.length > 0
-                                ? `Remove from ${live.lines.length === 1 ? "folder" : "folders"} and tag ${n}`
-                                : `Tag ${n}`,
-                        run: async () => {
-                            await onExecuteBatchTag?.(tagNames, files);
-                            onFolderTagsChanged?.();
-                            loadNoes();
-                            setStagedTags([]);
-                        },
-                    },
-                });
-                return;
-            }
-            await onExecuteBatchTag?.(tagNames, files);
-            setStagedTags([]);
-            return;
-        }
-        // Noes: confirm when tags would come off the files or a folder.
-        const initial = await batchNoState(ids, tagNames);
-        if (initial.items.length > 0 || (initial.lines?.length ?? 0) > 0) {
-            await requestChange({
-                title: `Not ${quoted(tagNames)} on ${n}?`,
-                message: (
-                    <>
-                        {(initial.removes ?? 0) > 0 && (
-                            <p className="mb-2">
-                                Removes {plural(initial.removes ?? 0, "tag")} from{" "}
-                                {plural(initial.items.length, "file")}.
-                            </p>
-                        )}
-                        {initial.lines && initial.lines.length > 0 && (
-                            <ul className="flex flex-col gap-1">
-                                {initial.lines.map((l) => (
-                                    <li key={l}>{l}</li>
-                                ))}
-                            </ul>
-                        )}
-                    </>
-                ),
-                dockTitle: `Batch no pending: ${quoted(tagNames)} on ${n}`,
-                initial,
-                load: () => batchNoState(ids, tagNames),
-                confirm: {
-                    label: (live) =>
-                        [
-                            live.lines && live.lines.length > 0 ? "Remove from folder and mark" : "Mark",
-                            ` ${n} as no`,
-                            (live.removes ?? 0) > 0 ? ` · removes ${plural(live.removes ?? 0, "tag")}` : "",
-                        ].join(""),
-                    run: () => commitBatchNo(tagNames, files),
-                },
-            });
-            return;
-        }
-        await commitBatchNo(tagNames, files);
-    }, [
-        stagedTags,
-        selectedFiles,
-        batchNoMode,
-        onExecuteBatchTag,
-        commitBatchNo,
-        requestChange,
-        onFolderTagsChanged,
-        loadNoes,
-    ]);
+    const runConvert = useCallback(
+        async (c: ConvertConfirm) => {
+            setConvert(null);
+            if (!activeFolder) return;
+            await window.api.convertFolderRule(activeFolder, c.tag, c.kind);
+            await refreshTags();
+            await onFolderTagsChanged();
+            await loadNoes();
+        },
+        [activeFolder, refreshTags, onFolderTagsChanged, loadNoes],
+    );
+
+    const askConvert = useCallback(
+        async (tag: string, kind: "tag" | "no") => {
+            if (!activeFolder) return;
+            setConvert({ tag, kind, files: await window.api.countFolderFiles(activeFolder) });
+        },
+        [activeFolder],
+    );
 
     const noPills = folderNoes.map((t) => (tagMap.get(t.id) ?? t) as DbTagWithCategory);
 
@@ -484,6 +437,9 @@ export default function FolderTagPanel({
                                 onRemoveTag={removeFolderTag}
                                 onAddTag={addFolderTag}
                                 glowTagId={glow}
+                                pillMenu={(t) => [
+                                    { label: "Turn into a tag on each file", onClick: () => void askConvert(t.name, "tag") },
+                                ]}
                             />
                         ))}
                     </div>
@@ -514,6 +470,9 @@ export default function FolderTagPanel({
                                     no
                                     title={`Not allowed in ${activeFolder}`}
                                     onRemove={() => removeFolderNo(t)}
+                                    menuItems={[
+                                        { label: "Turn into a no on each file", onClick: () => void askConvert(t.name, "no") },
+                                    ]}
                                     className={glow === t.id ? "ring-2 ring-amber-300/70 animate-pulse" : ""}
                                 />
                             ))}
@@ -540,8 +499,8 @@ export default function FolderTagPanel({
                     </p>
                     <p className="text-xs text-neutral-500 italic">
                         {batchNoMode
-                            ? "Mark the files selected in Browse as not having these tags."
-                            : "Add tags to the files selected in Browse."}
+                            ? "Mark the files selected in Browse as not having these tags. The other files shown can get them instead."
+                            : "Add tags to the files selected in Browse. The other files shown can get a no for them."}
                     </p>
                 </div>
 
@@ -606,6 +565,67 @@ export default function FolderTagPanel({
                 </div>
             </div>
 
+            {batchConfirm && (() => {
+                const b = batchConfirm;
+                const n = b.selected.length;
+                const others = Math.max(0, ...b.preview.map((r) => r.restChanged));
+                const what = b.mode === "yes" ? `Yes on ${n.toLocaleString()}` : `No on ${n.toLocaleString()}`;
+                const opposite = b.mode === "yes" ? "no" : "yes";
+                return (
+                    <ConfirmDialog
+                        title={
+                            b.mode === "yes"
+                                ? `Tag ${quoted(b.names)} on ${plural(n, "file")}?`
+                                : `Mark ${quoted(b.names)} as no on ${plural(n, "file")}?`
+                        }
+                        message={
+                            <div className="flex flex-col gap-3">
+                                {b.preview.map((r) => (
+                                    <div key={r.tag}>
+                                        {b.preview.length > 1 && (
+                                            <p className="mb-1 text-[11px] uppercase tracking-wider text-neutral-500">
+                                                "{r.tag}"
+                                            </p>
+                                        )}
+                                        <BatchTagLines r={r} selected={n} mode={b.mode} />
+                                    </div>
+                                ))}
+                            </div>
+                        }
+                        danger={b.mode === "no"}
+                        confirmText={others > 0 ? `${what} · ${opposite} on ${others.toLocaleString()}` : what}
+                        onConfirm={() => void runBatch(b, true)}
+                        onCancel={() => setBatchConfirm(null)}
+                        secondary={
+                            others > 0
+                                ? {
+                                      text: `Only the ${n.toLocaleString()} selected`,
+                                      onClick: () => void runBatch(b, false),
+                                  }
+                                : undefined
+                        }
+                    />
+                );
+            })()}
+
+            {convert && (
+                <ConfirmDialog
+                    title={
+                        convert.kind === "no"
+                            ? `Turn "${convert.tag}" into a no on each file?`
+                            : `Turn "${convert.tag}" into a tag on each file?`
+                    }
+                    message={
+                        convert.kind === "no"
+                            ? `The ${plural(convert.files, "file")} in ${activeFolder} each get their own no for "${convert.tag}". Files added to ${activeFolder} later won't get it.`
+                            : `The ${plural(convert.files, "file")} in ${activeFolder} each get "${convert.tag}" as their own tag. Files added to ${activeFolder} later won't get it.`
+                    }
+                    danger={false}
+                    confirmText={convert.kind === "no" ? "Turn into a no on each file" : "Turn into a tag on each file"}
+                    onConfirm={() => void runConvert(convert)}
+                    onCancel={() => setConvert(null)}
+                />
+            )}
         </div>
     );
 }

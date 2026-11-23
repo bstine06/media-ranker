@@ -22,9 +22,11 @@ interface TagPillProps {
   no?: boolean;
   title?: string;
   className?: string;
+  /** Extra actions at the top of the right-click menu. */
+  menuItems?: { label: string; onClick: () => void }[];
 }
 
-export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia, conflict, no, title, className }: TagPillProps) {
+export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia, conflict, no, title, className, menuItems }: TagPillProps) {
   const color = tag.category?.color ?? "#888";
   const icon = tag.category?.icon ?? "●";
 
@@ -179,6 +181,19 @@ export function TagPill({ tag, onRemove, applied, onAdd, inherited, inheritedVia
           className="fixed bg-neutral-900 border border-neutral-700 rounded-md shadow-lg py-1 z-50 min-w-[160px] max-h-[220px] overflow-y-auto"
           style={getMenuPosition()}
         >
+          {menuItems?.map((m) => (
+            <button
+              key={m.label}
+              onClick={() => {
+                setContextMenu(null);
+                m.onClick();
+              }}
+              className="w-full px-3 py-1.5 text-left text-xs text-neutral-200 hover:bg-neutral-800 transition-colors"
+            >
+              {m.label}
+            </button>
+          ))}
+          {menuItems && menuItems.length > 0 && <div className="border-t border-neutral-700 my-1" />}
           <button
             onClick={() => handleCategorySelect(null)}
             className="w-full px-3 py-1.5 text-left text-xs text-neutral-300 hover:bg-neutral-800 transition-colors"
