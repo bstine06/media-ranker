@@ -57,6 +57,8 @@ const INFO_BAR_ZONE_PX = 88;
 
 // Matchups remembered for undo (⌘Z): undoing a pick puts it back on screen.
 const UNDO_LIMIT = 200;
+/** Pairs remembered for replaying after an undo (see replayRef). */
+const REPLAY_LIMIT = 5;
 
 // Placement (main/placement.ts): the file being placed stays on its side
 // while opponents are picked by binary search over the other side's pool.
@@ -78,6 +80,8 @@ interface PlacementState {
 
 interface UndoEntry {
     pair: [DbFile, DbFile];
+    /** Who won it (to tell whether a re-pick after undo went the same way). */
+    winnerId: number;
     focus: Side;
     king: KingState | null;
     recentChallengers: number[];
@@ -144,6 +148,30 @@ export default function CompareView({
         key: string;
         pair: [DbFile, DbFile];
     } | null>(null);
+
+    // ── Replaying after an undo ─────────────────────────────────────────────
+    // Undoing a pick brings its pair back; the pair that was on screen goes
+    // to the front of this list (the last REPLAY_LIMIT, sides kept). Picking
+    // again, or redoing, shows those pairs again in order instead of new
+    // ones. In King of the Hill and placement the next pair depends on who
+    // won, so a different result drops the list (the king or the file being
+    // placed no longer matches). So does a different selection or filter.
+    type ReplayEntry = {
+        pair: [DbFile, DbFile];
+        kingId: number | null;
+        placingId: number | null;
+        scope: string;
+    };
+    const replayRef = useRef<ReplayEntry[]>([]);
+    /** Who won each undone pick, by pair. */
+    const undoneWinnersRef = useRef<Map<string, number>>(new Map());
+    const scopeRef = useRef("");
+    scopeRef.current = `${laneKey}|${tagKey}`;
+    const pairKey = (p: [DbFile, DbFile]) => [p[0].id, p[1].id].sort((x, y) => x - y).join("-");
+    const dropReplay = () => {
+        replayRef.current = [];
+        undoneWinnersRef.current.clear();
+    };
 
     // ── King of the Hill ────────────────────────────────────────────────────
     const { king, crown, setKing, endKing } = useKingOfHill();
@@ -516,6 +544,52 @@ export default function CompareView({
         pairShownAtRef.current = performance.now();
     }, [pair]);
 
+    /** After `picked` was decided (a re-pick or a redo): shows the next
+     *  remembered pair, if it still fits. False: load a new pair as usual. */
+    const playReplay = async (picked: [DbFile, DbFile], winnerId: number): Promise<boolean> => {
+        if (replayRef.current.length === 0) return false;
+        const expected = undoneWinnersRef.current.get(pairKey(picked));
+        undoneWinnersRef.current.delete(pairKey(picked));
+        // Only a pair that was undone leads into the remembered ones; in
+        // King of the Hill and placement, only if it went the same way.
+        const dependsOnResult = kingRef.current != null || placementRef.current != null;
+        if (expected === undefined || (dependsOnResult && expected !== winnerId)) {
+            dropReplay();
+            return false;
+        }
+        while (replayRef.current.length > 0) {
+            const e = replayRef.current.shift()!;
+            if (
+                e.scope !== scopeRef.current ||
+                e.kingId !== (kingRef.current?.file.id ?? null) ||
+                e.placingId !== (placementRef.current?.file.id ?? null)
+            ) {
+                dropReplay();
+                return false;
+            }
+            // Fresh copies (scores changed); skip a pair with a file gone.
+            const rows = await window.api.getFilesByIds(e.pair.map((f) => f.id));
+            const byId = new Map(rows.map((f) => [f.id, f]));
+            const a = byId.get(e.pair[0].id);
+            const b = byId.get(e.pair[1].id);
+            if (!a || !b || a.status !== "active" || b.status !== "active") continue;
+            const k = kingRef.current;
+            if (k) {
+                const challenger = k.side === "a" ? b : a;
+                recentChallengersRef.current = [
+                    challenger.id,
+                    ...recentChallengersRef.current.filter((id) => id !== challenger.id),
+                ].slice(0, 10);
+            }
+            setPair([a, b]);
+            setLoading(false);
+            if (replayRef.current.length === 0) undoneWinnersRef.current.clear();
+            return true;
+        }
+        dropReplay();
+        return false;
+    };
+
     const handlePick = useCallback(
         async (winnerSide: Side) => {
             if (comparing || !pair) return;
@@ -530,6 +604,7 @@ export default function CompareView({
                     ...undoStackRef.current,
                     {
                         pair,
+                        winnerId: winner.id,
                         focus,
                         king: kingBefore,
                         recentChallengers: recentBefore,
@@ -568,7 +643,7 @@ export default function CompareView({
                     }
                     bump();
                 }
-                await loadPair(null);
+                if (!(await playReplay(pair, winner.id))) await loadPair(null);
                 setFocus(winnerSide);
                 setComparing(false);
                 return;
@@ -601,7 +676,7 @@ export default function CompareView({
                 setKing(nextKing);
             }
 
-            await loadPair(nextKing);
+            if (!(res && (await playReplay(pair, winner.id)))) await loadPair(nextKing);
             setFocus(winnerSide);
             setComparing(false);
         },
@@ -615,6 +690,8 @@ export default function CompareView({
     // may have changed scores, so the pair on screen is refetched.
     const loadPairForHistoryRef = useRef(loadPair);
     loadPairForHistoryRef.current = loadPair;
+    const playReplayRef = useRef(playReplay);
+    playReplayRef.current = playReplay;
     useEffect(() => {
         return window.api.onHistoryApplied(async (applied) => {
             const meta = applied.meta;
@@ -641,6 +718,23 @@ export default function CompareView({
                 if (!a || !b) return;
                 const restored: [DbFile, DbFile] = [a, b];
                 prefetchedRef.current = null;
+                // The pair on screen goes to the front of the replay, as it
+                // was shown (the king / placement as they are now).
+                const onScreen = pairRef.current;
+                if (onScreen && pairKey(onScreen) !== pairKey(restored)) {
+                    replayRef.current = [
+                        {
+                            pair: onScreen,
+                            kingId: kingRef.current?.file.id ?? null,
+                            placingId: placementRef.current?.file.id ?? null,
+                            scope: scopeRef.current,
+                        },
+                        ...replayRef.current,
+                    ].slice(0, REPLAY_LIMIT);
+                }
+                const undoneWinner =
+                    entry?.winnerId ?? (meta?.kind === "compare" ? meta.winnerId : undefined);
+                if (undoneWinner !== undefined) undoneWinnersRef.current.set(pairKey(restored), undoneWinner);
                 if (entry) {
                     let k = entry.king;
                     if (k) {
@@ -662,6 +756,46 @@ export default function CompareView({
 
             const current = pairRef.current;
             if (ids && !applied.error && applied.direction === "redo" && samePair(current)) {
+                // A redone pick (not placement: its range isn't redone here)
+                // moves on like picking it again: the king as after that
+                // pick, then the remembered next pair if there is one.
+                if (meta?.kind === "compare" && current) {
+                    const rows = await window.api.getFilesByIds([meta.winnerId]);
+                    const winnerFile = rows[0];
+                    const kingBefore = kingRef.current;
+                    undoStackRef.current = [
+                        ...undoStackRef.current,
+                        {
+                            pair: current,
+                            winnerId: meta.winnerId,
+                            focus: (current[0].id === meta.winnerId ? "a" : "b") as Side,
+                            king: kingBefore,
+                            recentChallengers: recentChallengersRef.current,
+                            placement: placementRef.current,
+                        },
+                    ].slice(-UNDO_LIMIT);
+                    if (kingBefore && winnerFile) {
+                        let next = kingBefore;
+                        if (meta.winnerId === kingBefore.file.id) {
+                            next = { ...kingBefore, file: winnerFile, streak: kingBefore.streak + 1 };
+                        } else if (meta.loserId === kingBefore.file.id) {
+                            recentChallengersRef.current = [
+                                kingBefore.file.id,
+                                ...recentChallengersRef.current,
+                            ].slice(0, 10);
+                            next = {
+                                file: winnerFile,
+                                streak: 1,
+                                side: (current[0].id === meta.winnerId ? "a" : "b") as Side,
+                            };
+                        }
+                        kingRef.current = next;
+                        setKing(next);
+                    }
+                    if (await playReplayRef.current(current, meta.winnerId)) return;
+                } else {
+                    dropReplay();
+                }
                 loadPairForHistoryRef.current(kingRef.current);
                 return;
             }

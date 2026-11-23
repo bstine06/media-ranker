@@ -291,3 +291,34 @@ App history
     entry
 [ ] Undo a tag change, then click a checkbox: the tag change can no
     longer be redone (expected)
+
+
+======================================================================
+8. COMPARE REPLAYS PAIRS AFTER AN UNDO
+======================================================================
+
+Normal mode
+[ ] Pick 3 pairs (note them), ⌘Z 3 times: each undo brings back the
+    earlier pair, sides as they were
+[ ] Pick again (same OR different side): the pairs you saw before come
+    back in the same order, same sides; after them, new pairs
+[ ] ⌘Z, then ⇧⌘Z: the next pair is the one you saw before (not new)
+[ ] Remembers about 5: undo 7 times, pick through: 5 familiar pairs,
+    then new ones
+
+King of the Hill
+[ ] ⌘Z a pick, pick the SAME side: the same next pairs come back
+[ ] ⌘Z a pick, pick the OTHER side: the new winner stays on (new king /
+    king keeps the hill), and the next pairs are new, not the old ones
+[ ] ⇧⌘Z a king's pick: the streak / new king is right and the
+    remembered next pair shows
+
+Placement
+[ ] ⌘Z a placement match, pick the same way: same next opponent
+[ ] Pick the other way: a different opponent (range changed)
+
+Dropped when it no longer fits
+[ ] ⌘Z a few, change the collection selection or the filter, pick:
+    new pairs
+[ ] ⌘Z, crown a king from Browse, pick: new pairs
+[ ] A remembered pair with a file deleted meanwhile is skipped
