@@ -15,6 +15,9 @@ import SweepView from "./components/SweepView";
 import TagManagerView from "./components/TagManagerView";
 import { CursorPointer } from "./components/TagPointer";
 import { HistoryDrawer, UndoToast } from "./components/History";
+import { PendingDock } from "./components/PendingDock";
+import SingleFileView from "./components/SingleFileView";
+import { usePendingChange } from "./contexts/PendingChangeContext";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -44,6 +47,9 @@ export default function App(): JSX.Element {
         resetFolders,
     } = useFolders();
     const { resetTags } = useTags();
+    // A file opened from the pending-change dock shows in place of the view.
+    const { docked, openFile, setOpenFile } = usePendingChange();
+    const shown: View | null = openFile ? null : view;
 
     useEffect(() => {
         window.api.onLibraryInvalid(() => {
@@ -181,37 +187,37 @@ export default function App(): JSX.Element {
                 <main className="flex flex-1 flex-col overflow-hidden bg-neutral-950 min-w-0">
                     <div
                         className={
-                            view === "browse"
+                            shown === "browse"
                                 ? "flex flex-1 flex-col overflow-hidden"
                                 : "hidden"
                         }
                     >
                         <BrowseView
                             setView={setView}
-                            active={view === "browse"}
+                            active={shown === "browse"}
                         />
                     </div>
                     <div
                         className={
-                            view === "compare"
+                            shown === "compare"
                                 ? "flex flex-1 flex-col overflow-hidden"
                                 : "hidden"
                         }
                     >
                         <CompareView
-                            active={view === "compare"}
+                            active={shown === "compare"}
                             setView={setView}
                         />
                     </div>
                     <div
                         className={
-                            view === "sweep"
+                            shown === "sweep"
                                 ? "flex flex-1 flex-col overflow-hidden"
                                 : "hidden"
                         }
                     >
                         <SweepView
-                            active={view === "sweep"}
+                            active={shown === "sweep"}
                             setView={setView}
                             immersive={immersive}
                             setImmersive={setImmersive}
@@ -219,13 +225,13 @@ export default function App(): JSX.Element {
                     </div>
                     <div
                         className={
-                            view === "pass"
+                            shown === "pass"
                                 ? "flex flex-1 flex-col overflow-hidden"
                                 : "hidden"
                         }
                     >
                         <PassView
-                            active={view === "pass"}
+                            active={shown === "pass"}
                             setView={setView}
                             immersive={immersive}
                             setImmersive={setImmersive}
@@ -233,18 +239,32 @@ export default function App(): JSX.Element {
                     </div>
                     <div
                         className={
-                            view === "tag-manager"
+                            shown === "tag-manager"
                                 ? "flex flex-1 flex-col overflow-hidden"
                                 : "hidden"
                         }
                     >
                         <TagManagerView
-                            active={view === "tag-manager"}
+                            active={shown === "tag-manager"}
                             setView={setView}
                         />
                     </div>
+                    {openFile && (
+                        <div className="flex flex-1 flex-col overflow-hidden">
+                            <SingleFileView
+                                key={openFile.id}
+                                file={openFile}
+                                active={true}
+                                setView={(v) => {
+                                    setOpenFile(null);
+                                    setView(v);
+                                }}
+                                onClose={() => setOpenFile(null)}
+                            />
+                        </div>
+                    )}
                 </main>
-                {!immersive && <HistoryDrawer />}
+                {!immersive && (docked ? <PendingDock /> : <HistoryDrawer />)}
             </div>
             <CursorPointer />
             <UndoToast />

@@ -45,12 +45,21 @@ export interface FileNo extends DbTag {
 
 export type FolderRuleResult = { ok: true } | { ok: false; error: string };
 
+/** One file a pending change touches: the own tags it loses and the noes
+ *  cleared on it (tag names). */
+export interface AffectedFile {
+    fileId: number;
+    loses: string[];
+    cleared: string[];
+}
+
 /** What adding a folder no would take off the folder's files. */
 export interface FolderNoPreview {
     /** It replaces the folder's tag of the same name. */
     swap: boolean;
     removed: { name: string; files: number }[];
     files: number;
+    affected: AffectedFile[];
 }
 
 /** A folder rule a batch clashes with: a folder tag giving a tag being
@@ -74,6 +83,7 @@ export interface FolderTagPreview {
     files: number;
     /** Some of their filenames (up to 20). */
     names: string[];
+    affected: AffectedFile[];
 }
 
 /** What a batch no would do (or did). */
@@ -82,6 +92,8 @@ export interface BatchNoPreview {
     files: number;
     /** Folder tags that come off their folders first. */
     folderRules: FolderRuleClash[];
+    /** Files losing own tags. */
+    affected: AffectedFile[];
 }
 
 export interface DbTagCategory {
@@ -215,6 +227,7 @@ export interface TagImplicationPreview {
     /** Files' own tags taken off because their folder now rules them out. */
     tagsRemoved: { name: string; files: number }[];
     tagsRemovedFiles: number;
+    affected: AffectedFile[];
 }
 
 /** What coverage is worked out from (see getTagCoverage). */

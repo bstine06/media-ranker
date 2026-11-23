@@ -283,7 +283,7 @@ declare global {
             previewMoveIntoFolder: (
                 absPaths: string[],
                 targetFolder: string,
-            ) => Promise<{ absPath: string; filename: string; tags: string[] }[]>;
+            ) => Promise<{ absPath: string; fileId: number; filename: string; tags: string[] }[]>;
             getPathForFile: (file: File) => string;
             getSettingsSync: () => Record<string, unknown>;
             saveSettings: (settings: Record<string, unknown>) => Promise<void>;

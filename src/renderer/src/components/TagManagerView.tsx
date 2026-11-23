@@ -12,6 +12,8 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 import { usePass } from "@renderer/contexts/PassContext";
 import TagCoverageView, { TagCoverageSummary, useTagCoverage } from "./TagCoverageView";
 import ConfirmDialog from "./ConfirmDialog";
+import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
+import { affectedItems, plural, removesCount } from "@renderer/lib/pending";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
 import { TagPill } from "./TagPill";
@@ -739,6 +741,7 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
         target: DbTagWithCategory;
         preview: TagImplicationPreview;
     } | null>(null);
+    const { requestChange } = usePendingChange();
 
     const byId = (id: number) => tagMap.get(id);
     const implies = implications
@@ -813,6 +816,33 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
         setInput("");
         if (changesNothing(preview)) {
             await commit("add", target);
+        } else if (preview.affected.length > 0 || preview.folderNoes.length > 0) {
+            // Clashes with folders or files: the confirm that can be managed.
+            const stateOf = (p: TagImplicationPreview | { error: string }): PendingState =>
+                "error" in p
+                    ? { items: [], lines: [p.error] }
+                    : {
+                          items: affectedItems(p.affected),
+                          lines: p.folderNoes.map(
+                              (n) => `${n.folder}'s no for "${n.tag}" comes off the folder.`,
+                          ),
+                          removes: removesCount(p.affected),
+                      };
+            await requestChange({
+                title: "Link tags?",
+                message: confirmMessage("add", target, preview),
+                dockTitle: `Link pending: ${tag.name} → ${target.name}`,
+                initial: stateOf(preview),
+                load: async () =>
+                    stateOf(await window.api.previewTagImplication(tag.id, target.id, "add")),
+                confirm: {
+                    label: (live) =>
+                        live.items.length > 0
+                            ? `Link · changes ${plural(live.items.length, "file")}`
+                            : "Link",
+                    run: () => commit("add", target),
+                },
+            });
         } else {
             setPending({ action: "add", target, preview });
         }
@@ -850,9 +880,11 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
         await link({ ...created, category: null });
     };
 
-    const confirmMessage = (): string => {
-        if (!pending) return "";
-        const { action, target, preview } = pending;
+    const confirmMessage = (
+        action: "add" | "remove",
+        target: DbTagWithCategory,
+        preview: TagImplicationPreview,
+    ): string => {
         if (action === "remove") {
             return (
                 `"${tag.name}" will no longer bring "${target.name}" with it. ` +
@@ -982,7 +1014,7 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
             {pending && (
                 <ConfirmDialog
                     title={pending.action === "add" ? "Link tags?" : "Remove link?"}
-                    message={confirmMessage()}
+                    message={confirmMessage(pending.action, pending.target, pending.preview)}
                     confirmText={pending.action === "add" ? "Link" : "Remove link"}
                     danger={pending.action === "remove"}
                     onConfirm={() => commit(pending.action, pending.target)}

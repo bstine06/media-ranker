@@ -1,46 +1,35 @@
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import {
-    BatchNoPreview,
+    AffectedFile,
     FolderRuleClash,
-    FolderTagPreview,
     DbFile,
     DbTag,
     DbTagWithCategory,
-    FolderNoPreview,
     FolderRuleResult,
+    FolderTagPreview,
+    FolderNoPreview,
 } from "@renderer/shared/types/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryGroup from "@renderer/components/CategoryGroup";
 import { TagInput } from "@renderer/components/TagInput";
 import { TagPill } from "@renderer/components/TagPill";
-import ConfirmDialog from "@renderer/components/ConfirmDialog";
+import { PendingItem, PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
+import {
+    affectedItems,
+    folderRuleDetail,
+    folderRuleText,
+    mergeItems,
+    plural,
+    removesCount,
+} from "@renderer/lib/pending";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { useStatus } from "@renderer/contexts/StatusContext";
 import { groupTagsByCategory } from "@renderer/lib/tagGroups";
 
-const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
-
 /** "cat from 12 files, kitten from 3 files" */
 function removedText(removed: { name: string; files: number }[]): string {
     return removed.map((r) => `"${r.name}" from ${plural(r.files, "file")}`).join(", ");
-}
-
-/** One line per folder rule a batch takes off its folder. */
-function FolderRuleLines({ rules }: { rules: FolderRuleClash[] }): JSX.Element {
-    const keep = (r: FolderRuleClash, what: string) =>
-        r.others > 0 ? ` The other ${plural(r.others, "file")} there keep ${what} as their own.` : "";
-    return (
-        <ul className="mb-2 flex flex-col gap-1">
-            {rules.map((r) => (
-                <li key={`${r.folderId}:${r.tagId}`}>
-                    {r.kind === "tag"
-                        ? `"${r.tag}" comes off ${r.folder} as a folder tag.${keep(r, "the tag")}`
-                        : `${r.folder}'s no for "${r.tag}" comes off the folder.${keep(r, "the no")}`}
-                </li>
-            ))}
-        </ul>
-    );
 }
 
 /** The same folder rule can turn up once per staged tag. */
@@ -54,14 +43,46 @@ function uniqueRules(rules: FolderRuleClash[]): FolderRuleClash[] {
     });
 }
 
-// A pending confirm: adding a folder no that takes tags off files, a batch
-// no that removes tags or takes folder tags off, or a batch yes that takes
-// folder noes off.
-type Pending =
-    | { kind: "folderTag"; name: string; preview: FolderTagPreview }
-    | { kind: "folderNo"; name: string; preview: FolderNoPreview }
-    | { kind: "batchNo"; names: string[]; files: DbFile[]; preview: BatchNoPreview }
-    | { kind: "batchYes"; names: string[]; files: DbFile[]; rules: FolderRuleClash[] };
+const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(", ");
+
+// A batch's files in a folder whose rule comes off, each with what happens
+// (fresh records: a file may have been moved since).
+async function batchRuleItems(fileIds: number[], rules: FolderRuleClash[]): Promise<PendingItem[]> {
+    if (rules.length === 0) return [];
+    const files: DbFile[] = await window.api.getFilesByIds(fileIds);
+    const out: PendingItem[] = [];
+    for (const f of files) {
+        for (const r of rules) {
+            if (f.folder_id === r.folderId) out.push({ fileId: f.id, detail: folderRuleDetail(r) });
+        }
+    }
+    return out;
+}
+
+// What a batch no would do right now, over all its tags.
+async function batchNoState(fileIds: number[], names: string[]): Promise<PendingState> {
+    const affected: AffectedFile[] = [];
+    let rules: FolderRuleClash[] = [];
+    for (const name of names) {
+        const p = await window.api.previewBatchNo(fileIds, name);
+        affected.push(...p.affected);
+        rules.push(...p.folderRules);
+    }
+    rules = uniqueRules(rules);
+    return {
+        items: mergeItems([...affectedItems(affected), ...(await batchRuleItems(fileIds, rules))]),
+        lines: rules.map(folderRuleText),
+        removes: removesCount(affected),
+    };
+}
+
+async function batchYesState(fileIds: number[], names: string[]): Promise<PendingState> {
+    const rules = await window.api.previewBatchYes(fileIds, names);
+    return {
+        items: mergeItems(await batchRuleItems(fileIds, rules)),
+        lines: rules.map(folderRuleText),
+    };
+}
 
 export default function FolderTagPanel({
     folderTags,
@@ -92,7 +113,7 @@ export default function FolderTagPanel({
 
     const [folderNoes, setFolderNoes] = useState<DbTag[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [pending, setPending] = useState<Pending | null>(null);
+    const { requestChange } = usePendingChange();
     // A tag that just moved between the folder's tags and noes (a swap).
     const [glow, setGlow] = useState<number | null>(null);
 
@@ -168,13 +189,36 @@ export default function FolderTagPanel({
                     return;
                 }
                 if (preview.files > 0) {
-                    setPending({ kind: "folderTag", name: trimmed, preview });
+                    const folder = activeFolder;
+                    const stateOf = (p: FolderTagPreview | { error: string }): PendingState =>
+                        "error" in p ? { items: [], lines: [p.error] } : { items: affectedItems(p.affected) };
+                    await requestChange({
+                        title: `Add "${trimmed}" to ${folder}?`,
+                        message: (
+                            <p>
+                                {plural(preview.files, "file")} in {folder}{" "}
+                                {preview.files === 1 ? "is" : "are"} marked no for{" "}
+                                {quoted(preview.cleared.map((c) => c.name))}. Adding it to the folder
+                                clears those noes.
+                            </p>
+                        ),
+                        dockTitle: `Folder tag pending: "${trimmed}" → ${folder}`,
+                        initial: stateOf(preview),
+                        load: async () => stateOf(await window.api.previewFolderTag(folder, trimmed)),
+                        confirm: {
+                            label: (live) =>
+                                live.items.length > 0
+                                    ? `Clear noes on ${plural(live.items.length, "file")} and add`
+                                    : "Add to the folder",
+                            run: () => commitFolderTag(trimmed),
+                        },
+                    });
                     return;
                 }
             }
             await commitFolderTag(trimmed);
         },
-        [activeFolder, folderTags, commitFolderTag],
+        [activeFolder, folderTags, commitFolderTag, requestChange],
     );
 
     const removeFolderTag = useCallback(
@@ -215,12 +259,44 @@ export default function FolderTagPanel({
                 return;
             }
             if (preview.files > 0) {
-                setPending({ kind: "folderNo", name: trimmed, preview });
+                const folder = activeFolder;
+                const stateOf = (p: FolderNoPreview | { error: string }): PendingState =>
+                    "error" in p
+                        ? { items: [], lines: [p.error] }
+                        : {
+                              items: affectedItems(p.affected),
+                              lines: p.swap ? [`Replaces the folder's tag "${trimmed}".`] : [],
+                              removes: removesCount(p.affected),
+                          };
+                await requestChange({
+                    title: `Not "${trimmed}" in ${folder}?`,
+                    message: (
+                        <>
+                            {preview.swap && (
+                                <p className="mb-2">It replaces the folder's tag "{trimmed}".</p>
+                            )}
+                            <p>
+                                Removes {removedText(preview.removed)} ({plural(preview.files, "file")} in
+                                all).
+                            </p>
+                        </>
+                    ),
+                    dockTitle: `Folder no pending: not "${trimmed}" in ${folder}`,
+                    initial: stateOf(preview),
+                    load: async () => stateOf(await window.api.previewFolderNo(folder, trimmed)),
+                    confirm: {
+                        label: (live) =>
+                            live.items.length > 0
+                                ? `Add the no · removes ${plural(live.removes ?? 0, "tag")}`
+                                : "Add the no",
+                        run: () => commitFolderNo(trimmed),
+                    },
+                });
                 return;
             }
             await commitFolderNo(trimmed);
         },
-        [activeFolder, folderNoes, commitFolderNo],
+        [activeFolder, folderNoes, commitFolderNo, requestChange],
     );
 
     const removeFolderNo = useCallback(
@@ -296,32 +372,91 @@ export default function FolderTagPanel({
         if (stagedTags.length === 0 || selectedFiles.length === 0) return;
         const tagNames = stagedTags.map((t) => t.name);
         const ids = selectedFiles.map((f) => f.id);
+        const files = selectedFiles;
+        const n = plural(files.length, "file");
         if (!batchNoMode) {
             // A folder no ruling a tag out: confirm taking it off the folder.
-            const rules = await window.api.previewBatchYes(ids, tagNames);
-            if (rules.length > 0) {
-                setPending({ kind: "batchYes", names: tagNames, files: selectedFiles, rules });
+            const initial = await batchYesState(ids, tagNames);
+            if (initial.lines && initial.lines.length > 0) {
+                await requestChange({
+                    title: `Tag ${n} ${quoted(tagNames)}?`,
+                    message: (
+                        <ul className="flex flex-col gap-1">
+                            {initial.lines.map((l) => (
+                                <li key={l}>{l}</li>
+                            ))}
+                        </ul>
+                    ),
+                    dockTitle: `Batch tag pending: ${quoted(tagNames)} on ${n}`,
+                    initial,
+                    load: () => batchYesState(ids, tagNames),
+                    confirm: {
+                        label: (live) =>
+                            live.lines && live.lines.length > 0
+                                ? `Remove from ${live.lines.length === 1 ? "folder" : "folders"} and tag ${n}`
+                                : `Tag ${n}`,
+                        run: async () => {
+                            await onExecuteBatchTag?.(tagNames, files);
+                            onFolderTagsChanged?.();
+                            loadNoes();
+                            setStagedTags([]);
+                        },
+                    },
+                });
                 return;
             }
-            await onExecuteBatchTag?.(tagNames, selectedFiles);
+            await onExecuteBatchTag?.(tagNames, files);
             setStagedTags([]);
             return;
         }
         // Noes: confirm when tags would come off the files or a folder.
-        const total: BatchNoPreview = { removed: [], files: 0, folderRules: [] };
-        for (const name of tagNames) {
-            const p = await window.api.previewBatchNo(ids, name);
-            total.removed.push(...p.removed);
-            total.folderRules.push(...p.folderRules);
-            total.files = Math.max(total.files, p.files);
-        }
-        total.folderRules = uniqueRules(total.folderRules);
-        if (total.removed.length > 0 || total.folderRules.length > 0) {
-            setPending({ kind: "batchNo", names: tagNames, files: selectedFiles, preview: total });
+        const initial = await batchNoState(ids, tagNames);
+        if (initial.items.length > 0 || (initial.lines?.length ?? 0) > 0) {
+            await requestChange({
+                title: `Not ${quoted(tagNames)} on ${n}?`,
+                message: (
+                    <>
+                        {(initial.removes ?? 0) > 0 && (
+                            <p className="mb-2">
+                                Removes {plural(initial.removes ?? 0, "tag")} from{" "}
+                                {plural(initial.items.length, "file")}.
+                            </p>
+                        )}
+                        {initial.lines && initial.lines.length > 0 && (
+                            <ul className="flex flex-col gap-1">
+                                {initial.lines.map((l) => (
+                                    <li key={l}>{l}</li>
+                                ))}
+                            </ul>
+                        )}
+                    </>
+                ),
+                dockTitle: `Batch no pending: ${quoted(tagNames)} on ${n}`,
+                initial,
+                load: () => batchNoState(ids, tagNames),
+                confirm: {
+                    label: (live) =>
+                        [
+                            live.lines && live.lines.length > 0 ? "Remove from folder and mark" : "Mark",
+                            ` ${n} as no`,
+                            (live.removes ?? 0) > 0 ? ` · removes ${plural(live.removes ?? 0, "tag")}` : "",
+                        ].join(""),
+                    run: () => commitBatchNo(tagNames, files),
+                },
+            });
             return;
         }
-        await commitBatchNo(tagNames, selectedFiles);
-    }, [stagedTags, selectedFiles, batchNoMode, onExecuteBatchTag, commitBatchNo]);
+        await commitBatchNo(tagNames, files);
+    }, [
+        stagedTags,
+        selectedFiles,
+        batchNoMode,
+        onExecuteBatchTag,
+        commitBatchNo,
+        requestChange,
+        onFolderTagsChanged,
+        loadNoes,
+    ]);
 
     const noPills = folderNoes.map((t) => (tagMap.get(t.id) ?? t) as DbTagWithCategory);
 
@@ -471,101 +606,6 @@ export default function FolderTagPanel({
                 </div>
             </div>
 
-            {pending?.kind === "folderTag" && (
-                <ConfirmDialog
-                    title={`Add "${pending.name}" to ${activeFolder}?`}
-                    message={
-                        <>
-                            <p className="mb-2">
-                                {plural(pending.preview.files, "file")} in {activeFolder}{" "}
-                                {pending.preview.files === 1 ? "is" : "are"} marked no for{" "}
-                                {pending.preview.cleared.map((c) => `"${c.name}"`).join(", ")}.
-                                Adding it to the folder clears those noes.
-                            </p>
-                            <ul className="max-h-40 overflow-y-auto text-xs text-neutral-400">
-                                {pending.preview.names.map((n) => (
-                                    <li key={n} className="truncate">
-                                        {n}
-                                    </li>
-                                ))}
-                                {pending.preview.files > pending.preview.names.length && (
-                                    <li>and {plural(pending.preview.files - pending.preview.names.length, "more file")}</li>
-                                )}
-                            </ul>
-                        </>
-                    }
-                    confirmText="Clear the noes and add"
-                    onCancel={() => setPending(null)}
-                    onConfirm={() => {
-                        const name = pending.name;
-                        setPending(null);
-                        void commitFolderTag(name);
-                    }}
-                />
-            )}
-            {pending?.kind === "folderNo" && (
-                <ConfirmDialog
-                    title={`Not "${pending.name}" in ${activeFolder}?`}
-                    message={
-                        <>
-                            {pending.preview.swap && (
-                                <p className="mb-2">It replaces the folder's tag "{pending.name}".</p>
-                            )}
-                            <p>
-                                Removes {removedText(pending.preview.removed)} (
-                                {plural(pending.preview.files, "file")} in all).
-                            </p>
-                        </>
-                    }
-                    confirmText="Remove and add the no"
-                    onCancel={() => setPending(null)}
-                    onConfirm={() => {
-                        const name = pending.name;
-                        setPending(null);
-                        void commitFolderNo(name);
-                    }}
-                />
-            )}
-            {pending?.kind === "batchNo" && (
-                <ConfirmDialog
-                    title={`Not ${pending.names.map((n) => `"${n}"`).join(", ")} on ${plural(pending.files.length, "file")}?`}
-                    message={
-                        <>
-                            {pending.preview.removed.length > 0 && (
-                                <p className="mb-2">Removes {removedText(pending.preview.removed)}.</p>
-                            )}
-                            {pending.preview.folderRules.length > 0 && (
-                                <FolderRuleLines rules={pending.preview.folderRules} />
-                            )}
-                        </>
-                    }
-                    confirmText={pending.preview.folderRules.length > 0 ? "Remove from folder and mark as no" : "Mark as no"}
-                    onCancel={() => setPending(null)}
-                    onConfirm={() => {
-                        const { names, files } = pending;
-                        setPending(null);
-                        void commitBatchNo(names, files);
-                    }}
-                />
-            )}
-            {pending?.kind === "batchYes" && (
-                <ConfirmDialog
-                    title={`Tag ${plural(pending.files.length, "file")} ${pending.names.map((n) => `"${n}"`).join(", ")}?`}
-                    message={<FolderRuleLines rules={pending.rules} />}
-                    confirmText="Remove from folder and tag"
-                    onCancel={() => setPending(null)}
-                    onConfirm={() => {
-                        const { names, files } = pending;
-                        setPending(null);
-                        void (async () => {
-                            await onExecuteBatchTag?.(names, files);
-                            onFolderTagsChanged?.();
-                            loadNoes();
-                            setStagedTags([]);
-                        })();
-                    }}
-                />
-            )}
         </div>
     );
 }

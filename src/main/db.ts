@@ -870,6 +870,7 @@ export interface FolderTagPreview {
     /** Active files losing at least one no (count, and some names). */
     files: number;
     names: string[];
+    affected: AffectedFile[];
 }
 
 // Found by adding it and rolling back, like previewFolderNo.
@@ -898,7 +899,12 @@ export function previewFolderTag(
             .all(folderId, tagId, tagId) as { file_id: number; tag_id: number; filename: string }[];
         const { removed, files } = summarizeRemoved(rows);
         const names = [...new Map(rows.map((r) => [r.file_id, r.filename])).values()];
-        return { cleared: removed, files, names: names.slice(0, 20) };
+        return {
+            cleared: removed,
+            files,
+            names: names.slice(0, 20),
+            affected: affectedFiles([], rows),
+        };
     } finally {
         db.exec("ROLLBACK TO preview_folder_tag");
         db.exec("RELEASE preview_folder_tag");
@@ -954,6 +960,7 @@ export interface FolderNoPreview {
     removed: { name: string; files: number }[];
     /** Active files losing at least one tag. */
     files: number;
+    affected: AffectedFile[];
 }
 
 function applyFolderNo(folderId: number, tagId: number): void {
@@ -1001,7 +1008,43 @@ export function previewFolderNo(
     }
     const kept = new Set(after.map((r) => `${r.file_id}:${r.tag_id}`));
     const gone = before.filter((r) => !kept.has(`${r.file_id}:${r.tag_id}`));
-    return { swap, ...summarizeRemoved(gone) };
+    return { swap, ...summarizeRemoved(gone), affected: affectedFiles(gone) };
+}
+
+/** One file a pending change touches, for the confirm's file list: the
+ *  own tags it loses and the noes cleared on it (tag names). */
+export interface AffectedFile {
+    fileId: number;
+    loses: string[];
+    cleared: string[];
+}
+
+// Active files only, each once, tag names sorted.
+function affectedFiles(
+    loses: { file_id: number; tag_id: number }[],
+    cleared: { file_id: number; tag_id: number }[] = [],
+): AffectedFile[] {
+    const active = getDb().prepare(`SELECT 1 FROM files WHERE id = ? AND status = 'active'`);
+    const byFile = new Map<number, AffectedFile>();
+    const add = (rows: { file_id: number; tag_id: number }[], key: "loses" | "cleared") => {
+        for (const r of rows) {
+            let f = byFile.get(r.file_id);
+            if (!f) {
+                if (!active.get(r.file_id)) continue;
+                f = { fileId: r.file_id, loses: [], cleared: [] };
+                byFile.set(r.file_id, f);
+            }
+            const name = tagName(r.tag_id) ?? "?";
+            if (!f[key].includes(name)) f[key].push(name);
+        }
+    };
+    add(loses, "loses");
+    add(cleared, "cleared");
+    for (const f of byFile.values()) {
+        f.loses.sort();
+        f.cleared.sort();
+    }
+    return [...byFile.values()];
 }
 
 function summarizeRemoved(gone: { file_id: number; tag_id: number }[]): {
@@ -1731,6 +1774,7 @@ export interface TagImplicationPreview {
     /** Files' own tags taken off because their folder now rules them out. */
     tagsRemoved: { name: string; files: number }[];
     tagsRemovedFiles: number;
+    affected: AffectedFile[];
 }
 
 export function previewTagImplication(
@@ -1790,6 +1834,7 @@ export function previewTagImplication(
         noesClearedFiles: noes.files,
         tagsRemoved: tags.removed,
         tagsRemovedFiles: tags.files,
+        affected: affectedFiles(clashes.tagsRemoved, clashes.noesCleared),
     };
 }
 
@@ -2027,6 +2072,9 @@ export interface BatchNoPreview {
     files: number;
     /** Folder tags that come off their folders first (see FolderRuleClash). */
     folderRules: FolderRuleClash[];
+    /** Files losing own tags (files under a dissolved folder tag aren't
+     *  listed: they're the batch). */
+    affected: AffectedFile[];
 }
 
 // The folder rules a batch for `tagId` meets on `fileIds`. "no": folder
@@ -2148,7 +2196,7 @@ function batchNoWithRules(fileIds: number[], tagId: number): BatchNoPreview {
     const folderRules = folderRuleClashes(fileIds, tagId, "no");
     for (const r of folderRules) dissolveFolderRule(r, fileIds);
     const gone = applyBatchNo(fileIds, tagId);
-    return { ...summarizeRemoved(gone), folderRules };
+    return { ...summarizeRemoved(gone), folderRules, affected: affectedFiles(gone) };
 }
 
 export function previewBatchNo(fileIds: number[], tagId: number): BatchNoPreview {

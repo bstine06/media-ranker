@@ -6,7 +6,8 @@ import { createPortal } from "react-dom";
  * Esc or clicking outside cancels; Cancel has focus so Enter is safe.
  * `danger` (the default) colors the confirm button red; turn it off for
  * actions that aren't destructive, like merging. `secondary` adds a second
- * choice between Cancel and the confirm button.
+ * choice between Cancel and the confirm button. `extra` adds a quiet
+ * button on the left (Manage… on confirms that list files).
  */
 function ConfirmDialog({
     title,
@@ -16,6 +17,7 @@ function ConfirmDialog({
     onCancel,
     danger = true,
     secondary,
+    extra,
 }: {
     title: string;
     message: ReactNode;
@@ -24,6 +26,7 @@ function ConfirmDialog({
     onCancel?: () => void;
     danger?: boolean;
     secondary?: { text: string; onClick: () => void; danger?: boolean };
+    extra?: { text: string; onClick: () => void };
 }): JSX.Element {
     const cancelRef = useRef<HTMLButtonElement>(null);
     const confirmRef = useRef<HTMLButtonElement>(null);
@@ -69,7 +72,15 @@ function ConfirmDialog({
                 <div className="mt-2 text-xs leading-relaxed text-neutral-400">
                     {message}
                 </div>
-                <div className="mt-5 flex justify-end gap-2">
+                <div className="mt-5 flex flex-wrap justify-end gap-2">
+                    {extra && (
+                        <button
+                            onClick={extra.onClick}
+                            className="mr-auto rounded px-3 py-1.5 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-neutral-500 transition-colors"
+                        >
+                            {extra.text}
+                        </button>
+                    )}
                     {onCancel && (
                         <button
                             ref={cancelRef}
