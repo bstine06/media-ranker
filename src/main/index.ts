@@ -145,6 +145,9 @@ import {
     holdingPath,
     undo as undoHistory,
     redo as redoHistory,
+    recordState,
+    recordSelection,
+    type FilterState,
     historyList,
     clearHistory,
     flushHolding,
@@ -354,6 +357,15 @@ function registerIpcHandlers(): void {
     };
     ipcMain.handle("history:undo", async () => applied(await undoHistory()));
     ipcMain.handle("history:redo", async () => applied(await redoHistory()));
+    // View-state steps: the tag filter, the collection selection.
+    ipcMain.handle(
+        "history:record-filter",
+        (_event, label: string, before: FilterState, after: FilterState) =>
+            recordState(String(label), { kind: "filter", before, after }),
+    );
+    ipcMain.handle("history:record-selection", (_event, before: string[], after: string[]) =>
+        recordSelection(before, after),
+    );
 
     ipcMain.handle("get-root-path", () => {
         if (!rootPath) {

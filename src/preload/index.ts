@@ -518,6 +518,10 @@ const api = {
     historyList: (): Promise<HistoryItem[]> => ipcRenderer.invoke("history:list"),
     historyUndo: (): Promise<HistoryApplied | null> => ipcRenderer.invoke("history:undo"),
     historyRedo: (): Promise<HistoryApplied | null> => ipcRenderer.invoke("history:redo"),
+    recordFilterStep: (label: string, before: unknown, after: unknown): Promise<void> =>
+        ipcRenderer.invoke("history:record-filter", label, before, after),
+    recordSelectionStep: (before: string[], after: string[]): Promise<void> =>
+        ipcRenderer.invoke("history:record-selection", before, after),
     onHistoryChanged: (callback: (items: HistoryItem[]) => void) => {
         const handler = (_e: unknown, items: HistoryItem[]) => callback(items);
         ipcRenderer.on("history:changed", handler);

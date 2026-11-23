@@ -333,6 +333,13 @@ declare global {
             historyList: () => Promise<HistoryItem[]>;
             historyUndo: () => Promise<HistoryApplied | null>;
             historyRedo: () => Promise<HistoryApplied | null>;
+            /** View-state steps in the undo history (see main/undo.ts). */
+            recordFilterStep: (
+                label: string,
+                before: { tree: FilterNode | null; feed: Feed | null },
+                after: { tree: FilterNode | null; feed: Feed | null },
+            ) => Promise<void>;
+            recordSelectionStep: (before: string[], after: string[]) => Promise<void>;
             onHistoryChanged: (callback: (items: HistoryItem[]) => void) => () => void;
             onHistoryApplied: (callback: (applied: HistoryApplied) => void) => () => void;
             /** Edit ▸ Undo / Redo (⌘Z, ⇧⌘Z) from the app menu. */

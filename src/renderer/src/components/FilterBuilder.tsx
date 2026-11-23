@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import ConfirmDialog from "./ConfirmDialog";
+import { setUndoOverride, type UndoResult } from "@renderer/lib/undoOverride";
 import type {
     CountFrom,
     DbTagCategory,
@@ -142,15 +143,64 @@ export default function FilterBuilder({ onClose }: { onClose: () => void }): JSX
         return () => window.removeEventListener("keydown", onKey, true);
     }, [blockEscape]);
 
-    const edit = (path: Path, fn: (n: FilterNode) => FilterNode | null) =>
-        setDraft((d) => updateAt(d, path, fn));
+    // ── The draft's own undo ──
+    // Every edit, and loading a feed or recent filter, is a step. It lasts
+    // while the builder is open. Typing a count is one step (`mergeKey`).
+    // Meanwhile ⌘Z / ⇧⌘Z step through it, never the app's history.
+    type Snap = { draft: FilterGroup; feed: Feed | null };
+    const now = useRef<Snap>({ draft, feed: draftFeed });
+    now.current = { draft, feed: draftFeed };
+    const steps = useRef<{ past: Snap[]; future: Snap[]; mergeKey: string | null }>({
+        past: [],
+        future: [],
+        mergeKey: null,
+    });
+    const [, setStepsVersion] = useState(0);
+    const show = (snap: Snap) => {
+        now.current = snap;
+        setDraft(snap.draft);
+        setDraftFeed(snap.feed);
+        setStepsVersion((v) => v + 1);
+    };
+    const commit = (next: Snap, mergeKey: string | null = null) => {
+        const cur = now.current;
+        if (JSON.stringify(next.draft) === JSON.stringify(cur.draft) && next.feed?.id === cur.feed?.id) return;
+        const h = steps.current;
+        if (!(mergeKey && mergeKey === h.mergeKey)) h.past.push(cur);
+        h.future = [];
+        h.mergeKey = mergeKey;
+        show(next);
+    };
+    const stepDraft = (action: "undo" | "redo"): boolean => {
+        const h = steps.current;
+        const from = action === "undo" ? h.past : h.future;
+        const to = action === "undo" ? h.future : h.past;
+        const snap = from.pop();
+        if (!snap) return false;
+        to.push(now.current);
+        h.mergeKey = null;
+        show(snap);
+        return true;
+    };
+    const stepRef = useRef(stepDraft);
+    stepRef.current = stepDraft;
+    useEffect(
+        () =>
+            setUndoOverride((action): UndoResult => {
+                // A text box with something typed in it undoes its typing.
+                const el = document.activeElement as HTMLInputElement | null;
+                if (el?.tagName === "INPUT" && el.type !== "number" && el.value !== "") return "pass";
+                return stepRef.current(action) ? "done" : "empty";
+            }),
+        [],
+    );
+
+    const edit = (path: Path, fn: (n: FilterNode) => FilterNode | null, mergeKey?: string) =>
+        commit({ draft: updateAt(now.current.draft, path, fn), feed: now.current.feed }, mergeKey ?? null);
     const addTo = (path: Path, item: FilterNode) =>
         edit(path, (g) => (g.kind === "group" ? { ...g, items: [...g.items, item] } : g));
 
-    const load = (tree: FilterNode, feed: Feed | null) => {
-        setDraft(asGroup(tree));
-        setDraftFeed(feed);
-    };
+    const load = (tree: FilterNode, feed: Feed | null) => commit({ draft: asGroup(tree), feed });
 
     const save = async () => {
         if (!draftFeed || !pruned) return;
@@ -351,6 +401,20 @@ export default function FilterBuilder({ onClose }: { onClose: () => void }): JSX
                                 </FooterButton>
                                 <FooterButton
                                     className="ml-auto"
+                                    onClick={() => stepDraft("undo")}
+                                    disabled={steps.current.past.length === 0}
+                                    title="Undo a change to this filter (⌘Z)"
+                                >
+                                    ↶
+                                </FooterButton>
+                                <FooterButton
+                                    onClick={() => stepDraft("redo")}
+                                    disabled={steps.current.future.length === 0}
+                                    title="Redo (⇧⌘Z)"
+                                >
+                                    ↷
+                                </FooterButton>
+                                <FooterButton
                                     onClick={() => load(emptyFilter(), null)}
                                     disabled={!pruned && !draftFeed}
                                 >
@@ -406,7 +470,9 @@ function FooterButton({
 // ── The tree editor ─────────────────────────────────────────────────────────
 
 type EditFns = {
-    edit: (path: Path, fn: (n: FilterNode) => FilterNode | null) => void;
+    /** `mergeKey`: an edit with the same key as the last one joins its
+     *  undo step (typing a count). */
+    edit: (path: Path, fn: (n: FilterNode) => FilterNode | null, mergeKey?: string) => void;
     addTo: (path: Path, item: FilterNode) => void;
 };
 
@@ -531,8 +597,8 @@ function ItemEditor({ node, path, edit, addTo }: { node: FilterNode; path: Path 
         );
     }
 
-    const setCount = (patch: Partial<Extract<FilterNode, { kind: "count" }>>) =>
-        edit(path, (n) => (n.kind === "count" ? { ...n, ...patch } : n));
+    const setCount = (patch: Partial<Extract<FilterNode, { kind: "count" }>>, mergeKey?: string) =>
+        edit(path, (n) => (n.kind === "count" ? { ...n, ...patch } : n), mergeKey);
     const fromValue = typeof node.from === "number" ? String(node.from) : node.from;
     const select =
         "rounded bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-200 outline-none focus:ring-1 focus:ring-neutral-600";
@@ -555,7 +621,7 @@ function ItemEditor({ node, path, edit, addTo }: { node: FilterNode; path: Path 
                 value={node.n}
                 onChange={(e) => {
                     const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                    setCount({ n });
+                    setCount({ n }, `count-n:${path.join(".")}`);
                 }}
                 className={`${select} w-14 tabular-nums`}
             />

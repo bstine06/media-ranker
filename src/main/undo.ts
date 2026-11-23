@@ -55,7 +55,18 @@ export type EntryMeta =
     | { kind: "placement"; placingId: number; opponentId: number }
     /** Views showing the file may step back to it on undo. */
     | { kind: "pass-no"; fileId: number; tagId: number }
-    | { kind: "delete"; fileIds: number[] };
+    | { kind: "delete"; fileIds: number[] }
+    /** View state, not library data (no database or disk change): the
+     *  renderer puts back `before` on undo and `after` on redo. */
+    | { kind: "filter"; before: FilterState; after: FilterState }
+    | { kind: "selection"; before: string[]; after: string[] };
+
+/** The applied tag filter and the saved feed it came from (renderer types,
+ *  passed through as they are). */
+export interface FilterState {
+    tree: unknown;
+    feed: unknown;
+}
 
 /** A file or folder moved by the action. `from`/`to` are absolute. For a
  *  library file with `fileId`, its current path is read from the database
@@ -251,6 +262,32 @@ export function record<T>(
 
 export function beginStep(label: string): Step {
     return new Step(label);
+}
+
+/** A step that only changes view state (the tag filter): one entry, no
+ *  database or disk change. Like any new step, it drops the redo list. */
+export function recordState(label: string, meta: EntryMeta): void {
+    for (const e of undone.splice(0)) purge(e, false);
+    done.push({ id: nextId++, label, sql: [], disk: [], meta });
+    while (done.length > MAX_ENTRIES) purge(done.shift()!, true);
+    broadcastList();
+}
+
+/** A change to the collection selection. If the newest step is one too
+ *  (and nothing was undone since), it joins that step, however long ago
+ *  it was; a step that ends up back where it began is dropped. */
+export function recordSelection(before: string[], after: string[]): void {
+    const top = done.at(-1);
+    if (undone.length === 0 && top?.meta?.kind === "selection") {
+        const start = top.meta.before;
+        const same =
+            start.length === after.length && [...start].sort().join("\n") === [...after].sort().join("\n");
+        if (same) done.pop();
+        else top.meta = { kind: "selection", before: start, after };
+        broadcastList();
+        return;
+    }
+    recordState("Changed the collection selection", { kind: "selection", before, after });
 }
 
 // ── Undo / redo ─────────────────────────────────────────────────────────────

@@ -251,3 +251,43 @@ Making a folder
 [ ] From a Pass: you land in Browse; going back to Pass offers to pick
     up the run where it was
 [ ] A folder made in Finder does NOT open or scroll anything
+
+
+======================================================================
+7. UNDO FOR THE FILTER AND THE SELECTION
+======================================================================
+
+Filter editor (its own undo while it's open)
+[ ] Add tags, flip AND/OR, toggle WITHOUT, remove items: ⌘Z steps back
+    one change at a time, ⇧⌘Z steps forward
+[ ] The ↶ ↷ buttons (bottom right, next to Clear) do the same and are
+    greyed out when there's nothing to step
+[ ] Click a saved feed or a recent filter: ⌘Z gets back what you had
+[ ] Type a count (e.g. 3 → 35): one ⌘Z undoes the whole number
+[ ] Nothing left: ⌘Z shows "Nothing to undo" (and nothing behind the
+    editor changes)
+[ ] IMPORTANT: with the editor open, ⌘Z NEVER undoes anything in the
+    library (tag a file, open the editor, press ⌘Z a few times, close:
+    the file still has the tag)
+[ ] With text typed in the tag search box, ⌘Z undoes the typing; with
+    the box empty, it undoes the filter
+[ ] Closing the editor ends its undo; reopening starts fresh
+
+App history
+[ ] Close the editor with a changed filter, then ⌘Z: the old filter
+    comes back (toast "Undid: Applied filter “…”" or "Applied a
+    filter"); ⇧⌘Z puts the new one back
+[ ] × next to the filter in the sidebar, then ⌘Z: the filter comes back
+    ("Cleared the filter")
+[ ] Check / uncheck several collections in a row: ONE history entry
+    "Changed the collection selection"; ⌘Z puts back the selection from
+    before the first click
+[ ] Do something else (tag a file), then change the selection again:
+    that's a new entry
+[ ] clear / select all / reset are part of that same kind of entry
+[ ] Change the selection back to exactly how it was: the entry goes
+    away
+[ ] Making a folder, the first load and Finder changes add NO selection
+    entry
+[ ] Undo a tag change, then click a checkbox: the tag change can no
+    longer be redone (expected)

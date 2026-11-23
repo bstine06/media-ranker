@@ -7,7 +7,9 @@ import { useSyncExternalStore } from "react";
 let version = 0;
 const subscribers = new Set<() => void>();
 
-window.api.onHistoryApplied(() => {
+window.api.onHistoryApplied((a) => {
+    // The filter and the selection aren't library data: nothing to refetch.
+    if (a.meta?.kind === "filter" || a.meta?.kind === "selection") return;
     version++;
     subscribers.forEach((s) => s());
 });

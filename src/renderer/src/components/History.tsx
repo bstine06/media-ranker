@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { undoOverride } from "@renderer/lib/undoOverride";
 import type { HistoryItem } from "../shared/types/types";
 import { useSettings } from "../contexts/SettingsContext";
 
@@ -31,6 +32,15 @@ export function UndoToast(): JSX.Element | null {
 
     useEffect(() => {
         const offKey = window.api.onHistoryKey(async (action) => {
+            // Something with its own undo is open (the filter builder):
+            // the app's history is off limits meanwhile.
+            const own = undoOverride();
+            if (own) {
+                const res = own(action);
+                if (res === "pass") document.execCommand(action);
+                else if (res === "empty") show(action === "undo" ? "Nothing to undo" : "Nothing to redo");
+                return;
+            }
             if (isEditable(document.activeElement)) {
                 document.execCommand(action);
                 return;

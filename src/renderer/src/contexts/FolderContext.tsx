@@ -233,14 +233,38 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
         return () => unsubs.forEach((unsub) => unsub());
     }, [rootPath]);
 
+    // Selection changes made by hand (checkboxes, clear, select all, reset)
+    // go in the undo history; consecutive ones join one step (main/undo.ts).
+    // Automatic ones (first load, a new folder joining, a folder removed)
+    // don't.
+    const checkedRef = useRef(checkedFolders);
+    checkedRef.current = checkedFolders;
+    const changeSelection = useCallback((fn: (prev: Set<string>) => Set<string>) => {
+        const before = checkedRef.current;
+        const after = fn(before);
+        checkedRef.current = after;
+        setCheckedFolders(after);
+        void window.api.recordSelectionStep([...before], [...after]);
+    }, []);
+
+    // Undo / redo of a selection step puts that selection back.
+    useEffect(
+        () =>
+            window.api.onHistoryApplied((a) => {
+                if (a.error || a.meta?.kind !== "selection") return;
+                const next = new Set(a.direction === "undo" ? a.meta.before : a.meta.after);
+                checkedRef.current = next;
+                setCheckedFolders(next);
+            }),
+        [],
+    );
+
     const checkAll = useCallback(() => {
         const allPaths = selectable(folders);
-        setCheckedFolders((prev) => {
-            const allChecked = allPaths.every((p) => prev.has(p));
-            if (allChecked) return new Set();
-            return new Set(allPaths);
-        });
-    }, [folders]);
+        changeSelection((prev) =>
+            allPaths.every((p) => prev.has(p)) ? new Set() : new Set(allPaths),
+        );
+    }, [folders, changeSelection]);
 
     const refreshFolders = useCallback(async () => {
         const next = await window.api.getSubfolders();
@@ -256,21 +280,21 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
         setFolders(next);
     }, [joinIfAllSelected]);
 
-    const toggleFolder = useCallback((path: string, allPaths: string[]) => {
-        setCheckedFolders((prev) => {
-            const next = new Set(prev);
-            if (next.has(path)) {
-                allPaths.forEach((p) => next.delete(p));
-            } else {
-                allPaths.forEach((p) => next.add(p));
-            }
-            return next;
-        });
-    }, []);
+    const toggleFolder = useCallback(
+        (path: string, allPaths: string[]) =>
+            changeSelection((prev) => {
+                const next = new Set(prev);
+                if (next.has(path)) allPaths.forEach((p) => next.delete(p));
+                else allPaths.forEach((p) => next.add(p));
+                return next;
+            }),
+        [changeSelection],
+    );
 
-    const setAllChecked = useCallback((paths: string[]) => {
-        setCheckedFolders(new Set(paths));
-    }, []);
+    const setAllChecked = useCallback(
+        (paths: string[]) => changeSelection(() => new Set(paths)),
+        [changeSelection],
+    );
 
 
     const resetFolders = useCallback(() => {

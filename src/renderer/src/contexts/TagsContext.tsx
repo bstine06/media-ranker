@@ -21,6 +21,7 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
 } from "react";
 import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 
@@ -196,9 +197,40 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
 
     // --- Filtering ---
 
+    // Applying or clearing the filter is a step in the app's undo history
+    // (FilterBuilder applies on close; the sidebar's × clears).
+    const current = useRef<{ tree: FilterNode | null; feed: Feed | null }>({ tree: null, feed: null });
+    current.current = { tree: filter, feed: loadedFeed };
+    const recordFilter = (next: { tree: FilterNode | null; feed: Feed | null }) => {
+        const before = current.current;
+        if (filterKey(before.tree) === filterKey(next.tree) && before.feed?.id === next.feed?.id) return;
+        const label = !next.tree
+            ? "Cleared the filter"
+            : next.feed
+              ? `Applied filter “${next.feed.name}”` +
+                (filterKey(next.feed.tree) === filterKey(next.tree) ? "" : " (edited)")
+              : "Applied a filter";
+        current.current = next;
+        void window.api.recordFilterStep(label, before, next);
+    };
+
+    // Undo / redo of one of those steps puts the filter back.
+    useEffect(
+        () =>
+            window.api.onHistoryApplied((a) => {
+                if (a.error || a.meta?.kind !== "filter") return;
+                const state = a.direction === "undo" ? a.meta.before : a.meta.after;
+                current.current = state;
+                setFilter(state.tree);
+                setLoadedFeed(state.feed);
+            }),
+        [],
+    );
+
     const applyFilter = useCallback((tree: FilterNode | null, feed: Feed | null) => {
         const pruned = pruneFilter(tree);
         const next = pruned ? canonical(pruned) : null;
+        recordFilter({ tree: next, feed: next ? feed : null });
         setFilter(next);
         setLoadedFeed(feed);
         if (!next) return;
@@ -209,6 +241,7 @@ export function TagsProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const clearFilter = useCallback(() => {
+        recordFilter({ tree: null, feed: null });
         setFilter(null);
         setLoadedFeed(null);
     }, []);
