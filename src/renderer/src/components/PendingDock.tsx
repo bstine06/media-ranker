@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { DbFile } from "@renderer/shared/types/types";
 import {
     PendingChangeSpec,
-    PendingItem,
     PendingState,
     usePendingChange,
 } from "@renderer/contexts/PendingChangeContext";
@@ -14,12 +13,12 @@ import { useHoverPreview } from "@renderer/browse/hooks/useHoverPreview";
 /** A file's collection: its top-level folder, or Unsorted. */
 const collectionOf = (path: string) => (path.includes("/") ? path.split("/")[0] : "Unsorted");
 
-type Row = { fileId: number; file: DbFile | null; detail: string; resolved: boolean };
+type Row = { fileId: number; file: DbFile | null; detail: string };
 
 /**
  * The docked pending change (see PendingChangeContext): what it would do
- * right now, recomputed after every change. Files that stop being affected
- * stay listed as resolved. Takes the undo history's place while open.
+ * right now, recomputed after every change; files that stop being
+ * affected drop off. Takes the undo history's place while open.
  */
 export function PendingDock(): JSX.Element | null {
     const { docked, finish, setOpenFile } = usePendingChange();
@@ -44,9 +43,6 @@ function DockBody({
     onOpen: (file: DbFile) => void;
 }): JSX.Element {
     const [live, setLive] = useState<PendingState>(spec.initial);
-    // Every file listed so far, in first-seen order, with its last detail
-    // (kept for resolved ones).
-    const [seen, setSeen] = useState<PendingItem[]>(spec.initial.items);
     const [files, setFiles] = useState<Map<number, DbFile>>(new Map());
     const [busy, setBusy] = useState(false);
     const [open, setOpen] = useState<Set<string>>(new Set());
@@ -57,12 +53,6 @@ function DockBody({
             const next = await spec.load();
             if (!alive) return;
             setLive(next);
-            setSeen((prev) => {
-                const byId = new Map(next.items.map((i) => [i.fileId, i]));
-                const kept = prev.map((p) => byId.get(p.fileId) ?? p);
-                const known = new Set(prev.map((p) => p.fileId));
-                return [...kept, ...next.items.filter((i) => !known.has(i.fileId))];
-            });
         };
         void reload();
         // After any change in the app, and when the watcher sees files
@@ -87,10 +77,9 @@ function DockBody({
     }, [spec]);
 
     // The files themselves (paths change when one is moved or renamed).
-    const ids = seen.map((s) => s.fileId).join(",");
     useEffect(() => {
         let alive = true;
-        const list = seen.map((s) => s.fileId);
+        const list = live.items.map((i) => i.fileId);
         window.api.getFilesByIds(list).then((got: DbFile[]) => {
             if (alive) setFiles(new Map(got.map((f) => [f.id, f])));
         });
@@ -98,14 +87,12 @@ function DockBody({
             alive = false;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ids, live]);
+    }, [live]);
 
-    const liveIds = useMemo(() => new Set(live.items.map((i) => i.fileId)), [live]);
-    const rows: Row[] = seen.map((s) => ({
-        fileId: s.fileId,
-        file: files.get(s.fileId) ?? null,
-        detail: s.detail,
-        resolved: !liveIds.has(s.fileId),
+    const rows: Row[] = live.items.map((i) => ({
+        fileId: i.fileId,
+        file: files.get(i.fileId) ?? null,
+        detail: i.detail,
     }));
     const groups = useMemo(() => {
         const m = new Map<string, Row[]>();
@@ -115,7 +102,7 @@ function DockBody({
         }
         return [...m].sort((a, b) => a[0].localeCompare(b[0]));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rows.map((r) => `${r.fileId}:${r.file?.path}:${r.resolved}`).join("|")]);
+    }, [rows.map((r) => `${r.fileId}:${r.file?.path}`).join("|")]);
 
     const run = async (action: "confirm" | "secondary") => {
         if (busy) return;
@@ -128,7 +115,6 @@ function DockBody({
     };
 
     const pending = live.items.length;
-    const resolvedCount = rows.filter((r) => r.resolved).length;
     const flat = groups.length <= 1;
 
     return (
@@ -158,11 +144,10 @@ function DockBody({
                     {pending === 0
                         ? spec.emptyText ?? "Nothing clashes any more."
                         : `${pending} file${pending === 1 ? "" : "s"} affected`}
-                    {resolvedCount > 0 && ` · ${resolvedCount} resolved`}
                     {pending > 0 && " · click one to open it"}
                 </p>
                 {groups.map(([name, list]) => {
-                    const left = list.filter((r) => !r.resolved).length;
+                    const left = list.length;
                     const expanded = flat || open.has(name);
                     return (
                         <div key={name}>
@@ -182,21 +167,11 @@ function DockBody({
                                     <span className="truncate">
                                         {left} file{left === 1 ? "" : "s"} in {name}
                                     </span>
-                                    {list.length > left && (
-                                        <span className="ml-auto shrink-0 text-[10px] text-emerald-400/70">
-                                            {list.length - left} resolved
-                                        </span>
-                                    )}
                                 </button>
                             )}
                             {expanded &&
                                 list.map((r) => (
-                                    <DockRow
-                                        key={r.fileId}
-                                        row={r}
-                                        resolvedText={spec.resolvedText ?? "Resolved · won't change"}
-                                        onOpen={onOpen}
-                                    />
+                                    <DockRow key={r.fileId} row={r} onOpen={onOpen} />
                                 ))}
                         </div>
                     );
@@ -242,17 +217,9 @@ function DockBody({
     );
 }
 
-function DockRow({
-    row,
-    resolvedText,
-    onOpen,
-}: {
-    row: Row;
-    resolvedText: string;
-    onOpen: (file: DbFile) => void;
-}): JSX.Element {
+function DockRow({ row, onOpen }: { row: Row; onOpen: (file: DbFile) => void }): JSX.Element {
     const { rootPath } = useFolders();
-    const { file, resolved } = row;
+    const { file } = row;
     const [thumb, setThumb] = useState<string | null>(null);
     const { elementRef, preview, layout, handleMouseEnter, handleMouseLeave, handleNaturalSize } =
         useHoverPreview();
@@ -269,9 +236,7 @@ function DockRow({
             <button
                 disabled={!file}
                 onClick={() => file && onOpen(file)}
-                className={`flex w-full items-center gap-2 px-3 py-1 text-left transition-colors hover:bg-neutral-800 disabled:hover:bg-transparent ${
-                    resolved ? "opacity-60" : ""
-                }`}
+                className="flex w-full items-center gap-2 px-3 py-1 text-left transition-colors hover:bg-neutral-800 disabled:hover:bg-transparent"
             >
                 <div
                     ref={elementRef as React.RefObject<HTMLDivElement>}
@@ -285,17 +250,7 @@ function DockRow({
                     <span className="truncate text-neutral-200">
                         {file?.filename ?? "Removed file"}
                     </span>
-                    <span
-                        className={`truncate text-[11px] ${
-                            resolved ? "text-emerald-400/80" : "text-red-300/80"
-                        }`}
-                    >
-                        {resolved
-                            ? file
-                                ? resolvedText
-                                : "No longer in the library"
-                            : row.detail}
-                    </span>
+                    <span className="truncate text-[11px] text-red-300/80">{row.detail}</span>
                 </div>
             </button>
             {preview && layout && file && rootPath && (

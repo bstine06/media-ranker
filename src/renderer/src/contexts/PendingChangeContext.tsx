@@ -16,8 +16,7 @@ import { useFolders } from "./FolderContext";
  * into a folder with noes, a folder tag or no, a batch yes/no, a tag link).
  * It always asks first: Confirm · Cancel · Manage…. Manage docks the change
  * on the right with a live list of the files it touches; files fixed
- * meanwhile stay listed, marked resolved, so it's clear what Confirm will
- * still do. One pending change at a time.
+ * meanwhile drop off. One pending change at a time.
  */
 
 /** One file the change touches, and what happens to it. */
@@ -60,8 +59,6 @@ export interface PendingChangeSpec {
     secondary?: PendingAction;
     /** Shown when nothing is affected any more. */
     emptyText?: string;
-    /** A file no longer affected. */
-    resolvedText?: string;
 }
 
 interface Current {

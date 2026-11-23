@@ -215,8 +215,8 @@ export default function TagCoverageView({
     const [menuFor, setMenuFor] = useState<number | null>(null);
     // The tag whose conflicts are listed, and a file opened from the list.
     const { showList } = usePendingChange();
-    // A tag's conflicts, listed in the side dock (live; fixed files stay,
-    // marked resolved). Clicking one opens it.
+    // A tag's conflicts, listed in the side dock (live; fixed files drop
+    // off). Clicking one opens it.
     const showConflicts = async (tag: DbTagWithCategory) => {
         const scope = bySelection ? { folderPrefixes, filter: activeFilter } : null;
         const load = async (): Promise<PendingState> => {
@@ -237,7 +237,6 @@ export default function TagCoverageView({
             initial: await load(),
             load,
             emptyText: "No conflicts left.",
-            resolvedText: "Resolved",
         });
     };
 
