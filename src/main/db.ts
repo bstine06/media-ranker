@@ -2703,16 +2703,17 @@ export function folderLikePattern(folderRelPath: string): string {
 }
 
 /** The collection selection as a WHERE condition on `f.path`: null = all
- *  collections (no condition), [] = none selected (matches nothing). */
+ *  collections (no condition), [] = none selected (matches nothing). ""
+ *  is Unsorted: files directly in the library folder. */
 export function folderScopeSql(
     folderPrefixes: string[] | null,
 ): { sql: string; params: string[] } | null {
     if (folderPrefixes === null) return null;
     if (folderPrefixes.length === 0) return { sql: "0", params: [] };
-    return {
-        sql: `(${folderPrefixes.map(() => "f.path LIKE ? ESCAPE '\\'").join(" OR ")})`,
-        params: folderPrefixes.map(folderLikePattern),
-    };
+    const folders = folderPrefixes.filter((p) => p !== "");
+    const conds = folders.map(() => "f.path LIKE ? ESCAPE '\\'");
+    if (folders.length < folderPrefixes.length) conds.push("f.path NOT LIKE '%/%'");
+    return { sql: `(${conds.join(" OR ")})`, params: folders.map(folderLikePattern) };
 }
 
 export function getFilesByFolder(folderRelPath: string): DbFile[] {

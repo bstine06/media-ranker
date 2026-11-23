@@ -9,7 +9,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { useStatus } from "../contexts/StatusContext";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { FolderIcon } from "./icons/FolderIcon";
-import { useFolders } from "@renderer/contexts/FolderContext";
+import { UNSORTED, useFolders } from "@renderer/contexts/FolderContext";
 import { usePass } from "@renderer/contexts/PassContext";
 import { PassIcon } from "./icons/PassIcon";
 import { useTags } from "@renderer/contexts/TagsContext";
@@ -165,6 +165,7 @@ function FolderItem({
 
     return (
         <div
+            data-folder={node.relativePath}
             className={`flex items-center pr-2 transition-colors ${
                 isDropTarget
                     ? "bg-neutral-700 ring-1 ring-inset ring-neutral-400"
@@ -226,11 +227,16 @@ function FileDropRow({
 function UnsortedItem({
     active,
     count,
+    checked,
+    onToggle,
     onSelect,
     onDropFiles,
 }: {
     active: boolean;
     count: number;
+    /** Selected, like a collection. */
+    checked: boolean;
+    onToggle: () => void;
     onSelect: () => void;
     onDropFiles: (absPaths: string[]) => void;
 }): JSX.Element {
@@ -244,7 +250,7 @@ function UnsortedItem({
             }`}
             {...dropHandlers}
         >
-            {CHECK_GUTTER}
+            <SideCheck checked={checked} onToggle={onToggle} label="Select Unsorted" />
             <button
                 onClick={onSelect}
                 title="Files sitting directly in the library folder"
@@ -833,8 +839,29 @@ export default function Sidebar({
             setCreateFolderError(result.error);
             return false;
         }
+        revealNewFolder(result.relativePath);
         return true;
     };
+
+    // A folder just made in the app: open it in Browse and scroll the list
+    // to it, with nothing (a search, "show only") hiding it.
+    const [scrollTo, setScrollTo] = useState<string | null>(null);
+    const listRef = useRef<HTMLDivElement>(null);
+    const revealNewFolder = (path: string) => {
+        setSearch("");
+        setShowOnly(null);
+        openInBrowse(path);
+        setScrollTo(path);
+    };
+    useEffect(() => {
+        if (!scrollTo) return;
+        const row = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-folder]") ?? [])].find(
+            (el) => el.dataset.folder === scrollTo,
+        );
+        if (!row) return; // not listed yet: tries again when folders update
+        row.scrollIntoView({ block: "center" });
+        setScrollTo(null);
+    }, [scrollTo, folders, search]);
 
     // ── Filing dropped files ─────────────────────────────────────────────
     // Files dropped on the folder search start filing them: the rest of the
@@ -910,8 +937,10 @@ export default function Sidebar({
         }
         const { moved, errors } = result;
         const where = target || "Unsorted";
+        const madeNew = filingTarget.kind === "new";
         endFiling();
         setSearch("");
+        if (madeNew) revealNewFolder(target);
         if (errors.length > 0) {
             setStatus(`Moved ${moved} of ${filing.length} to ${where} · ${errors.join(" · ")}`);
         } else {
@@ -962,10 +991,16 @@ export default function Sidebar({
     const byName = [...folders].sort((a, b) =>
         a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     );
-    const selectedCount = folders.filter((n) => checkedFolders.has(n.relativePath)).length;
+    // Unsorted is selected like a collection; it counts while its row shows.
+    const unsortedShown = unsortedCount > 0 || alwaysShowUnsorted;
+    const unsortedChecked = checkedFolders.has(UNSORTED);
+    const selectedCount =
+        folders.filter((n) => checkedFolders.has(n.relativePath)).length +
+        (unsortedShown && unsortedChecked ? 1 : 0);
     // Everything selected = all collections (Unsorted too); none = no files.
-    const allSelected = selectedCount === folders.length;
-    const selectAll = () => setAllChecked(folders.map((n) => n.relativePath));
+    const allSelected =
+        folders.every((n) => checkedFolders.has(n.relativePath)) && (unsortedChecked || !unsortedShown);
+    const selectAll = () => setAllChecked([UNSORTED, ...folders.map((n) => n.relativePath)]);
 
     // "show only": the list cut down to the selected collections. Ones
     // unselected meanwhile stay until "show all", so a slip is easy to undo.
@@ -1223,10 +1258,12 @@ export default function Sidebar({
                         </FileDropRow>
                     )}
 
-                    {!isSearching && (unsortedCount > 0 || alwaysShowUnsorted) && (
+                    {!isSearching && unsortedShown && (
                         <UnsortedItem
                             active={inBrowse && showUnsorted}
                             count={unsortedCount}
+                            checked={unsortedChecked}
+                            onToggle={() => toggleFolder(UNSORTED, [UNSORTED])}
                             onSelect={() => openInBrowse(null, true)}
                             onDropFiles={(paths) => handleDropOnFolder("", paths)}
                         />
@@ -1272,7 +1309,7 @@ export default function Sidebar({
                         )}
                     </div>
 
-                    <div className="overflow-y-auto flex-1 min-h-0">
+                    <div ref={listRef} className="overflow-y-auto flex-1 min-h-0">
                         {visibleFolders.length > 0 ? (
                             visibleFolders.map((node) => (
                                 <FolderItem

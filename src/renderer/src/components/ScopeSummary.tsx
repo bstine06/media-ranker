@@ -61,6 +61,7 @@ function CollectionChip({ path }: { path: string }): JSX.Element {
     const [folder, setFolder] = useState<DbFolder | null>(null);
     useEffect(() => {
         let gone = false;
+        if (path === "") return;
         window.api
             .getFolder(path)
             .then((f) => {
@@ -71,7 +72,7 @@ function CollectionChip({ path }: { path: string }): JSX.Element {
             gone = true;
         };
     }, [path]);
-    const name = folder?.name ?? path.split("/").pop() ?? path;
+    const name = path === "" ? "Unsorted" : folder?.name ?? path.split("/").pop() ?? path;
     return (
         <span className="flex items-center gap-1.5 rounded-full bg-neutral-800 py-0.5 pl-0.5 pr-2.5 text-xs text-neutral-200">
             {folder?.profile_image_hash ? (

@@ -63,6 +63,14 @@ const FolderContext = createContext<FolderContextValue>({
     resetFolders: () => {}
 });
 
+/** Unsorted's key in the selection (files directly in the library folder). */
+export const UNSORTED = "";
+
+/** Everything the selection can hold: Unsorted and every folder. */
+function selectable(nodes: FolderNode[]): string[] {
+    return [UNSORTED, ...getAllPaths(nodes)];
+}
+
 function getAllPaths(nodes: FolderNode[]): string[] {
     return nodes.flatMap((n) => [n.relativePath, ...getAllPaths(n.children)]);
 }
@@ -159,7 +167,7 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
     // "all collections" stays all (from the app or from Finder).
     const joinIfAllSelected = useCallback((added: string[]) => {
         if (added.length === 0) return;
-        const before = getAllPaths(foldersRef.current);
+        const before = selectable(foldersRef.current);
         setCheckedFolders((prev) => {
             if (!before.every((p) => prev.has(p))) return prev;
             const next = new Set(prev);
@@ -226,7 +234,7 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
     }, [rootPath]);
 
     const checkAll = useCallback(() => {
-        const allPaths = getAllPaths(folders);
+        const allPaths = selectable(folders);
         setCheckedFolders((prev) => {
             const allChecked = allPaths.every((p) => prev.has(p));
             if (allChecked) return new Set();
@@ -240,10 +248,10 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
         // folders join the selection only while everything is selected.
         if (!loadedOnce.current) {
             loadedOnce.current = true;
-            setCheckedFolders(new Set(getAllPaths(next)));
+            setCheckedFolders(new Set(selectable(next)));
         } else {
-            const known = new Set(getAllPaths(foldersRef.current));
-            joinIfAllSelected(getAllPaths(next).filter((p) => !known.has(p)));
+            const known = new Set(selectable(foldersRef.current));
+            joinIfAllSelected(selectable(next).filter((p) => !known.has(p)));
         }
         setFolders(next);
     }, [joinIfAllSelected]);
@@ -275,7 +283,7 @@ export function FolderProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     // Derived: see folderPrefixes above.
-    const allPaths = getAllPaths(folders);
+    const allPaths = selectable(folders);
     const folderPrefixes = allPaths.every((p) => checkedFolders.has(p))
         ? null
         : allPaths.filter((p) => checkedFolders.has(p));

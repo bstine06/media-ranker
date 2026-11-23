@@ -191,6 +191,14 @@ Top rows
 [ ] "All files" opens every file in Browse, from any view; dropping
     files on it moves them to the library folder
 [ ] "Unsorted" (when shown) opens Unsorted in Browse, from any view
+[ ] Unsorted has a checkbox like the collections. Checked on startup.
+    Uncheck it: Sweep / Compare / Pass leave out files sitting directly
+    in the library folder; the row reads "N selected"
+[ ] Select only Unsorted plus a collection or two: Sweep / Compare /
+    Pass use exactly those (Unsorted files included)
+[ ] Unsorted shows as an "Unsorted" chip in Sweep's end card, the Pass
+    lobby and Coverage when it's part of a partial selection
+[ ] clear / select all / reset include Unsorted
 [ ] Library name at the very top: still shows the library in Finder
 [ ] On opening the app (and after switching library) everything is
     selected; the row reads "All collections · clear"
@@ -231,3 +239,15 @@ Width
 [ ] The width is kept after restarting
 [ ] File view: the tag panel's width is kept too (closing and opening
     file view, and after restarting)
+
+Making a folder
+[ ] + box: the new folder opens in Browse (from any view) and the list
+    scrolls so its row is in the middle
+[ ] Search, then "Create folder …": same; the search clears
+[ ] Drop files on the search, file them into a NEW folder: same, and
+    Browse shows the files just filed
+[ ] With "show only" on: making a folder turns it off so the new row
+    can be seen
+[ ] From a Pass: you land in Browse; going back to Pass offers to pick
+    up the run where it was
+[ ] A folder made in Finder does NOT open or scroll anything
