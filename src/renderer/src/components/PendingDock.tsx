@@ -65,10 +65,24 @@ function DockBody({
             });
         };
         void reload();
-        const off = window.api.onHistoryChanged(() => void reload());
+        // After any change in the app, and when the watcher sees files
+        // change outside it (a Finder move can fix or cause a clash).
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const soon = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => void reload(), 150);
+        };
+        const offs = [
+            window.api.onHistoryChanged(() => void reload()),
+            window.api.onMediaAdded(soon),
+            window.api.onMediaRemoved(soon),
+            window.api.onMediaRenamed(soon),
+            window.api.onFolderRenamed(soon),
+        ];
         return () => {
             alive = false;
-            off();
+            if (timer) clearTimeout(timer);
+            offs.forEach((off) => off());
         };
     }, [spec]);
 
@@ -125,7 +139,7 @@ function DockBody({
                 </span>
                 <button
                     onClick={() => void finish(null)}
-                    title="Cancel this change"
+                    title={spec.confirm ? "Cancel this change" : "Close"}
                     className="rounded px-1.5 py-0.5 text-neutral-500 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
                 >
                     ✕
@@ -142,7 +156,7 @@ function DockBody({
                 )}
                 <p className="px-3 py-2 text-[11px] text-neutral-500">
                     {pending === 0
-                        ? "Nothing clashes any more."
+                        ? spec.emptyText ?? "Nothing clashes any more."
                         : `${pending} file${pending === 1 ? "" : "s"} affected`}
                     {resolvedCount > 0 && ` · ${resolvedCount} resolved`}
                     {pending > 0 && " · click one to open it"}
@@ -176,24 +190,33 @@ function DockBody({
                                 </button>
                             )}
                             {expanded &&
-                                list.map((r) => <DockRow key={r.fileId} row={r} onOpen={onOpen} />)}
+                                list.map((r) => (
+                                    <DockRow
+                                        key={r.fileId}
+                                        row={r}
+                                        resolvedText={spec.resolvedText ?? "Resolved · won't change"}
+                                        onOpen={onOpen}
+                                    />
+                                ))}
                         </div>
                     );
                 })}
             </div>
 
             <div className="flex shrink-0 flex-col gap-1.5 border-t border-neutral-800 p-2">
+                {spec.confirm && (
                 <button
                     disabled={busy}
                     onClick={() => void run("confirm")}
                     className={`rounded px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
-                        spec.confirm.danger ?? true
+                        (spec.confirm.danger ?? true)
                             ? "bg-red-900/60 text-red-200 hover:bg-red-800 hover:text-white"
                             : "bg-neutral-200 text-neutral-900 hover:bg-neutral-400"
                     }`}
                 >
                     {spec.confirm.label(live)}
                 </button>
+                )}
                 {spec.secondary && (
                     <button
                         disabled={busy || spec.secondary.disabled?.(live) === true}
@@ -212,14 +235,22 @@ function DockBody({
                     onClick={() => void finish(null)}
                     className="rounded px-3 py-1.5 text-xs text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
                 >
-                    Cancel
+                    {spec.confirm ? "Cancel" : "Close"}
                 </button>
             </div>
         </aside>
     );
 }
 
-function DockRow({ row, onOpen }: { row: Row; onOpen: (file: DbFile) => void }): JSX.Element {
+function DockRow({
+    row,
+    resolvedText,
+    onOpen,
+}: {
+    row: Row;
+    resolvedText: string;
+    onOpen: (file: DbFile) => void;
+}): JSX.Element {
     const { rootPath } = useFolders();
     const { file, resolved } = row;
     const [thumb, setThumb] = useState<string | null>(null);
@@ -261,7 +292,7 @@ function DockRow({ row, onOpen }: { row: Row; onOpen: (file: DbFile) => void }):
                     >
                         {resolved
                             ? file
-                                ? "Resolved · won't change"
+                                ? resolvedText
                                 : "No longer in the library"
                             : row.detail}
                     </span>

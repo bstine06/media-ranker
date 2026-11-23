@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import type {
     DbFile,
     DbTagWithCategory,
@@ -8,7 +7,6 @@ import type {
     TagCoverageRaw,
     View,
 } from "@renderer/shared/types/types";
-import SingleFileView from "./SingleFileView";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -16,6 +14,7 @@ import { filterKey } from "@renderer/lib/tagFilters";
 import { SliderInput } from "./Sidebar";
 import { ScopeSummary } from "./ScopeSummary";
 import { inTagPointer } from "@renderer/contexts/TagPointerContext";
+import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
 
 // Tag coverage: how much of the library has been checked for each tag.
 // A file is checked for a tag when it's a yes (has the tag) or a no: firm
@@ -215,8 +214,32 @@ export default function TagCoverageView({
     // The row whose menu is open.
     const [menuFor, setMenuFor] = useState<number | null>(null);
     // The tag whose conflicts are listed, and a file opened from the list.
-    const [conflictsFor, setConflictsFor] = useState<DbTagWithCategory | null>(null);
-    const [inspected, setInspected] = useState<DbFile | null>(null);
+    const { showList } = usePendingChange();
+    // A tag's conflicts, listed in the side dock (live; fixed files stay,
+    // marked resolved). Clicking one opens it.
+    const showConflicts = async (tag: DbTagWithCategory) => {
+        const scope = bySelection ? { folderPrefixes, filter: activeFilter } : null;
+        const load = async (): Promise<PendingState> => {
+            const files = await window.api
+                .getConflictFiles(tag.id, scope?.folderPrefixes ?? null, scope?.filter ?? null)
+                .catch(() => [] as (DbFile & { reason: string })[]);
+            return {
+                items: files.map((f) => ({ fileId: f.id, detail: f.reason })),
+                lines: [
+                    "A no and a yes disagree on these files (moved in outside the app). Fix it by moving the file or changing its folder's tags.",
+                ],
+            };
+        };
+        showList({
+            title: `Conflicts for "${tag.name}"`,
+            message: null,
+            dockTitle: `Conflicts for "${tag.name}"`,
+            initial: await load(),
+            load,
+            emptyText: "No conflicts left.",
+            resolvedText: "Resolved",
+        });
+    };
 
     const files = coverage?.files ?? 0;
 
@@ -284,17 +307,6 @@ export default function TagCoverageView({
         </div>
     );
 
-    if (inspected) {
-        return (
-            <SingleFileView
-                file={inspected}
-                active={active}
-                setView={setView}
-                onClose={() => setInspected(null)}
-            />
-        );
-    }
-
     if (!coverage) {
         return (
             <div className="flex flex-1 flex-col">
@@ -322,7 +334,7 @@ export default function TagCoverageView({
             }}
             onConflicts={() => {
                 setMenuFor(null);
-                setConflictsFor(r.tag);
+                void showConflicts(r.tag);
             }}
         />
     );
@@ -421,98 +433,6 @@ export default function TagCoverageView({
                         <div className="mt-1">{off.map(renderRow)}</div>
                     </>
                 )}
-            </div>
-            {conflictsFor && (
-                <ConflictList
-                    tag={conflictsFor}
-                    scope={bySelection ? { folderPrefixes, filter: activeFilter } : null}
-                    onOpen={setInspected}
-                    onClose={() => setConflictsFor(null)}
-                />
-            )}
-        </div>
-    );
-}
-
-/** The files with a conflict for a tag (a no and a yes disagree), each
- *  with why; clicking one opens it. Read fresh each time it shows, so files
- *  fixed meanwhile drop out. */
-function ConflictList({
-    tag,
-    scope,
-    onOpen,
-    onClose,
-}: {
-    tag: DbTagWithCategory;
-    scope: CoverageScope;
-    onOpen: (file: DbFile) => void;
-    onClose: () => void;
-}) {
-    const [files, setFiles] = useState<(DbFile & { reason: string })[] | null>(null);
-    const historyVersion = useHistoryVersion();
-    useEffect(() => {
-        let live = true;
-        window.api
-            .getConflictFiles(tag.id, scope?.folderPrefixes ?? null, scope?.filter ?? null)
-            .then((f) => {
-                if (live) setFiles(f);
-            })
-            .catch(() => setFiles([]));
-        return () => {
-            live = false;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tag.id, historyVersion]);
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                e.stopPropagation();
-                onClose();
-            }
-        };
-        window.addEventListener("keydown", onKey, true);
-        return () => window.removeEventListener("keydown", onKey, true);
-    }, [onClose]);
-    return (
-        <div
-            data-modal
-            className="fixed inset-0 z-40 flex items-center justify-center bg-black/60"
-            onMouseDown={(e) => {
-                if (e.target === e.currentTarget) onClose();
-            }}
-        >
-            <div className="flex max-h-[70vh] w-[30rem] max-w-[calc(100vw-2rem)] flex-col rounded-lg border border-neutral-700 bg-neutral-900 shadow-2xl">
-                <div className="flex items-baseline justify-between gap-3 border-b border-neutral-800 px-4 py-3">
-                    <h2 className="text-sm font-semibold text-neutral-200">
-                        Conflicts for "{tag.name}"
-                    </h2>
-                    <button
-                        onClick={onClose}
-                        className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors"
-                    >
-                        Close
-                    </button>
-                </div>
-                <p className="px-4 pt-2 text-[11px] text-neutral-500">
-                    A no and a yes disagree on these files. Fix it by moving the file or changing
-                    its folder's tags.
-                </p>
-                <div className="flex-1 overflow-y-auto px-2 py-2">
-                    {files === null && <p className="px-2 py-1 text-xs text-neutral-600">Loading…</p>}
-                    {files?.length === 0 && (
-                        <p className="px-2 py-1 text-xs text-neutral-600">No conflicts left.</p>
-                    )}
-                    {files?.map((f) => (
-                        <button
-                            key={f.id}
-                            onClick={() => onOpen(f)}
-                            className="flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-neutral-800 transition-colors"
-                        >
-                            <span className="truncate text-xs text-neutral-200">{f.path}</span>
-                            <span className="text-[11px] text-red-300/80">{f.reason}</span>
-                        </button>
-                    ))}
-                </div>
             </div>
         </div>
     );

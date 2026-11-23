@@ -55,8 +55,13 @@ export interface PendingChangeSpec {
     initial: PendingState;
     /** Works it out again; the dock calls it after every change. */
     load: () => Promise<PendingState>;
-    confirm: PendingAction;
+    /** Absent for a plain list (Coverage conflicts): nothing to confirm. */
+    confirm?: PendingAction;
     secondary?: PendingAction;
+    /** Shown when nothing is affected any more. */
+    emptyText?: string;
+    /** A file no longer affected. */
+    resolvedText?: string;
 }
 
 interface Current {
@@ -68,6 +73,9 @@ interface Current {
 interface PendingChangeValue {
     /** Asks; resolves true once an action ran, false when cancelled. */
     requestChange: (spec: PendingChangeSpec) => Promise<boolean>;
+    /** Docks a list straight away (no confirm), replacing any docked list;
+     *  a docked change asks to be discarded first. */
+    showList: (spec: PendingChangeSpec) => void;
     /** The docked change, if any. */
     docked: Current | null;
     finish: (action: "confirm" | "secondary" | null) => Promise<void>;
@@ -94,13 +102,19 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
         (spec: PendingChangeSpec) =>
             new Promise<boolean>((resolve) => {
                 const cur = currentRef.current;
-                if (cur?.docked) setWaiting({ spec, resolve });
+                if (cur?.docked && cur.spec.confirm) setWaiting({ spec, resolve });
                 else {
                     cur?.resolve(false);
-                    setCurrent({ spec, docked: false, resolve });
+                    setOpenFile(null);
+                    setCurrent({ spec, docked: !spec.confirm, resolve });
                 }
             }),
         [],
+    );
+
+    const showList = useCallback(
+        (spec: PendingChangeSpec) => void requestChange({ ...spec, confirm: undefined }),
+        [requestChange],
     );
 
     const finish = useCallback(async (action: "confirm" | "secondary" | null) => {
@@ -128,12 +142,14 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
         setWaiting(null);
     }, [rootPath, finish]);
 
-    const modal = current && !current.docked ? current : null;
+    const modal = current && !current.docked && current.spec.confirm ? current : null;
+    const modalConfirm = modal?.spec.confirm;
 
     return (
         <PendingChangeContext.Provider
             value={{
                 requestChange,
+                showList,
                 docked: current?.docked ? current : null,
                 finish,
                 openFile,
@@ -145,8 +161,8 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
                 <ConfirmDialog
                     title={modal.spec.title}
                     message={modal.spec.message}
-                    confirmText={modal.spec.confirm.label(modal.spec.initial)}
-                    danger={modal.spec.confirm.danger ?? true}
+                    confirmText={modalConfirm?.label(modal.spec.initial) ?? ""}
+                    danger={modalConfirm?.danger ?? true}
                     onConfirm={() => {
                         if (!busy) void finish("confirm");
                     }}
@@ -183,7 +199,11 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
                         setWaiting(null);
                         currentRef.current?.resolve(false);
                         setOpenFile(null);
-                        setCurrent({ spec: next.spec, docked: false, resolve: next.resolve });
+                        setCurrent({
+                            spec: next.spec,
+                            docked: !next.spec.confirm,
+                            resolve: next.resolve,
+                        });
                     }}
                 />
             )}
