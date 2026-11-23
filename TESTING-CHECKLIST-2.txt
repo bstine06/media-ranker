@@ -1,0 +1,134 @@
+MEDIA RANKER — TEST CHECKLIST 2
+Branch feature/untested
+
+Only what still needs testing: the fixes from test pass 1, the new
+conflict rules, the pending-change dock, and the leftovers from pass 1.
+Everything you already ticked in TESTING-CHECKLIST.txt is left out.
+
+Tick each box as you go. Note anything odd next to the item.
+Tip: test on a COPY of a library, not the real one.
+
+
+======================================================================
+1. FIXES FROM TEST PASS 1
+======================================================================
+
+File view
+[ ] Score updates right after Compare picks (no rescan needed)
+[ ] Rename a file in Finder while the app is open: the file view shows
+    the new name
+[ ] The "Unsorted" folder button (top right, file in no folder) opens
+    the real Unsorted view
+
+Undo
+[ ] Drag files in from outside the library and file them into a NEW
+    folder, then ⌘Z once: files go back AND the new folder is gone
+[ ] Undo while picking a folder picture: the selection box closes
+[ ] Rename a tag or category, then ⌘Z: the field shows the old name
+    and there's no leftover "Save name" button
+[ ] Rotate a video, then ⌘Z: it refreshes and plays right away
+[ ] App moves a file, you rename it in Finder, then ⌘Z: the toast uses
+    the NEW name, and the file keeps that name
+[ ] Undo a pass no right after making it: it steps back to that file.
+    Undo one from further back: it does NOT jump you back
+[ ] Delete a file in Browse file view, ⌘Z: the file slides back in only
+    if it lands right next to where you are
+[ ] After deleting a file in Browse file view, the next file shown is
+    the right one (no file skipped)
+
+Look and feel
+[ ] Noes show ⊘ (circle with a slash) everywhere, not a red ×
+[ ] Undo history entries have dividers between them
+[ ] On/off switches (e.g. tag pointer) don't make the text jump
+[ ] Browse keeps its scroll position after closing file view; changing
+    folder starts at the top
+[ ] H in Sweep: nothing jumps or repositions
+
+Sweep
+[ ] With a collection or tag filter on, the end card says the feed is
+    limited ("in the selected collections and tag filter", "Limited
+    to …"), with "No tag filter" when there isn't one
+
+Holding folder
+[ ] After quitting, rotation originals are deleted for good (NOT in the
+    Trash). Deleted files still go to the Trash.
+
+
+======================================================================
+2. CONFIRMS INSTEAD OF CONFLICTS
+======================================================================
+
+Batch tag
+[ ] Batch NO on files whose folder has that tag as a folder tag:
+    confirm says the tag comes off the folder. After Confirm, the
+    folder's OTHER files still have it (as their own tag)
+[ ] Batch YES on files whose folder has a no for that tag: confirm says
+    the folder's no comes off. After Confirm, the folder's other files
+    still have the no (as their own no)
+
+Folder tag
+[ ] Add a folder tag to a folder where some files are marked no for it
+    (or for a tag it implies): confirm lists them, "Clear noes on N
+    files and add". After Confirm, those noes are gone (pass noes too)
+    and the files have the tag. Coverage seconds are kept
+
+Tag links (Tag Manager → a tag → Also tags as)
+[ ] Folder has tag A and a folder no for B. Link A → B: the confirm
+    says the folder's no for B comes off. (This used to be refused.)
+[ ] Folder has tag A; a file in it is marked no for B. Link A → B:
+    confirm says that file's no is cleared; after, it has B
+[ ] Folder has a no for B; a file in it has its own tag A. Link A → B:
+    confirm says that file loses A; after, A is gone
+[ ] Each of these is ONE undo step: ⌘Z puts everything back
+[ ] A link that clashes with nothing still gets the plain confirm
+
+The one conflict left: files moved in outside the app
+[ ] Give a folder a no for "dog". In Finder, move a file tagged "dog"
+    into that folder. Coverage shows a red "1 conflict" badge on "dog",
+    and the file view shows a red "!" on the tag
+
+
+======================================================================
+3. PENDING-CHANGE DOCK
+======================================================================
+
+The confirms that list files (move into a folder with noes, folder tag
+over noes, folder no that removes tags, batch yes/no from section 2,
+clashing tag links) now show:  Manage… · Cancel · Confirm
+
+[ ] Cancel does nothing; Confirm works as before
+[ ] Manage… opens a panel on the right, in place of the undo history
+    (history comes back afterwards if it's turned on)
+[ ] The header names the change (e.g. "Move pending: 6 files → Pets")
+[ ] Files in several collections are grouped ("6 files in Pets"),
+    click a group to open it; one collection shows a flat list
+[ ] Thumbnails show; hovering one shows the big preview
+[ ] Clicking a file opens it in place of the current view; closing it
+    goes back
+[ ] Fix a file while the panel is open (clear its no, remove its tag,
+    move it out): it drops off the list, and the counts and button text
+    update (e.g. "Move 6 files · removes 9 tags")
+[ ] Fix them all: the panel says "Nothing clashes any more"
+[ ] Move: "Move only the N that keep their tags" follows the list, and
+    is greyed out when none or all of the files clash
+[ ] Confirm from the panel is ONE undo step
+[ ] × and Cancel both drop the change; nothing happens
+[ ] Start another such change while one is in the panel: it asks to
+    discard the one in the panel
+[ ] Switching library drops the pending change
+[ ] Coverage → a tag's conflicts: opens in the same panel (Close
+    instead of Cancel, no Confirm). Fix one in Finder or the app: it
+    drops off. All fixed: "No conflicts left."
+
+
+======================================================================
+4. LEFTOVERS FROM TEST PASS 1
+======================================================================
+
+[ ] "Show undo history" is remembered after restarting
+[ ] After H hides the tag pointer, Space and tile clicks tag nothing
+[ ] A pass skips files whose folder rules the tag out (you wrote
+    "probably")
+[ ] (Optional) Put a file with the same name where a deleted file used
+    to be, then undo the delete: refused with a red toast, nothing lost
+[ ] (Optional) The history holds 200 steps; older ones drop off
