@@ -1065,7 +1065,10 @@ export default function Sidebar({
                     resize.dragging ? "bg-neutral-600" : "hover:bg-neutral-600/70"
                 }`}
             />
-            {folders.length > 0 && (
+            {/* Shown as soon as a library is open, folders or not: a new
+                library with only loose files still needs its name, Unsorted
+                and a way to make the first folder. */}
+            {rootPath && (
                 <div className="flex flex-col flex-1 pb-3 min-h-0">
                     <h1
                         className="cursor-pointer text-lg px-3 font-semibold tracking-wide text-neutral-300"
@@ -1269,7 +1272,9 @@ export default function Sidebar({
                         />
                     )}
 
-                    {/* The selection (Sweep, Pass, Compare, Coverage use it). */}
+                    {/* The selection (Sweep, Pass, Compare, Coverage use it).
+                        Nothing to select yet: no line. */}
+                    {(folders.length > 0 || unsortedShown) && (
                     <div className="mt-1 flex items-center gap-1 border-y border-neutral-800 px-3 py-1 text-[11px] text-neutral-500">
                         {allSelected ? (
                             <>
@@ -1308,6 +1313,7 @@ export default function Sidebar({
                             </>
                         )}
                     </div>
+                    )}
 
                     <div ref={listRef} className="overflow-y-auto flex-1 min-h-0">
                         {visibleFolders.length > 0 ? (
@@ -1328,7 +1334,7 @@ export default function Sidebar({
                         ) : (
                             !offerCreate && (
                                 <p className="px-5 py-2 text-xs text-neutral-600">
-                                    No folders match
+                                    {folders.length === 0 ? "No folders yet" : "No folders match"}
                                 </p>
                             )
                         )}

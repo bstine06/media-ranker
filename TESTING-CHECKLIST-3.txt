@@ -140,3 +140,23 @@ Open a collection in Browse and click its edit (metadata) button.
 [ ] Leave the editor open, switch to Sweep, ⌘Z: the app's normal undo
     runs there
 [ ] Save, then ⌘Z: undoes the save as before (old picture back)
+
+
+======================================================================
+6. A NEW LIBRARY WITH NO FOLDERS
+======================================================================
+
+Make a new folder in Finder with a few media files loose in it (no
+subfolders) and open it as the library.
+
+[ ] Top left shows the library name (click: shows it in Finder)
+[ ] The folder search and the + box are there
+[ ] All files and Unsorted (with its count) are there
+[ ] The selection line shows; the list says "No folders yet"
+[ ] + box: make a folder. It appears in the list right away,
+    "No folders yet" goes away
+[ ] Or type a name in the search: "Create folder "…"" works too
+[ ] Drag files from Unsorted onto the new folder: they move
+[ ] ⌘Z the folder creation (while it's empty): back to "No folders yet"
+[ ] A completely EMPTY library (no files, no folders): name, search,
+    + box and All files show; no selection line
