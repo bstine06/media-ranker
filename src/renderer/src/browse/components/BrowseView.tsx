@@ -635,13 +635,24 @@ export default function BrowseView({
         };
     }, [rootPath, activeFolder, showUnsorted, activeFilter, getFilesForFolder]);
 
-    // The file view's place follows the list: when files come and go, the
-    // index moves with the file on screen (or the next step would skip or
-    // repeat one). And an undone delete brings its file back on screen,
-    // but only if it lands right next to where the view is now (one file).
+    // The file view remembers WHICH file is on screen (by id), never a bare
+    // position: the list changes under it (deletes, undo/redo, Finder, the
+    // filter), so the position is worked out from the id whenever needed.
+    // `browseScrollIndex` only says the view is open and feeds the counter.
+    //  - Scrolling takes the neighbour of the shown file in the list as it
+    //    is right now.
+    //  - When the shown file leaves the list (deleted here or elsewhere, a
+    //    redo, Finder, filtered out), the file that took its place slides in.
+    //  - An undone delete brings its file back on screen, but only if it
+    //    lands right next to the shown file.
     const shownIdRef = useRef<number | null>(null);
+    const shownAtRef = useRef(0);
     const restoreIds = useRef<number[] | null>(null);
     const [jumpTo, setJumpTo] = useState<{ file: DbFile; dir: "up" | "down"; n: number } | null>(null);
+    const slideTo = (file: DbFile, dir: "up" | "down") => {
+        shownIdRef.current = file.id;
+        setJumpTo((j) => ({ file, dir, n: (j?.n ?? 0) + 1 }));
+    };
     useEffect(
         () =>
             window.api.onHistoryApplied((a) => {
@@ -651,15 +662,36 @@ export default function BrowseView({
             }),
         [],
     );
+    // Opening and closing the view.
     useEffect(() => {
         if (browseScrollIndex === null) {
+            shownIdRef.current = null;
             restoreIds.current = null;
-            return;
+            // Or the next file view would replay it as it opens.
+            setJumpTo(null);
+        } else if (shownIdRef.current === null) {
+            shownIdRef.current = sortedFiles[browseScrollIndex]?.id ?? null;
+            shownAtRef.current = browseScrollIndex;
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [browseScrollIndex === null]);
+    useEffect(() => {
+        if (browseScrollIndex === null || shownIdRef.current === null) return;
         const shown = shownIdRef.current;
-        let at = shown != null ? sortedFiles.findIndex((f) => f.id === shown) : -1;
-        if (at >= 0 && at !== browseScrollIndex) setBrowseScrollIndex(at);
-        if (at < 0) at = browseScrollIndex;
+        let at = sortedFiles.findIndex((f) => f.id === shown);
+        if (at < 0) {
+            // The shown file is gone: the one now in its place takes over
+            // (the one before it, if it was last). Nothing left: close.
+            if (sortedFiles.length === 0) {
+                setBrowseScrollIndex(null);
+                return;
+            }
+            const last = shownAtRef.current >= sortedFiles.length;
+            at = Math.min(shownAtRef.current, sortedFiles.length - 1);
+            slideTo(sortedFiles[at], last ? "up" : "down");
+        }
+        shownAtRef.current = at;
+        if (at !== browseScrollIndex) setBrowseScrollIndex(at);
         const ids = restoreIds.current;
         if (!ids) return;
         const found = ids
@@ -670,26 +702,25 @@ export default function BrowseView({
         const near = found.filter((i) => i !== at && Math.abs(i - at) <= 1);
         if (near.length === 0) return;
         const to = near[0];
+        shownAtRef.current = to;
         setBrowseScrollIndex(to);
-        setJumpTo((j) => ({ file: sortedFiles[to], dir: to < at ? "up" : "down", n: (j?.n ?? 0) + 1 }));
+        slideTo(sortedFiles[to], to < at ? "up" : "down");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sortedFiles]);
 
     const resolver: SlotResolver = useCallback(
-        async (dir, cursor) => {
+        async (dir) => {
             if (browseScrollIndex === null) return null;
-            const newIndexUnbounded =
-                dir === "down" ? browseScrollIndex + 1 : browseScrollIndex - 1;
-            const newIndex =
-                newIndexUnbounded < 0
-                    ? 0
-                    : newIndexUnbounded > sortedFiles.length - 1
-                      ? sortedFiles.length - 1
-                      : newIndexUnbounded;
-            if (browseScrollIndex === newIndex) return null;
-            setBrowseScrollIndex(newIndex);
-            cursor = newIndex;
-            return sortedFiles[newIndex] ?? null;
+            const shown = shownIdRef.current;
+            const found = shown != null ? sortedFiles.findIndex((f) => f.id === shown) : -1;
+            const at = found >= 0 ? found : Math.min(shownAtRef.current, sortedFiles.length - 1);
+            const next = dir === "down" ? at + 1 : at - 1;
+            if (next < 0 || next > sortedFiles.length - 1) return null;
+            const file = sortedFiles[next];
+            shownIdRef.current = file.id;
+            shownAtRef.current = next;
+            setBrowseScrollIndex(next);
+            return file;
         },
         [sortedFiles, browseScrollIndex],
     );
@@ -721,9 +752,6 @@ export default function BrowseView({
                 }}
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}
                 onClose={() => setBrowseScrollIndex(null)}
-                onFileChange={(f) => {
-                    shownIdRef.current = f.id;
-                }}
                 jumpTo={jumpTo}
                 onCrown={crownAndCompare}
                 onPlace={(file) => {

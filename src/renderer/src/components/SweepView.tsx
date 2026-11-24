@@ -291,6 +291,8 @@ const CRUISE: LaneMotion = { dir: 1, boost: false };
 /** What a lane hands the strip so it can update the lane's files. */
 interface LaneHandle {
     replaceItemFile: (file: DbFile, turns?: number) => void;
+    /** A file was deleted or moved away (anywhere): its tile goes. */
+    removeItemPath: (relativePath: string) => void;
 }
 
 function SweepStrip({
@@ -621,6 +623,15 @@ function SweepStrip({
     const replaceItemFile = useCallback((file: DbFile, turns = 0) => {
         for (const h of laneHandles.current) h?.replaceItemFile(file, turns);
     }, []);
+
+    // Deleted (here, by a redo, in Finder): its tile leaves every lane.
+    useEffect(
+        () =>
+            window.api.onMediaRemoved(({ relativePath }) => {
+                for (const h of laneHandles.current) h?.removeItemPath(relativePath);
+            }),
+        [],
+    );
 
     // Rotated somewhere else: show the new version (its shape is checked
     // when it loads). Our own rotation swaps in itself once loaded.
@@ -1139,10 +1150,27 @@ function StripLane({
         itemsRef.current = next;
         setItems(next);
     }, []);
+    // A removed file's tile goes. Tiles left of the pointer stay put (the
+    // row shifts to make up for it); one under or right of the pointer
+    // closes up, so the next tile takes its place.
+    const removeItemPath = useCallback(
+        (relativePath: string) => {
+            const list = itemsRef.current;
+            const at = list.findIndex((it) => it.file.path === relativePath);
+            if (at < 0) return;
+            const left = offset.current + list.slice(0, at).reduce((w, it) => w + widthOf(it), 0);
+            const pointer = mouseX.current ?? width * POINTER_AT;
+            if (left + widthOf(list[at]) <= pointer) pendingShift.current += widthOf(list[at]);
+            const next = list.filter((_, i) => i !== at);
+            itemsRef.current = next;
+            setItems(next);
+        },
+        [widthOf, width, mouseX],
+    );
     useEffect(() => {
-        register(index, { replaceItemFile });
+        register(index, { replaceItemFile, removeItemPath });
         return () => register(index, null);
-    }, [register, index, replaceItemFile]);
+    }, [register, index, replaceItemFile, removeItemPath]);
 
     // A tile's real shape once loaded, if the thumbnail's was off (or the
     // file changed since). Not while a rotation is being previewed.

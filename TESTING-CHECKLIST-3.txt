@@ -30,3 +30,43 @@ folder's one (greyed, no ×). Sweep seconds are kept.
 [ ] Files that ALREADY had both before this version: after opening
     the library, only the folder's no shows
 [ ] Coverage seconds for that tag are unchanged by all of the above
+
+
+======================================================================
+2. DELETED FILES LEAVE EVERY VIEW
+======================================================================
+
+Browse file view (opened from the grid)
+[ ] Delete a file: the next one slides in. Scroll down: the one after
+    that (nothing skipped)
+[ ] Delete the LAST file in the folder: the one before slides in
+[ ] Delete, ⌘Z: it slides back in. Scroll down: the next file, not a
+    repeat and not a skip
+[ ] Delete, ⌘Z, delete it again, ⌘Z again: still no skips or repeats
+[ ] Viewing a file, ⇧⌘Z a delete of THAT file: it goes and the next
+    slides in (no more video playing on)
+[ ] Delete a file in Finder while it's on screen: same
+[ ] Delete every file in the folder one by one: file view closes at
+    the end
+[ ] Scroll quickly right as you delete: you land on a real file
+
+File view opened from Sweep, Pass, the dock or the sidebar
+[ ] Delete the file there: the view closes, back where you came from
+[ ] Same with ⇧⌘Z of its delete, and a delete in Finder
+[ ] Rename it in Finder, then delete it in Finder: still closes
+
+Sweep
+[ ] Delete a file (via its file view, or in Finder) that's still in a
+    lane: its tile is gone when you're back
+[ ] One left of the pointer: nothing on screen jumps
+[ ] The one under the pointer: the next tile closes up under it
+
+Pass
+[ ] Delete the file you're on (file view or Finder): the next file
+    takes its place; the last one: the one before; none left: the card
+[ ] Delete one further ahead in the run: you stay on your file, and
+    the deleted one never comes up
+[ ] Delete one behind you: you stay on your file; 1 (back) skips it
+
+Compare (unchanged, check it still works)
+[ ] Delete a file that's in the current pair: a new pair loads

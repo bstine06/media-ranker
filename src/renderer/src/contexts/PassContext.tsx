@@ -481,6 +481,33 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
         [setRun],
     );
 
+    // A file deleted (here, by a redo, in Finder) leaves the run's lists.
+    // The place stays on the same file; if it was the file on screen, the
+    // next one takes its place (the one before, if it was the last; its
+    // card, if none are left). Undone deletes don't come back into the run.
+    useEffect(
+        () =>
+            window.api.onMediaRemoved(({ relativePath }) => {
+                const r = runRef.current;
+                if (!r) return;
+                if (!r.tags.some((x) => x.files?.some((f) => f.path === relativePath))) return;
+                let pos = r.pos;
+                const tags = r.tags.map((x, i) => {
+                    if (!x.files) return x;
+                    const at = x.files.findIndex((f) => f.path === relativePath);
+                    if (at < 0) return x;
+                    const files = x.files.filter((_, j) => j !== at);
+                    if (i === r.t && pos >= 0) {
+                        if (at < pos) pos -= 1;
+                        if (pos >= files.length) pos = files.length - 1;
+                    }
+                    return { ...x, files };
+                });
+                setRun({ ...r, tags, pos });
+            }),
+        [setRun],
+    );
+
     const back = useCallback(() => {
         const r = runRef.current;
         if (!r || busy.current) return;

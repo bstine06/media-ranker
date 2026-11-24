@@ -136,11 +136,11 @@ export default function ScrollView({
     const handleDelete = async () => {
         if (!currentFile) return;
         try {
+            // Where to go next isn't decided here: every view that shows the
+            // file reacts to it being removed (the same for a redo or a
+            // delete in Finder).
             await window.api.deleteFile(currentFile.id);
             setShowConfirm(false);
-            (progress && ((progress.index) >= progress.total))
-                ? navigate("up")
-                : navigate("down")
         } catch (error) {
             console.error("Failed to delete file:", error);
             // Optionally: show error toast

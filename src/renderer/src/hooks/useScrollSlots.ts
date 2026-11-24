@@ -62,9 +62,16 @@ export function useScrollSlots({
     const videoRefs = [videoRef0, videoRef1];
 
     // `file`: slide that file in (from above or below) instead of asking
-    // the resolver for the next one.
+    // the resolver for the next one. Asked for mid-slide, it waits for the
+    // slide to end (the file on screen was removed: it mustn't be dropped);
+    // a plain step mid-slide is ignored as before.
+    const pendingRef = useRef<{ dir: "up" | "down"; file: DbFile } | null>(null);
+    const navigateRef = useRef<(dir: "up" | "down", file?: DbFile) => void>(() => {});
     const navigate = useCallback(async (dir: "up" | "down", file?: DbFile) => {
-        if (lockedRef.current) return;
+        if (lockedRef.current) {
+            if (file) pendingRef.current = { dir, file };
+            return;
+        }
 
         lockedRef.current = true;
         videoRefs[frontSlot].current?.pause();
@@ -109,10 +116,14 @@ export function useScrollSlots({
                     videoRefs[backSlot].current?.play();
                     lockedRef.current = false;
                     setCursor((c) => dir === "down" ? c + 1 : c - 1);
+                    const pending = pendingRef.current;
+                    pendingRef.current = null;
+                    if (pending) setTimeout(() => navigateRef.current(pending.dir, pending.file), 0);
                 }, scrollTimeRef.current + 20);
             });
         });
     }, [frontSlot, resolver]);
+    navigateRef.current = navigate;
 
     // Keyboard
     useEffect(() => {

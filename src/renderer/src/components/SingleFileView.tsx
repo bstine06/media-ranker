@@ -1,6 +1,7 @@
 import {
     useCallback,
     useEffect,
+    useRef,
     useState,
 } from "react";
 import { DbFile, View } from "@renderer/shared/types/types";
@@ -28,6 +29,26 @@ export default function SingleFileView({
 
     const { rootPath, setActiveFolder, setShowUnsorted, folderMetaVersion } = useFolders();
     const { startSession } = usePlacement();
+
+    // Its file deleted (here, by a redo, in Finder): there's nothing to
+    // move on to, so the view closes. Renames are followed first, so the
+    // path compared is the current one.
+    const pathRef = useRef(file.path);
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
+    useEffect(() => {
+        pathRef.current = file.path;
+        const offRenamed = window.api.onMediaRenamed(({ oldRelativePath, relativePath }) => {
+            if (oldRelativePath === pathRef.current) pathRef.current = relativePath;
+        });
+        const offRemoved = window.api.onMediaRemoved(({ relativePath }) => {
+            if (relativePath === pathRef.current) onCloseRef.current();
+        });
+        return () => {
+            offRenamed();
+            offRemoved();
+        };
+    }, [file.id, file.path]);
 
     //resolver to appease ScrollView
     const resolver: SlotResolver = useCallback(async () => {
