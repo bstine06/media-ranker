@@ -1713,8 +1713,9 @@ function unlinkTags(tagId: number, impliesId: number): void {
 // What a new link clashes with, worked out as it's applied. The link wins
 // over folder rules it contradicts, and folder rules win over files:
 //  (i)   a folder whose tag now implies one of its noes: that no comes off;
-//  (ii)  a file's own no (hard or pass) on a tag its folder now gives: the
-//        no is cleared (Sweep seconds kept);
+//  (ii)  a file's own no (hard or pass) on a tag it now inherits (from its
+//        folder, or through a link from its own tags): the no is cleared
+//        (Sweep seconds kept);
 //  (iii) a file's own tag its folder's no now rules out: the tag comes off.
 // Only what the link newly causes is touched: older conflicts (files moved
 // in Finder) stay as they are.
@@ -1728,10 +1729,14 @@ function linkWithRules(tagId: number, impliesId: number): LinkClashes {
     const db = getDb();
     const pairs = (sql: string) =>
         db.prepare(sql).all() as { file_id: number; tag_id: number }[];
+    // Own noes on tags the file inherits (its folder's, or linked from its
+    // own or its folder's tags).
     const noesUnderFolderTags = () =>
         pairs(
             `SELECT c.file_id, c.tag_id FROM tag_checks c
-             WHERE (c.rejected = 1 OR c.passed = 1) AND ${FOLDER_GIVES}`,
+             WHERE (c.rejected = 1 OR c.passed = 1)
+               AND EXISTS (SELECT 1 FROM file_effective_tags e
+                           WHERE e.file_id = c.file_id AND e.tag_id = c.tag_id AND e.inherited = 1)`,
         );
     const ruledOutOwnTags = () =>
         pairs(
@@ -1767,7 +1772,7 @@ function linkWithRules(tagId: number, impliesId: number): LinkClashes {
     const dropNo = db.prepare(`DELETE FROM folder_noes WHERE folder_id = ? AND tag_id = ?`);
     for (const c of contradictions) dropNo.run(c.folder_id, c.tag_id);
 
-    // (ii) Files' noes under what their folder now gives.
+    // (ii) Files' noes under what they now inherit.
     const noesCleared = noesUnderFolderTags().filter((r) => !noesBefore.has(key(r)));
     const clear = db.prepare(
         `UPDATE tag_checks SET rejected = 0, passed = 0, updated_at = datetime('now')

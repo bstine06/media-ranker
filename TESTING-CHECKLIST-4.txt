@@ -86,3 +86,38 @@ no, or ruled out by the folder). Time on screen in Sweep no longer counts.
     the tags above
 [ ] Own noes still have ×, folder noes are still greyed with no ×,
     hover still says where each no comes from
+
+
+======================================================================
+7. A SECOND CHANGE WHILE ONE IS IN THE SIDE PANEL
+======================================================================
+
+Set up a clashing link (e.g. folder has tag "forest" and a no for
+"tree"; Tag Manager: forest → also tags as "tree") → Manage… so it sits
+in the side panel. Then, without confirming it:
+
+[ ] Tag files, add folder tags, link tags that don't clash: they just
+    happen (as before)
+[ ] Do something that clashes (e.g. a folder no that would take a
+    file's tag off): its OWN confirm appears, saying what it will do,
+    with Confirm / Cancel (no Manage…). No "Discard the pending
+    change?" any more
+[ ] Confirm it: it happens, and the side panel's list is still there
+    (and drops files this change fixed)
+[ ] Cancel it: nothing happens, the side panel is untouched
+[ ] Coverage → a tag's conflicts while a change is in the side panel:
+    asks "Show "Conflicts for …"?" and says the pending change will be
+    dropped. Cancel keeps it
+
+
+======================================================================
+8. LINKING ONTO A FILE'S OWN NO
+======================================================================
+
+[ ] Tag a file "forest" yourself, and take "tree" off it (so it's
+    marked no for "tree"). Tag Manager: forest → also tags as "tree".
+    The confirm lists that file: Will remove 'no' for "tree"
+[ ] Confirm: the file has "tree" (inherited), its no for "tree" is gone
+    for real
+[ ] ⌘Z: the link goes and the file's no for "tree" is back
+[ ] Remove the link instead (after Confirm): the no does NOT come back

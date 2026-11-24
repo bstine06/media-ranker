@@ -921,7 +921,7 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
         if (preview.noesClearedFiles > 0) {
             message +=
                 ` Will remove 'no' from ${count(preview.noesClearedFiles, "file")}` +
-                ` whose folder would now give the tag: ${list(preview.noesCleared)}.`;
+                ` that would now get the tag: ${list(preview.noesCleared)}.`;
         }
         if (preview.tagsRemovedFiles > 0) {
             message +=

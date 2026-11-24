@@ -101,8 +101,16 @@ const PendingChangeContext = createContext<PendingChangeValue | null>(null);
 
 export function PendingChangeProvider({ children }: { children: ReactNode }): JSX.Element {
     const [current, setCurrent] = useState<Current | null>(null);
-    // A new change asked for while one is docked: discard that one first?
-    const [waiting, setWaiting] = useState<{
+    // A second change that asks first, while one is docked: it gets its own
+    // confirm (no Manage: the side panel is taken). The docked one stays,
+    // and its list refreshes if this one fixes some of its files.
+    const [second, setSecond] = useState<{
+        spec: PendingChangeSpec;
+        resolve: (ran: boolean) => void;
+    } | null>(null);
+    // A list for the side panel (Coverage's conflicts) while a change is
+    // docked: the panel holds one thing, so ask before replacing it.
+    const [replacing, setReplacing] = useState<{
         spec: PendingChangeSpec;
         resolve: (ran: boolean) => void;
     } | null>(null);
@@ -115,7 +123,8 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
         (spec: PendingChangeSpec) =>
             new Promise<boolean>((resolve) => {
                 const cur = currentRef.current;
-                if (cur?.docked && cur.spec.confirm) setWaiting({ spec, resolve });
+                if (cur?.docked && cur.spec.confirm && spec.confirm) setSecond({ spec, resolve });
+                else if (cur?.docked && cur.spec.confirm) setReplacing({ spec, resolve });
                 else {
                     cur?.resolve(false);
                     setOpenFile(null);
@@ -152,8 +161,35 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
     const { rootPath } = useFolders();
     useEffect(() => {
         void finish(null);
-        setWaiting(null);
+        setSecond((w) => {
+            w?.resolve(false);
+            return null;
+        });
+        setReplacing((w) => {
+            w?.resolve(false);
+            return null;
+        });
     }, [rootPath, finish]);
+
+    const finishSecond = useCallback(
+        async (action: "confirm" | "secondary" | null) => {
+            const w = second;
+            if (!w) return;
+            if (action) {
+                const act = action === "confirm" ? w.spec.confirm : w.spec.secondary;
+                if (!act) return;
+                setBusy(true);
+                try {
+                    await act.run();
+                } finally {
+                    setBusy(false);
+                }
+            }
+            setSecond(null);
+            w.resolve(action !== null);
+        },
+        [second],
+    );
 
     const modal = current && !current.docked && current.spec.confirm ? current : null;
     const modalConfirm = modal?.spec.confirm;
@@ -198,26 +234,47 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
                     }}
                 />
             )}
-            {waiting && (
+            {replacing && (
                 <ConfirmDialog
-                    title="Discard the pending change?"
-                    message={`"${current?.spec.dockTitle ?? "A change"}" is still open in the side panel. Only one change can be pending at a time.`}
-                    confirmText="Discard it"
+                    title={`Show "${replacing.spec.dockTitle ?? replacing.spec.title}"?`}
+                    message={`The side panel shows one thing at a time. "${current?.spec.dockTitle ?? "A change"}" is open there and hasn't been confirmed: showing this drops it (nothing changes).`}
+                    confirmText="Drop it and show this"
+                    danger={false}
                     onCancel={() => {
-                        waiting.resolve(false);
-                        setWaiting(null);
+                        replacing.resolve(false);
+                        setReplacing(null);
                     }}
                     onConfirm={() => {
-                        const next = waiting;
-                        setWaiting(null);
+                        const next = replacing;
+                        setReplacing(null);
                         currentRef.current?.resolve(false);
                         setOpenFile(null);
-                        setCurrent({
-                            spec: next.spec,
-                            docked: !next.spec.confirm,
-                            resolve: next.resolve,
-                        });
+                        setCurrent({ spec: next.spec, docked: true, resolve: next.resolve });
                     }}
+                />
+            )}
+            {second && (
+                <ConfirmDialog
+                    title={second.spec.title}
+                    message={second.spec.message}
+                    confirmText={second.spec.confirm?.label(second.spec.initial) ?? ""}
+                    danger={second.spec.confirm?.danger ?? true}
+                    onConfirm={() => {
+                        if (!busy) void finishSecond("confirm");
+                    }}
+                    onCancel={() => void finishSecond(null)}
+                    secondary={
+                        second.spec.secondary &&
+                        !second.spec.secondary.disabled?.(second.spec.initial)
+                            ? {
+                                  text: second.spec.secondary.label(second.spec.initial),
+                                  danger: second.spec.secondary.danger,
+                                  onClick: () => {
+                                      if (!busy) void finishSecond("secondary");
+                                  },
+                              }
+                            : undefined
+                    }
                 />
             )}
         </PendingChangeContext.Provider>
