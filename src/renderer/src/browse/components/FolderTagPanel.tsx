@@ -50,13 +50,13 @@ function BatchTagLines({ r, selected, mode }: { r: BatchTagResult; selected: num
         <div className="flex flex-col gap-1.5">
             {r.restChanged > 0 && (
                 <Effect mark={yes ? "⊘" : "✓"} tone="strong">
-                    {plural(r.restChanged, "other file")} shown get
+                    {plural(r.restChanged, "other file")} shown get{" "}
                     {yes ? <>a pass no for <TagRef name={r.tag} no /></> : <TagRef name={r.tag} />}
                 </Effect>
             )}
             {going > 0 && (
                 <Effect mark={yes ? "✓" : "⊘"}>
-                    {plural(going, "selected file")} get
+                    {plural(going, "selected file")} get{" "}
                     {yes ? <TagRef name={r.tag} /> : <>a no for <TagRef name={r.tag} no /></>}
                 </Effect>
             )}
