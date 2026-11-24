@@ -13,9 +13,12 @@ type CategoryGroupProps = {
     glowTagId?: number | null;
     /** Extra right-click actions for each pill. */
     pillMenu?: (tag: DbTagWithCategory) => { label: string; onClick: () => void }[];
+    /** Draws each pill itself (file view's Not section): same header and
+     *  rows, its own pills. */
+    renderTag?: (tag: DbTagWithCategory) => React.ReactNode;
 };
 
-const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag, glowTagId, pillMenu }: CategoryGroupProps) => {
+const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag, glowTagId, pillMenu, renderTag }: CategoryGroupProps) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(false);
@@ -75,6 +78,7 @@ const CategoryGroup = ({ group, applied, activeTags, onRemoveTag, onAddTag, glow
                     onScroll={checkScroll}
                 >
                     {group.tags.map((tag) => {
+                        if (renderTag) return <React.Fragment key={tag.id}>{renderTag(tag)}</React.Fragment>;
                         const isActive = activeTagIds.has(tag.id);
                         const isInherited = inheritedTags.has(tag.id);
                         return (

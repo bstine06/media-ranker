@@ -73,3 +73,16 @@ no, or ruled out by the folder). Time on screen in Sweep no longer counts.
     way (answers only)
 [ ] A tag's coverage in the tag editor reads "N tagged · N no · N not
     checked yet"
+
+
+======================================================================
+6. FILE VIEW'S "NOT" SECTION BY CATEGORY
+======================================================================
+
+[ ] A file with noes in a few categories (and an uncategorized one):
+    open "Not" in file view. Noes are in rows by category, same order
+    and same headers (icon + name) as the tags above; Uncategorized last
+[ ] Settings "show tag category names" off: the headers hide, same as
+    the tags above
+[ ] Own noes still have ×, folder noes are still greyed with no ×,
+    hover still says where each no comes from

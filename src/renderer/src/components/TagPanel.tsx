@@ -212,25 +212,37 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                     </span>
                 </button>
                 {notOpen && (
-                    <div className="flex flex-wrap gap-1.5 px-3 pb-3">
+                    // Grouped by category, in category order, like the tags above.
+                    <div className="px-3 pb-3 space-y-2">
                         {noes.length === 0 && (
                             <p className="px-1 text-[11px] text-neutral-600">No firm noes yet.</p>
                         )}
-                        {noes.map((n) => {
-                            const t = tagMap.get(n.id);
-                            const own = n.hard || n.pass;
-                            return (
-                                <TagPill
-                                    key={n.id}
-                                    tag={(t ?? n) as DbTagWithCategory}
-                                    applied
-                                    no
-                                    inherited={!own}
-                                    title={noSource(n)}
-                                    onRemove={own ? () => clearNo(n) : undefined}
-                                />
-                            );
-                        })}
+                        {groupTagsByCategory(
+                            noes.map((n) => (tagMap.get(n.id) ?? n) as DbTagWithCategory),
+                        ).map((g) => (
+                            <CategoryGroup
+                                key={g.label}
+                                applied={true}
+                                activeTags={[]}
+                                group={g}
+                                onRemoveTag={() => {}}
+                                onAddTag={() => {}}
+                                renderTag={(tag) => {
+                                    const n = noes.find((x) => x.id === tag.id)!;
+                                    const own = n.hard || n.pass;
+                                    return (
+                                        <TagPill
+                                            tag={tag}
+                                            applied
+                                            no
+                                            inherited={!own}
+                                            title={noSource(n)}
+                                            onRemove={own ? () => clearNo(n) : undefined}
+                                        />
+                                    );
+                                }}
+                            />
+                        ))}
                     </div>
                 )}
             </div>
