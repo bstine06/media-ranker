@@ -256,7 +256,6 @@ export interface TagCoverage {
         tagId: number;
         yes: number;
         firmNo: number;
-        seen: number;
         no: number;
         conflicts: number;
     }[];

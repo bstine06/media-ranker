@@ -83,18 +83,18 @@ export interface CoverageSnap {
     library: { checked: number; files: number };
 }
 
-/** Files checked for a tag (yes, firm no, or seen at the threshold). */
-export function checkedOf(raw: TagCoverageRaw, tagId: number, threshold: number): number {
+/** Files checked for a tag: a yes or a firm no. (Sweep time on screen is
+ *  kept but doesn't count: it's a guess, not an answer.) */
+export function checkedOf(raw: TagCoverageRaw, tagId: number): number {
     const t = raw.tags.find((x) => x.tagId === tagId);
     if (!t) return 0;
-    return t.yes + t.firmNo + t.seen.reduce((s, [sec, n]) => (sec >= threshold ? s + n : s), 0);
+    return t.yes + t.firmNo;
 }
 
 /** Coverage right now for these tags, over the run's scope and the library. */
 export async function snapCoverage(
     scope: PassScope,
     tagIds: number[],
-    threshold: number,
 ): Promise<Record<number, CoverageSnap>> {
     const [inScope, lib] = await Promise.all([
         window.api.getTagCoverage(scope.folderPrefixes, scope.filter),
@@ -103,8 +103,8 @@ export async function snapCoverage(
     const out: Record<number, CoverageSnap> = {};
     for (const id of tagIds) {
         out[id] = {
-            scope: { checked: checkedOf(inScope, id, threshold), files: inScope.files },
-            library: { checked: checkedOf(lib, id, threshold), files: lib.files },
+            scope: { checked: checkedOf(inScope, id), files: inScope.files },
+            library: { checked: checkedOf(lib, id), files: lib.files },
         };
     }
     return out;
@@ -275,7 +275,7 @@ export function prevSpot(run: PassRun, t: number, pos: number): [number, number]
 export function PassProvider({ children }: { children: React.ReactNode }): JSX.Element {
     const { activeFilter, loadedFeed, filter } = useTags();
     const { folderPrefixes, rootPath } = useFolders();
-    const { passOrder, passDirection, coverageSeconds } = useSettings();
+    const { passOrder, passDirection } = useSettings();
 
     const [lobby, setLobby] = useState<LobbyDraft | null>(null);
     const [run, setRunState] = useState<PassRun | null>(null);
@@ -418,7 +418,7 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
                 before: {},
             };
             try {
-                fresh.before = await snapCoverage(scope, slotTagIds(lobby.slots), coverageSeconds);
+                fresh.before = await snapCoverage(scope, slotTagIds(lobby.slots));
             } catch {
                 // the end card just won't show before → after
             }
@@ -429,7 +429,7 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
         } finally {
             busy.current = false;
         }
-    }, [lobby, folderPrefixes, activeFilter, loadedFeed, filter, passOrder, passDirection, coverageSeconds, arrive, setRun]);
+    }, [lobby, folderPrefixes, activeFilter, loadedFeed, filter, passOrder, passDirection, arrive, setRun]);
 
     const startRun = useCallback(async () => {
         const r = runRef.current;

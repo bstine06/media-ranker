@@ -47,9 +47,29 @@ Tick each box as you go. Note anything odd next to the item.
 4. CLEARING A NO KEEPS SWEEP TIME
 ======================================================================
 
-[ ] Sweep a tag for a while over some files, then mark one of them no
-    (take the tag off, or 3 in a pass). In file view, open "Not" and
-    click × on that no: the no goes, and the file's Sweep coverage for
-    that tag doesn't drop (Coverage view shows the same % as before)
+[ ] Mark a file no (take the tag off, or 3 in a pass). In file view,
+    open "Not" and click × on that no: the no goes. (Its Sweep time is
+    kept in the database, but nothing shows it any more; see section 5)
 [ ] The undo history / toast reads: Removed 'no' for "cat" from x.png
 [ ] ⌘Z: the no is back
+
+
+======================================================================
+5. COVERAGE COUNTS ANSWERS ONLY
+======================================================================
+
+Coverage = files with a yes or a firm no (taken off / marked no, a pass
+no, or ruled out by the folder). Time on screen in Sweep no longer counts.
+
+[ ] Tag Manager → Coverage: each bar is one shade (no pale gray part);
+    columns are Tagged · No · Not checked (no "Seen")
+[ ] One sort, "Checked": click it to flip lowest / highest first
+[ ] No "Seconds on screen to count as a no" slider, on the Coverage
+    page or in Settings
+[ ] Sweep a tag over files WITHOUT tagging them: their coverage % for
+    that tag doesn't go up
+[ ] Tag a file, or 3 on it in a pass: the % goes up
+[ ] A pass's start and end card: the "% → %" numbers count the same
+    way (answers only)
+[ ] A tag's coverage in the tag editor reads "N tagged · N no · N not
+    checked yet"

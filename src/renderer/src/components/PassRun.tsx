@@ -891,7 +891,6 @@ function pct(checked: number, files: number): string {
  *  files (big) and the library (small). */
 function EndCard({ run, current }: { run: Run; current: boolean }): JSX.Element {
     const { tagMap } = useTags();
-    const { coverageSeconds } = useSettings();
     // Every tag the run asked about (a pair's upper tags too).
     const tagIds = useMemo(() => slotTagIds(run.tags), [run.tags]);
     const files = run.tags.reduce((s, x) => s + (x.files?.length ?? 0), 0);
@@ -901,13 +900,13 @@ function EndCard({ run, current }: { run: Run; current: boolean }): JSX.Element 
     useEffect(() => {
         if (!current) return;
         let gone = false;
-        snapCoverage(run.scope, tagIds, coverageSeconds)
+        snapCoverage(run.scope, tagIds)
             .then((a) => !gone && setAfter(a))
             .catch(() => {});
         return () => {
             gone = true;
         };
-    }, [current, run.scope, tagIds, coverageSeconds]);
+    }, [current, run.scope, tagIds]);
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-4 overflow-y-auto bg-neutral-900 p-6 text-center">
             <span className="text-2xl font-semibold text-neutral-100">Pass complete</span>

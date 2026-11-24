@@ -11,27 +11,24 @@ import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { filterKey } from "@renderer/lib/tagFilters";
-import { SliderInput } from "./Sidebar";
 import { ScopeSummary } from "./ScopeSummary";
 import { inTagPointer } from "@renderer/contexts/TagPointerContext";
 import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
 
 // Tag coverage: how much of the library has been checked for each tag.
-// A file is checked for a tag when it's a yes (has the tag) or a no: firm
-// (the tag was taken off it, or it was stepped past in a pass) or seen (it
-// sat on screen in Sweep long enough with the tag up — the seconds are a
-// setting). Share = checked ÷ library files.
+// A file is checked for a tag when it has an answer: a yes (has the tag) or
+// a firm no (taken off or marked no, a pass no, or ruled out by its
+// folder). Sweep time on screen is kept in the database but doesn't count:
+// it's a guess, not an answer. Share = checked ÷ library files.
 
 
 /** A set of files coverage can be limited to (null: the whole library). */
 export type CoverageScope = { folderPrefixes: string[] | null; filter: FilterNode | null } | null;
 
-/** Coverage for every tag at the current seconds threshold, over the
- *  library or a scope. Read while `active` (and again when the tags or the
- *  scope change); the threshold is applied here, so moving it updates
- *  straight away. Null until the first read. */
+/** Coverage for every tag, over the library or a scope. Read while
+ *  `active` (and again when the tags or the scope change). Null until the
+ *  first read. */
 export function useTagCoverage(active: boolean, scope: CoverageScope = null): TagCoverage | null {
-    const { coverageSeconds } = useSettings();
     const { allTags } = useTags();
     const [raw, setRaw] = useState<TagCoverageRaw | null>(null);
     const scopeKey = scope
@@ -58,22 +55,15 @@ export function useTagCoverage(active: boolean, scope: CoverageScope = null): Ta
         if (!raw) return null;
         return {
             files: raw.files,
-            tags: raw.tags.map((t) => {
-                const seen = t.seen.reduce(
-                    (s, [sec, n]) => (sec >= coverageSeconds ? s + n : s),
-                    0,
-                );
-                return {
-                    tagId: t.tagId,
-                    yes: t.yes,
-                    firmNo: t.firmNo,
-                    seen,
-                    no: t.firmNo + seen,
-                    conflicts: t.conflicts,
-                };
-            }),
+            tags: raw.tags.map((t) => ({
+                tagId: t.tagId,
+                yes: t.yes,
+                firmNo: t.firmNo,
+                no: t.firmNo,
+                conflicts: t.conflicts,
+            })),
         };
-    }, [raw, coverageSeconds]);
+    }, [raw]);
 }
 
 /** Whole percent, rounded down so it never says 100% before it is; a
@@ -89,28 +79,14 @@ const num = (n: number) => n.toLocaleString();
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-/** Two shades: solid for firm answers (yes, or a firm no), lighter after
- *  it for seen (a no from Sweep time only). Shares of the whole. */
-function Bar({
-    firm,
-    seen,
-    className = "",
-}: {
-    firm: number;
-    seen: number;
-    className?: string;
-}) {
-    const f = clamp01(firm);
-    const s = clamp01(Math.min(seen, 1 - f));
+/** The share checked (a yes or a firm no), of the whole. */
+function Bar({ checked, className = "" }: { checked: number; className?: string }) {
+    const f = clamp01(checked);
     return (
         <div className={`relative h-1.5 overflow-hidden rounded bg-neutral-800 ${className}`}>
             <div
                 className="absolute inset-y-0 left-0 bg-neutral-300"
                 style={{ width: `${f * 100}%` }}
-            />
-            <div
-                className="absolute inset-y-0 bg-neutral-500"
-                style={{ left: `${f * 100}%`, width: `${s * 100}%` }}
             />
         </div>
     );
@@ -137,8 +113,7 @@ export function TagCoverageSummary({
                 <>
                     <div className="flex items-center gap-3">
                         <Bar
-                            firm={coverage.files ? (row.yes + row.firmNo) / coverage.files : 0}
-                            seen={coverage.files ? row.seen / coverage.files : 0}
+                            checked={coverage.files ? (row.yes + row.no) / coverage.files : 0}
                             className="flex-1"
                         />
                         <span className="text-sm text-neutral-200 tabular-nums">
@@ -146,7 +121,7 @@ export function TagCoverageSummary({
                         </span>
                     </div>
                     <p className="text-[11px] text-neutral-500 tabular-nums">
-                        {num(row.yes)} tagged · {num(row.firmNo)} no · {num(row.seen)} seen ·{" "}
+                        {num(row.yes)} tagged · {num(row.no)} no ·{" "}
                         {num(Math.max(0, coverage.files - row.yes - row.no))} not checked yet
                     </p>
                 </>
@@ -161,17 +136,14 @@ type Row = {
     tag: DbTagWithCategory;
     yes: number;
     firmNo: number;
-    seen: number;
-    /** yes + firmNo + seen */
-    checked: number;
     /** yes + firmNo */
-    firm: number;
+    checked: number;
     /** Files where a no and a yes disagree. */
     conflicts: number;
 };
 
 const GRID =
-    "grid grid-cols-[minmax(8rem,14rem)_minmax(6rem,1fr)_3rem_4.5rem_4rem_4rem_7rem] items-center gap-x-4";
+    "grid grid-cols-[minmax(8rem,14rem)_minmax(6rem,1fr)_3rem_4.5rem_4rem_7rem] items-center gap-x-4";
 
 export default function TagCoverageView({
     coverage: libraryCoverage,
@@ -189,7 +161,7 @@ export default function TagCoverageView({
 }) {
     const { allTags, activeFilter, loadedFeed, filter } = useTags();
     const { folderPrefixes } = useFolders();
-    const { coverageSeconds, setCoverageSeconds, coverageScope, setCoverageScope } = useSettings();
+    const { coverageScope, setCoverageScope } = useSettings();
     // Selection = the current folders + tag filter. With neither, it's the
     // whole library, so the switch is off and Library shows.
     const hasSelection = folderPrefixes != null || activeFilter != null;
@@ -201,16 +173,8 @@ export default function TagCoverageView({
     const coverage = bySelection ? selectionCoverage : libraryCoverage;
     const feedName =
         loadedFeed && filterKey(loadedFeed.tree) === filterKey(filter) ? loadedFeed.name : null;
-    // Sorted by % checked (or % firm), lowest first unless flipped.
-    const [sortBy, setSortBy] = useState<"checked" | "firm">("checked");
+    // Sorted by % checked, lowest first unless flipped.
     const [lowestFirst, setLowestFirst] = useState(true);
-    const sortOn = (by: "checked" | "firm") => {
-        if (by === sortBy) setLowestFirst((v) => !v);
-        else {
-            setSortBy(by);
-            setLowestFirst(true);
-        }
-    };
     // The row whose menu is open.
     const [menuFor, setMenuFor] = useState<number | null>(null);
     // The tag whose conflicts are listed, and a file opened from the list.
@@ -248,33 +212,24 @@ export default function TagCoverageView({
             const r = byId.get(tag.id);
             const yes = r?.yes ?? 0;
             const firmNo = r?.firmNo ?? 0;
-            const seen = r?.seen ?? 0;
             return {
                 tag,
                 yes,
                 firmNo,
-                seen,
-                checked: yes + firmNo + seen,
-                firm: yes + firmNo,
+                checked: yes + firmNo,
                 conflicts: r?.conflicts ?? 0,
             };
         });
         const dir = lowestFirst ? 1 : -1;
-        rows.sort(
-            (a, b) =>
-                dir * (a[sortBy] - b[sortBy]) ||
-                dir * (a.checked - b.checked) ||
-                a.tag.name.localeCompare(b.tag.name),
-        );
+        rows.sort((a, b) => dir * (a.checked - b.checked) || a.tag.name.localeCompare(b.tag.name));
         const swept = rows.filter((r) => inTagPointer(r.tag));
         const off = rows.filter((r) => !inTagPointer(r.tag));
         // Total: every checked file/tag pair over every pair, tag pointer
         // tags only (the average of their shares).
         const checked = swept.reduce((s, r) => s + r.checked, 0);
-        const firm = swept.reduce((s, r) => s + r.firm, 0);
         const pairs = swept.length * files;
-        return { swept, off, total: { checked, firm, pairs } };
-    }, [allTags, coverage, sortBy, lowestFirst, files]);
+        return { swept, off, total: { checked, pairs } };
+    }, [allTags, coverage, lowestFirst, files]);
 
     const scopeSwitch = (
         <div className="flex items-center gap-1 rounded-md bg-neutral-900 p-0.5">
@@ -360,23 +315,11 @@ export default function TagCoverageView({
                         {pctText(total.checked, total.pairs)}
                     </span>
                 </div>
-                <Bar
-                    firm={total.pairs ? total.firm / total.pairs : 0}
-                    seen={total.pairs ? (total.checked - total.firm) / total.pairs : 0}
-                    className="mt-2 h-2"
-                />
+                <Bar checked={total.pairs ? total.checked / total.pairs : 0} className="mt-2 h-2" />
                 <p className="mt-2 text-[11px] text-neutral-600 tabular-nums">
                     {num(swept.length)} tag{swept.length === 1 ? "" : "s"} in the tag pointer ×{" "}
                     {num(files)} file{files === 1 ? "" : "s"}
                 </p>
-                <SliderInput
-                    name="Seconds on screen to count as a no"
-                    min={1}
-                    max={30}
-                    value={coverageSeconds}
-                    unit="s"
-                    onChange={setCoverageSeconds}
-                />
             </div>
 
             <div className="px-3 py-2">
@@ -385,31 +328,18 @@ export default function TagCoverageView({
                 >
                     <span>Tag</span>
                     <span className="flex items-center gap-3">
-                        {(["checked", "firm"] as const).map((by) => (
-                            <button
-                                key={by}
-                                onClick={() => sortOn(by)}
-                                title={
-                                    by === "checked"
-                                        ? "Sort by % checked (firm answers + seen)"
-                                        : "Sort by % firm (yes, or a firm no): what a pass would help most"
-                                }
-                                className={`uppercase tracking-wider transition-colors ${
-                                    sortBy === by ? "text-neutral-300" : "hover:text-neutral-300"
-                                }`}
-                            >
-                                {by === "checked" ? "Checked" : "Firm"}
-                                {sortBy === by && (lowestFirst ? " ↑" : " ↓")}
-                            </button>
-                        ))}
+                        <button
+                            onClick={() => setLowestFirst((v) => !v)}
+                            title="Sort by % checked (a yes or a firm no)"
+                            className="uppercase tracking-wider text-neutral-300 transition-colors"
+                        >
+                            Checked{lowestFirst ? " ↑" : " ↓"}
+                        </button>
                     </span>
                     <span className="text-right">%</span>
                     <span className="text-right">Tagged</span>
                     <span className="text-right" title="Firm noes: the tag was taken off or marked no, stepped past in a pass, or not allowed in the folder">
                         No
-                    </span>
-                    <span className="text-right" title="On screen in Sweep long enough with the tag up (soft)">
-                        Seen
                     </span>
                     <span className="text-right">Not checked</span>
                 </div>
@@ -478,7 +408,7 @@ function CoverageRow({
         };
     }, [menuOpen, onCloseMenu]);
 
-    const { tag, yes, firmNo, seen, checked, firm, conflicts } = row;
+    const { tag, yes, firmNo, checked, conflicts } = row;
     const color = tag.category?.color ?? "#888";
     return (
         <div ref={ref} className="relative">
@@ -507,13 +437,12 @@ function CoverageRow({
                         </span>
                     )}
                 </span>
-                <Bar firm={files ? firm / files : 0} seen={files ? seen / files : 0} />
+                <Bar checked={files ? checked / files : 0} />
                 <span className="text-right text-neutral-200 tabular-nums">
                     {pctText(checked, files)}
                 </span>
                 <span className="text-right text-neutral-500 tabular-nums">{num(yes)}</span>
                 <span className="text-right text-neutral-500 tabular-nums">{num(firmNo)}</span>
-                <span className="text-right text-neutral-500 tabular-nums">{num(seen)}</span>
                 <span className="text-right text-neutral-500 tabular-nums">
                     {num(Math.max(0, files - checked))}
                 </span>

@@ -377,10 +377,8 @@ function SettingsModal({
         toggleSweepScrubHold,
         sweepAllLanes,
         toggleSweepAllLanes,
-        coverageSeconds,
         passFfFactor,
         setPassFfFactor,
-        setCoverageSeconds,
     } = useSettings();
     // A confirm opened from inside handles its own Escape.
     const confirmOpen = useRef(false);
@@ -464,14 +462,6 @@ function SettingsModal({
                         value={passFfFactor}
                         unit="×"
                         onChange={setPassFfFactor}
-                    />
-                    <SliderInput
-                        name="Tag pointer: seconds on screen to count as a no"
-                        min={1}
-                        max={30}
-                        value={coverageSeconds}
-                        unit="s"
-                        onChange={setCoverageSeconds}
                     />
                     <SliderInput
                         name="tile size"
