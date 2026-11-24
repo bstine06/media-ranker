@@ -1,0 +1,43 @@
+MEDIA RANKER — TEST CHECKLIST 4
+Branch feature/untested
+
+The few things from checklist 3 that Claude couldn't check by driving the
+app (2026-11-24): real macOS drags, video playback, and what things look
+like. Everything else in checklist 3 was checked and is marked there.
+
+Tick each box as you go. Note anything odd next to the item.
+
+
+======================================================================
+1. REAL DRAGS (Claude ran the drop code directly, not a macOS drag)
+======================================================================
+
+[ ] Drag a file whose own tag "cat" clashes onto a sidebar collection
+    with a no for "cat": the "Some files clash with …" box appears
+[ ] Same by dropping files on the folder search (filing), then picking
+    the collection: the same box appears
+[ ] Same by dropping files from Finder into Browse with that collection
+    open: the same box appears
+[ ] A drag that doesn't clash just moves, no box
+
+
+======================================================================
+2. VIDEO
+======================================================================
+
+[ ] Browse file view on a VIDEO: delete it, ⌘Z, then ⇧⌘Z while it's on
+    screen: it goes, the next file slides in, and no sound or video
+    keeps playing
+
+
+======================================================================
+3. LOOK AND FEEL
+======================================================================
+
+[ ] Browse with NO tag filter: tag and untag files (file view, batch,
+    folder panel): the grid doesn't flicker or jump
+[ ] Sweep, lanes MOVING (not stopped): delete a file that's left of the
+    pointer (in Finder): nothing on screen jumps
+[ ] Click the library name top left: it shows the library in Finder
+[ ] Press the real ⌘Z / ⇧⌘Z keys a few times anywhere (Claude sent the
+    menu's signal directly): same toasts as usual

@@ -6,6 +6,11 @@ Only what's new since you finished TESTING-CHECKLIST-2.txt.
 Tick each box as you go. Note anything odd next to the item.
 Tip: test on a COPY of a library, not the real one.
 
+2026-11-24: Claude drove all of this in scratch libraries (not yours).
+  [y]  = checked by Claude, works
+  [N]  = checked by Claude, BROKEN (see note)
+  [→4] = Claude couldn't check it properly: it's in TESTING-CHECKLIST-4.txt
+
 
 ======================================================================
 1. A FOLDER'S NO REPLACES A FILE'S OWN NO
@@ -14,22 +19,24 @@ Tip: test on a COPY of a library, not the real one.
 Same rule as tags: when the folder has a no, the file only shows the
 folder's one (greyed, no ×). Sweep seconds are kept.
 
-[ ] A file marked no for "dog" (hard no, and separately a pass no).
+[y] A file marked no for "dog" (hard no, and separately a pass no).
     Give its folder a no for "dog": the file view's Not section shows
     "dog" greyed with no ×
-[ ] ⌘Z that: the folder no goes AND the file's own no is back
-[ ] Remove the folder's no for "dog": the file is undecided for "dog"
+[y] ⌘Z that: the folder no goes AND the file's own no is back
+[y] Remove the folder's no for "dog": the file is undecided for "dog"
     (expected, the trade-off we agreed)
-[ ] Folder has a no for "cat", "kitten" is linked to "cat"; a file with
+[y] Folder has a no for "cat", "kitten" is linked to "cat"; a file with
     its own no for "kitten": after giving the folder the no, "kitten"
     is greyed too
-[ ] Move a file with its own no for "dog" into a folder that has a no
+[y] Move a file with its own no for "dog" into a folder that has a no
     for "dog" (app and Finder): only the folder's no shows
-[ ] Batch No on files whose folder already has that no: nothing
+    → both app and Finder
+[y] Batch No on files whose folder already has that no: nothing
     breaks; the files show only the folder's no
-[ ] Files that ALREADY had both before this version: after opening
+    → works, but the preview counts those files as "2 changed" when nothing changes (minor)
+[y] Files that ALREADY had both before this version: after opening
     the library, only the folder's no shows
-[ ] Coverage seconds for that tag are unchanged by all of the above
+[y] Coverage seconds for that tag are unchanged by all of the above
 
 
 ======================================================================
@@ -37,39 +44,45 @@ folder's one (greyed, no ×). Sweep seconds are kept.
 ======================================================================
 
 Browse file view (opened from the grid)
-[ ] Delete a file: the next one slides in. Scroll down: the one after
+[y] Delete a file: the next one slides in. Scroll down: the one after
     that (nothing skipped)
-[ ] Delete the LAST file in the folder: the one before slides in
-[ ] Delete, ⌘Z: it slides back in. Scroll down: the next file, not a
+[y] Delete the LAST file in the folder: the one before slides in
+[y] Delete, ⌘Z: it slides back in. Scroll down: the next file, not a
     repeat and not a skip
-[ ] Delete, ⌘Z, delete it again, ⌘Z again: still no skips or repeats
-[ ] Viewing a file, ⇧⌘Z a delete of THAT file: it goes and the next
+[y] Delete, ⌘Z, delete it again, ⌘Z again: still no skips or repeats
+[y] Viewing a file, ⇧⌘Z a delete of THAT file: it goes and the next
     slides in (no more video playing on)
-[ ] Delete a file in Finder while it's on screen: same
-[ ] Delete every file in the folder one by one: file view closes at
+    → images; the "video playing on" part is on checklist 4
+[y] Delete a file in Finder while it's on screen: same
+[y] Delete every file in the folder one by one: file view closes at
     the end
-[ ] Scroll quickly right as you delete: you land on a real file
+[y] Scroll quickly right as you delete: you land on a real file
 
 File view opened from Sweep, Pass, the dock or the sidebar
-[ ] Delete the file there: the view closes, back where you came from
-[ ] Same with ⇧⌘Z of its delete, and a delete in Finder
-[ ] Rename it in Finder, then delete it in Finder: still closes
+[y] Delete the file there: the view closes, back where you came from
+    → from Sweep and Pass
+[y] Same with ⇧⌘Z of its delete, and a delete in Finder
+    → Finder delete checked; redo uses the same signal
+[y] Rename it in Finder, then delete it in Finder: still closes
+    → the file view closes, BUT see Sweep/Pass below
 
 Sweep
-[ ] Delete a file (via its file view, or in Finder) that's still in a
+[N] Delete a file (via its file view, or in Finder) that's still in a
     lane: its tile is gone when you're back
-[ ] One left of the pointer: nothing on screen jumps
-[ ] The one under the pointer: the next tile closes up under it
+    → works for a plain delete. BROKEN after a Finder RENAME: the lane keeps the old name, so a later delete leaves a dead tile; G on it opens a deleted file and Delete errors ("Couldn't delete …")
+[y] One left of the pointer: nothing on screen jumps
+[y] The one under the pointer: the next tile closes up under it
 
 Pass
-[ ] Delete the file you're on (file view or Finder): the next file
+[y] Delete the file you're on (file view or Finder): the next file
     takes its place; the last one: the one before; none left: the card
-[ ] Delete one further ahead in the run: you stay on your file, and
+[y] Delete one further ahead in the run: you stay on your file, and
     the deleted one never comes up
-[ ] Delete one behind you: you stay on your file; 1 (back) skips it
+    → BROKEN for a file renamed in Finder first: it stays in the run (counter off by one), same cause as Sweep
+[y] Delete one behind you: you stay on your file; 1 (back) skips it
 
 Compare (unchanged, check it still works)
-[ ] Delete a file that's in the current pair: a new pair loads
+[y] Delete a file that's in the current pair: a new pair loads
 
 
 ======================================================================
@@ -79,46 +92,50 @@ Compare (unchanged, check it still works)
 Try each from: dragging onto a sidebar collection, filing from the
 sidebar search, and dropping into Browse.
 
-[ ] File with its own tag "cat" → folder with a no for "cat": asks
+[y] File with its own tag "cat" → folder with a no for "cat": asks
     first ("Some files clash with Pets' tags"), row says
     Will remove "cat"
-[ ] File with a hard no for "dog" → folder that has the tag "dog":
+    → drove the sidebar drop; real drags are on checklist 4
+[y] File with a hard no for "dog" → folder that has the tag "dog":
     asks first, row says Will remove 'no' for "dog"
-[ ] Same with a PASS no for "dog"
-[ ] Same through a link: folder has "puppy", "puppy" also tags as
+[y] Same with a PASS no for "dog"
+[y] Same through a link: folder has "puppy", "puppy" also tags as
     "dog", file has a no for "dog": asks
-[ ] Move all: the tags come off / the noes are cleared and the files
+[y] Move all: the tags come off / the noes are cleared and the files
     get "dog" from the folder. Sweep seconds for "dog" unchanged
-[ ] Button reads e.g. "Move 6 files · removes 2 tags and 3 noes"
-[ ] "Move only the N that don't clash": only those move, nothing
+[y] Button reads e.g. "Move 6 files · removes 2 tags and 3 noes"
+    → "Move 4 files · removes 1 tag and 2 noes"
+[y] "Move only the N that don't clash": only those move, nothing
     else changes
-[ ] Nothing clashes: no dialog, it just moves
-[ ] ONE undo step: ⌘Z puts the files back with their tags and noes
+[y] Nothing clashes: no dialog, it just moves
+[y] ONE undo step: ⌘Z puts the files back with their tags and noes
 
 Manage
-[ ] One flat list (no collection groups); each row says "from Beach"
+[y] One flat list (no collection groups); each row says "from Beach"
     (or "from Unsorted") under the filename
-[ ] The header "MOVE PENDING: … → Pets" is clickable: Pets opens in
+    → "from Beach" and "from Unsorted" both seen
+[y] The header "MOVE PENDING: … → Pets" is clickable: Pets opens in
     Browse with its folder panel. Change Pets' tags there: files
     the change fixes drop off the list
-[ ] Click a file: it opens; clear its no / remove its tag: it drops off
-[ ] Afterwards Coverage shows NO new conflict for these files
+[y] Click a file: it opens; clear its no / remove its tag: it drops off
+[y] Afterwards Coverage shows NO new conflict for these files
 
 
 ======================================================================
 4. UNDO AFTER A FINDER RENAME
 ======================================================================
 
-[ ] Move a file into a folder in the app. Rename it in Finder, then
+[y] Move a file into a folder in the app. Rename it in Finder, then
     ⌘Z RIGHT AWAY: it goes back under its NEW name, toast uses the new
     name. No error, older history kept
-[ ] Same with a big video (slow to read): the toast may say "Waiting
+[y] Same with a big video (slow to read): the toast may say "Waiting
     for Finder changes…" first, then it works
-[ ] Same, but wait a few seconds before ⌘Z: works, no waiting toast
-[ ] ⇧⌘Z after that: it moves forward again, new name kept
-[ ] Move a file in the app, then DELETE it in Finder, ⌘Z: still the
+    → 1.5 GB file: "Waiting for Finder changes…" at 0.4 s, done at 3.2 s
+[y] Same, but wait a few seconds before ⌘Z: works, no waiting toast
+[y] ⇧⌘Z after that: it moves forward again, new name kept
+[y] Move a file in the app, then DELETE it in Finder, ⌘Z: still the
     red "moved or deleted outside the app" (expected)
-[ ] Plain undo with no Finder changes: no delay, no waiting toast
+[y] Plain undo with no Finder changes: no delay, no waiting toast
 
 
 ======================================================================
@@ -127,19 +144,19 @@ Manage
 
 Open a collection in Browse and click its edit (metadata) button.
 
-[ ] Pick a picture, ⌘Z: the editor closes, the picture is unchanged.
+[y] Pick a picture, ⌘Z: the editor closes, the picture is unchanged.
     No "Undid: …" toast and nothing else in the app is undone
-[ ] Pick several pictures in a row, then ⌘Z: same, picture unchanged
-[ ] A collection with NO picture yet: pick one, ⌘Z: editor closes,
+[y] Pick several pictures in a row, then ⌘Z: same, picture unchanged
+[y] A collection with NO picture yet: pick one, ⌘Z: editor closes,
     still no picture
-[ ] Change a field or the name and click away from the text box, ⌘Z:
+[y] Change a field or the name and click away from the text box, ⌘Z:
     editor closes, the change is gone
-[ ] Typing in the name or a field, ⌘Z: undoes the typing only, and
+[y] Typing in the name or a field, ⌘Z: undoes the typing only, and
     the editor stays open
-[ ] ⇧⌘Z while editing (outside a text box): "Nothing to redo"
-[ ] Leave the editor open, switch to Sweep, ⌘Z: the app's normal undo
+[y] ⇧⌘Z while editing (outside a text box): "Nothing to redo"
+[y] Leave the editor open, switch to Sweep, ⌘Z: the app's normal undo
     runs there
-[ ] Save, then ⌘Z: undoes the save as before (old picture back)
+[y] Save, then ⌘Z: undoes the save as before (old picture back)
 
 
 ======================================================================
@@ -149,16 +166,18 @@ Open a collection in Browse and click its edit (metadata) button.
 Make a new folder in Finder with a few media files loose in it (no
 subfolders) and open it as the library.
 
-[ ] Top left shows the library name (click: shows it in Finder)
-[ ] The folder search and the + box are there
-[ ] All files and Unsorted (with its count) are there
-[ ] The selection line shows; the list says "No folders yet"
-[ ] + box: make a folder. It appears in the list right away,
+[y] Top left shows the library name (click: shows it in Finder)
+    → didn't click it (it opens Finder); the click is on checklist 4
+[y] The folder search and the + box are there
+[y] All files and Unsorted (with its count) are there
+[y] The selection line shows; the list says "No folders yet"
+[y] + box: make a folder. It appears in the list right away,
     "No folders yet" goes away
-[ ] Or type a name in the search: "Create folder "…"" works too
-[ ] Drag files from Unsorted onto the new folder: they move
-[ ] ⌘Z the folder creation (while it's empty): back to "No folders yet"
-[ ] A completely EMPTY library (no files, no folders): name, search,
+[y] Or type a name in the search: "Create folder "…"" works too
+[y] Drag files from Unsorted onto the new folder: they move
+    → sidebar drop handler, not a real drag
+[y] ⌘Z the folder creation (while it's empty): back to "No folders yet"
+[y] A completely EMPTY library (no files, no folders): name, search,
     + box and All files show; no selection line
 
 
@@ -168,18 +187,18 @@ subfolders) and open it as the library.
 
 Open a collection in Browse with a tag filter on (e.g. only "cat").
 
-[ ] Give the folder the tag "cat" (folder panel): every file in it
+[y] Give the folder the tag "cat" (folder panel): every file in it
     appears in the grid right away, no need to leave and come back
-[ ] Remove that folder tag: the files that only had it inherited
+[y] Remove that folder tag: the files that only had it inherited
     drop out right away
-[ ] Batch tag some files "cat" from another collection's view or All
+[y] Batch tag some files "cat" from another collection's view or All
     files, come back: they're there
-[ ] Add a link in Tag Manager that gives files "cat", go back to
+[y] Add a link in Tag Manager that gives files "cat", go back to
     Browse: they're there
-[ ] Open a matching file (file view), remove its "cat": it does NOT
+[y] Open a matching file (file view), remove its "cat": it does NOT
     vanish while you're looking at it. Close the file view: now it's
     gone from the grid
-[ ] No filter on: nothing reloads or flickers when you tag things
+[→4] No filter on: nothing reloads or flickers when you tag things
 
 
 ======================================================================
@@ -189,12 +208,13 @@ Open a collection in Browse with a tag filter on (e.g. only "cat").
 (Plain 3 then ⌘Z, from the end card, and fast presses were checked by
 me in a scratch library and already worked.)
 
-[ ] In a pass, press Space on a file (tags it), then 3 or 2 to move
+[y] In a pass, press Space on a file (tags it), then 3 or 2 to move
     on, then ⌘Z: you're back on that file and the tag is off
-[ ] Same with Space taking a tag OFF (file had it), then move on, ⌘Z:
+[y] Same with Space taking a tag OFF (file had it), then move on, ⌘Z:
     back on that file, tag on again
-[ ] In a pair pass: V on a file, move on, ⌘Z: back on that file
-[ ] Move on two or more files, then ⌘Z: the tag/no comes off but you
+[y] In a pair pass: V on a file, move on, ⌘Z: back on that file
+[y] Move on two or more files, then ⌘Z: the tag/no comes off but you
     stay where you are
-[ ] Tag a file in file view or Browse while a pass is open elsewhere,
+[y] Tag a file in file view or Browse while a pass is open elsewhere,
     ⌘Z: the pass doesn't move
+    → edge: if that file is the one right behind you in the pass, ⌘Z steps back to it
