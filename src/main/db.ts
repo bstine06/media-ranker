@@ -375,7 +375,9 @@ export function normalizeFolderIds(): void {
 
 // The inheritance rule: a tag a file inherits (from its folder, or implied
 // by another of its tags) is never also the file's own, so any own copy is
-// deleted. Likewise a folder doesn't keep a tag its other tags imply.
+// deleted. Likewise a folder doesn't keep a tag its other tags imply. Noes
+// follow it too: a file's own no (hard or pass) on a tag its folder rules
+// out is cleared (Sweep seconds kept), so it only has the folder's.
 // Pass a file or folder to only check that one (a folder: its files too).
 export function dropTagsCoveredByInheritance(
     scope: { fileId?: number; folderId?: number } = {},
@@ -425,8 +427,20 @@ export function dropTagsCoveredByInheritance(
                  ) ${scope.folderId != null ? "AND folder_tags.folder_id = ?" : ""}`,
             ).run(...(scope.folderId != null ? [scope.folderId] : []));
         }
+        db.prepare(
+            `UPDATE tag_checks SET rejected = 0, passed = 0, updated_at = datetime('now')
+             WHERE (rejected = 1 OR passed = 1)
+               AND EXISTS (SELECT 1 FROM file_folder_noes n
+                           WHERE n.file_id = tag_checks.file_id AND n.tag_id = tag_checks.tag_id)
+               ${fileScope.sql.replaceAll("file_tags.", "tag_checks.")}`,
+        ).run(...fileScope.params);
     })();
 }
+
+// SQL guard for writing a file's own no (params: file id, tag id): skipped
+// when its folder already rules the tag out (that no is the folder's).
+const NOT_FOLDER_NO = `NOT EXISTS (SELECT 1 FROM file_folder_noes n
+                                    WHERE n.file_id = ? AND n.tag_id = ?)`;
 
 function runMigrations(db: Database.Database): void {
     const tableNames = new Set(
@@ -973,6 +987,7 @@ function applyFolderNo(folderId: number, tagId: number): void {
     const clash = folderContradiction(folderId);
     if (clash) throw new RuleError(contradictionMessage(clash));
     enforceFolderNoes({ folderId });
+    dropTagsCoveredByInheritance({ folderId });
 }
 
 // Found by making the change and rolling it back, so it can't disagree with
@@ -2282,7 +2297,7 @@ function applyBatchNo(fileIds: number[], tagId: number): { file_id: number; tag_
     const del = db.prepare(`DELETE FROM file_tags WHERE file_id = ? AND tag_id = ?`);
     const reject = db.prepare(
         `INSERT INTO tag_checks (file_id, tag_id, rejected)
-         SELECT ?, ?, 1 WHERE EXISTS (SELECT 1 FROM files WHERE id = ?)
+         SELECT ?, ?, 1 WHERE EXISTS (SELECT 1 FROM files WHERE id = ?) AND ${NOT_FOLDER_NO}
          ON CONFLICT (file_id, tag_id)
          DO UPDATE SET rejected = 1, updated_at = datetime('now')`,
     );
@@ -2290,10 +2305,10 @@ function applyBatchNo(fileIds: number[], tagId: number): { file_id: number; tag_
     for (const fileId of fileIds) {
         for (const { tag_id } of sources.all(fileId, tagId, tagId) as { tag_id: number }[]) {
             del.run(fileId, tag_id);
-            reject.run(fileId, tag_id, fileId);
+            reject.run(fileId, tag_id, fileId, fileId, tag_id);
             gone.push({ file_id: fileId, tag_id });
         }
-        reject.run(fileId, tagId, fileId);
+        reject.run(fileId, tagId, fileId, fileId, tagId);
     }
     return gone;
 }
@@ -2365,10 +2380,11 @@ export function removeTagFromFile(fileId: number, tagId: number): void {
             .run(fileId, tagId);
         if (changes > 0) {
             db.prepare(
-                `INSERT INTO tag_checks (file_id, tag_id, rejected) VALUES (?, ?, 1)
+                `INSERT INTO tag_checks (file_id, tag_id, rejected)
+                 SELECT ?, ?, 1 WHERE ${NOT_FOLDER_NO}
                  ON CONFLICT (file_id, tag_id)
                  DO UPDATE SET rejected = 1, updated_at = datetime('now')`,
-            ).run(fileId, tagId);
+            ).run(fileId, tagId, fileId, tagId);
         }
     })();
 }

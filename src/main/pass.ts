@@ -111,7 +111,8 @@ export function countScope(folderPrefixes: string[] | null, filter: FilterNode |
 }
 
 /** 3 in a pass: stepped past the file untagged, a firm no. Skipped if the
- *  file has the tag after all (yes wins), or is gone. */
+ *  file has the tag after all (yes wins), its folder already rules the tag
+ *  out (that no is the folder's), or it's gone. */
 export function setPassNo(fileId: number, tagId: number): void {
     getDb()
         .prepare(
@@ -121,10 +122,12 @@ export function setPassNo(fileId: number, tagId: number): void {
                AND EXISTS (SELECT 1 FROM tags WHERE id = ?)
                AND NOT EXISTS (SELECT 1 FROM file_effective_tags e
                                WHERE e.file_id = ? AND e.tag_id = ?)
+               AND NOT EXISTS (SELECT 1 FROM file_folder_noes n
+                               WHERE n.file_id = ? AND n.tag_id = ?)
              ON CONFLICT (file_id, tag_id)
              DO UPDATE SET passed = 1, updated_at = datetime('now')`,
         )
-        .run(fileId, tagId, fileId, tagId, fileId, tagId);
+        .run(fileId, tagId, fileId, tagId, fileId, tagId, fileId, tagId);
 }
 
 /** 2 in a pass (skip): no pass no for this file. A hard no (rejected) and
