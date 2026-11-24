@@ -116,7 +116,8 @@ function DockBody({
             if (!g) m.set(key, (g = { rows: [], folders: [] }));
             return g;
         };
-        for (const f of folderList) at(collectionOf(f.path)).folders.push(f);
+        // A folder's own path is its collection (no "/" doesn't mean Unsorted here).
+        for (const f of folderList) at(f.path.split("/")[0]).folders.push(f);
         for (const r of rows) {
             at(r.file ? collectionOf(r.file.path) : "Not in the library").rows.push(r);
         }
@@ -156,11 +157,11 @@ function DockBody({
                         title={`Open "${collectionOf(spec.headerFolder + "/")}" in Browse to change its tags`}
                         className="rounded text-left text-xs font-semibold uppercase tracking-wide text-amber-300/90 underline decoration-amber-300/30 underline-offset-2 transition-colors hover:text-amber-200 hover:decoration-amber-200"
                     >
-                        {spec.dockTitle}
+                        <RichText text={spec.dockTitle} />
                     </button>
                 ) : (
                     <span className="text-xs font-semibold uppercase tracking-wide text-amber-300/90">
-                        {spec.dockTitle}
+                        <RichText text={spec.dockTitle} />
                     </span>
                 )}
                 <button

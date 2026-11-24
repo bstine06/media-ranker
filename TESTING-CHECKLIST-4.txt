@@ -216,3 +216,19 @@ the round folder chips (picture + name). Nothing in "quotes" in the body.
 [ ] File view: adding a tag the folder rules out shows a short note with
     the folder chip and tag pills; hovering a no in "Not" still explains
     it in plain text
+
+
+----------------------------------------------------------------------
+2026-11-24 CLAUDE'S SCRATCH RUN (partial, stopped at the usage limit)
+Checked and working: sections 4, 5, 6, 8, 9 (all items); section 7 (all
+items); section 13: link/unlink titles + lines, side panel rows and
+folder line, second-change confirm, folder tag / folder no confirms,
+folder error with chip + pills, conflict reason naming the folder,
+replace prompt.
+Fixed during the run: category order ties, Coverage refreshing while on
+screen, side panel filing a folder line under "Unsorted", conflict
+reason not naming the folder, replace-prompt title, side panel headers
+as pills/chips, spacing before commas around pills.
+NOT yet checked by Claude: 13 batch confirms, move-clash confirm look,
+merge/delete confirms, file view refused note; sections 10, 11, 12.
+Sections 1-3 are yours (real drags, video, look and feel).

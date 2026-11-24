@@ -18,7 +18,7 @@ export function TagRef({ name, no = false }: { name: string; no?: boolean }): JS
     const color = tag?.category?.color ?? "#888";
     return (
         <span
-            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 align-middle text-xs ${
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 align-middle text-xs font-normal normal-case tracking-normal ${
                 no
                     ? "border-red-800/80 bg-red-950/60 text-red-200"
                     : "border-neutral-500 bg-neutral-800 text-neutral-300"
@@ -49,7 +49,7 @@ export function TagRefs({ names, no = false }: { names: string[]; no?: boolean }
 /** A folder (collection) by path, as its chip ("" = Unsorted). */
 export function FolderRef({ path }: { path: string }): JSX.Element {
     return (
-        <span className="inline-flex align-middle">
+        <span className="inline-flex align-middle font-normal normal-case tracking-normal">
             <CollectionChip path={path} />
         </span>
     );
@@ -116,7 +116,8 @@ export function RichText({ text }: { text: string }): JSX.Element {
         last = m.index + m[0].length;
     }
     if (last < text.length) parts.push(text.slice(last));
-    return <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-1">{parts}</span>;
+    // Inline, so the text's own spaces (and none before a comma) set the gaps.
+    return <span className="leading-6">{parts}</span>;
 }
 
 /** The same message as plain text (for hover titles): markers dropped. */

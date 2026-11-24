@@ -8,6 +8,7 @@ import {
     useState,
 } from "react";
 import type { DbFile } from "@renderer/shared/types/types";
+import { RichText } from "@renderer/components/InlineRefs";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
 import { useFolders } from "./FolderContext";
 
@@ -243,8 +244,16 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
             )}
             {replacing && (
                 <ConfirmDialog
-                    title={`Show "${replacing.spec.dockTitle ?? "this list"}"?`}
-                    message={`The side panel shows one thing at a time. "${current?.spec.dockTitle ?? "A change"}" is open there and hasn't been confirmed: showing this drops it (nothing changes).`}
+                    title={
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                            Show {replacing.spec.title ?? "this list"} in the side panel?
+                        </span>
+                    }
+                    message={
+                        <RichText
+                            text={`The side panel shows one thing at a time. ${current?.spec.dockTitle ?? "A change"} is open there and hasn't been confirmed: showing this drops it (nothing changes).`}
+                        />
+                    }
                     confirmText="Drop it and show this"
                     danger={false}
                     onCancel={() => {

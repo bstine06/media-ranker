@@ -45,7 +45,6 @@ export function useGuardedMove(): {
             const clashes = await window.api.previewMoveIntoFolder(absPaths, target);
             if (clashes.length === 0) return window.api.moveIntoFolder(absPaths, target);
 
-            const folderName = target.split("/").pop() ?? target;
             const total = absPaths.length;
             let result: MoveResult | null = null;
             const ran = await requestChange({
@@ -72,7 +71,7 @@ export function useGuardedMove(): {
                         </ul>
                     </div>
                 ),
-                dockTitle: `Move pending: ${plural(total, "file")} → ${folderName}`,
+                dockTitle: `Move pending: ${plural(total, "file")} → «${target}»`,
                 headerFolder: target,
                 byOrigin: true,
                 initial: stateOf(clashes),

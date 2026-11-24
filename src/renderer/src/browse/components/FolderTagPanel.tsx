@@ -220,7 +220,7 @@ export default function FolderTagPanel({
                                 ))}
                             </div>
                         ),
-                        dockTitle: `Folder tag pending: "${trimmed}" → ${folder}`,
+                        dockTitle: `Folder tag pending: "${trimmed}" → «${folder}»`,
                         initial: stateOf(preview),
                         load: async () => stateOf(await window.api.previewFolderTag(folder, trimmed)),
                         confirm: {
@@ -309,7 +309,7 @@ export default function FolderTagPanel({
                             ))}
                         </div>
                     ),
-                    dockTitle: `Folder no pending: not "${trimmed}" in ${folder}`,
+                    dockTitle: `Folder no pending: not "${trimmed}" in «${folder}»`,
                     initial: stateOf(preview),
                     load: async () => stateOf(await window.api.previewFolderNo(folder, trimmed)),
                     confirm: {

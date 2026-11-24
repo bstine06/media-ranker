@@ -2033,7 +2033,9 @@ const FOLDER_GIVES = `EXISTS (
 // from its own tags that its folder rules out (after a move kept it, or a
 // tag link added later). `kind` 1 / 2 respectively.
 const CONFLICTS_SQL = `
-    SELECT c.file_id, c.tag_id, 1 AS kind, NULL AS folder_id FROM tag_checks c
+    SELECT c.file_id, c.tag_id, 1 AS kind,
+           (SELECT cf.folder_id FROM files cf WHERE cf.id = c.file_id) AS folder_id
+    FROM tag_checks c
     WHERE c.rejected = 1 AND ${FOLDER_GIVES}
     UNION
     SELECT n.file_id, n.tag_id, 2, n.folder_id FROM file_folder_noes n

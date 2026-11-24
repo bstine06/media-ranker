@@ -838,7 +838,7 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
                     </span>
                 ),
                 message: confirmMessage("add", target, preview),
-                dockTitle: `Link pending: ${tag.name} → ${target.name}`,
+                dockTitle: `Link pending: "${tag.name}" → "${target.name}"`,
                 initial: stateOf(preview),
                 load: async () =>
                     stateOf(await window.api.previewTagImplication(tag.id, target.id, "add")),
