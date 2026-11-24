@@ -814,8 +814,12 @@ export default function BrowseView({
                               : null) ?? null)
                 }
                 onFolderClick={(folderName) => {
+                    // To that folder's grid, even when it's the one already
+                    // open (the file view closes).
+                    setBrowseScrollIndex(null);
                     setActiveFolder(folderName);
                     if (folderName === null) setShowUnsorted(true);
+                    else setShowUnsorted(false);
                     setView("browse");
                 }}
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}

@@ -1353,7 +1353,7 @@ function StripLane({
             // Ended: the row can't run past its end card (it stops with the
             // card at the right edge).
             if (endedRef.current) {
-                const total = itemsRef.current.reduce((w, it) => w + widthOf(it), 0) + height;
+                const total = itemsRef.current.reduce((w, it) => w + widthOf(it), 0) + Math.min(height, width);
                 offset.current = Math.max(offset.current, Math.min(0, width - total));
             }
             if (rowRef.current) rowRef.current.style.transform = `translateX(${offset.current}px)`;
@@ -1450,7 +1450,9 @@ function StripLane({
                         onClick={() => onTileClick(it)}
                     />
                 ))}
-                {ended && <LaneEndCard size={height} tag={tag} ending={ending} />}
+                {/* Square, but never wider than the lane: in a narrow window
+                    it fills the lane, its text centred in it. */}
+                {ended && <LaneEndCard size={Math.min(height, width)} tag={tag} ending={ending} />}
             </div>
             {items.length === 0 && !ended && (
                 <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-600">
@@ -1609,87 +1611,6 @@ function StripTile({
     );
 }
 
-// ─── Key hints ─────────────────────────────────────────────────────────────
-// Shown in full at the end of the toolbar when they fit; otherwise folded
-// into a "Keys" button with the list on hover. They take only the space
-// left over, so they never push the toolbar onto a second line.
-
-const STRIP_HINTS: [string, string][] = [
-    ["Space / click", "toggle the tag"],
-    ["Tab / right click / T", "hold: Tab back through earlier tags, Shift+Tab forward, Space picks; or type to search"],
-    ["Tab Tab", "back to the previous tag (resting on an earlier tag picks it)"],
-    ["Tab + 1 / 2 / 3", "rolodex of tags in the same category / often on the same files / not offered in the tag pointer (3: type to search); Tab / Shift+Tab move, rest or Space picks, Esc leaves"],
-    ["Esc / right click", "let go of the hold (Esc also leaves full screen)"],
-    ["hold 1", "rewind"],
-    ["6", "stop"],
-    ["3", "go (hold: faster)"],
-    ["4 / 5, scroll", "slower / faster"],
-    ["+ / −", "add a lane below / remove the bottom one (up to 3)"],
-    ["2", "pointer to the next lane (same height in it)"],
-    ["`", "new random tag"],
-    ["Q / E", "scrub the video back / forward (lanes stop meanwhile)"],
-    ["G", "open in file view"],
-    ["R", "rotate left"],
-    ["K", "send to Compare (king)"],
-    ["X", "hear every video on screen / just the pointer's"],
-    ["F", "full screen"],
-    ["H", "hide the pointer and menus (no tagging until it's back; Tab also brings it back)"],
-];
-
-function KeyHints({ hints }: { hints: [string, string][] }): JSX.Element {
-    const boxRef = useRef<HTMLDivElement>(null);
-    const fullRef = useRef<HTMLSpanElement>(null);
-    const [fits, setFits] = useState(true);
-
-    useEffect(() => {
-        const box = boxRef.current;
-        const full = fullRef.current;
-        if (!box || !full) return;
-        const check = () => setFits(full.scrollWidth <= box.clientWidth);
-        const ro = new ResizeObserver(check);
-        ro.observe(box);
-        check();
-        return () => ro.disconnect();
-    }, [hints]);
-
-    const line = hints.map(([k, v]) => `${k} ${v}`).join(" · ");
-
-    return (
-        // basis-0: it only ever takes leftover space, so it can't wrap the row.
-        <div ref={boxRef} className="relative ml-auto flex min-w-[3rem] flex-1 basis-0 justify-end">
-            {/* Measures the full line without showing it. */}
-            <span
-                ref={fullRef}
-                aria-hidden
-                className="pointer-events-none invisible absolute right-0 whitespace-nowrap"
-            >
-                {line}
-            </span>
-            {fits ? (
-                <span className="whitespace-nowrap text-neutral-600">{line}</span>
-            ) : (
-                <div className="group relative">
-                    <span className="cursor-default rounded border border-neutral-700 px-1.5 py-0.5 text-[10px] text-neutral-500 group-hover:text-neutral-300">
-                        Keys
-                    </span>
-                    <div className="pointer-events-none invisible absolute right-0 top-full z-50 mt-2 w-max rounded-md border border-neutral-700 bg-neutral-950 p-2.5 shadow-xl group-hover:visible">
-                        <table className="text-[11px]">
-                            <tbody>
-                                {hints.map(([k, v]) => (
-                                    <tr key={k}>
-                                        <td className="pr-3 text-right font-mono text-neutral-300">{k}</td>
-                                        <td className="py-0.5 text-neutral-500">{v}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
 // ─── Toolbar ───────────────────────────────────────────────────────────────
 // The tag (picked on the pointer: Tab, right click or T), random rerolls and
 // the scroll speed.
@@ -1807,7 +1728,6 @@ function SweepToolbar({
                 />
             </label>
 
-            <KeyHints hints={STRIP_HINTS} />
         </div>
     );
 }

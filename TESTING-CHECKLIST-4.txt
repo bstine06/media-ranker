@@ -151,3 +151,17 @@ in the side panel. Then, without confirming it:
 [ ] ⌘Z the "file into a new folder" from above: the files leave right
     away. They don't show up in All files for a moment
 [ ] ⇧⌘Z: they come back with the same tags/score as before
+
+
+======================================================================
+11. POLISH
+======================================================================
+
+[ ] Browse → open a collection → open a file. Click the collection's
+    name at the top of the file's side panel: the file view closes,
+    back to that collection's grid (also from All files: goes to it)
+[ ] Sweep toolbar: no key hints and no "Keys" button any more (the
+    status line at the bottom is still there)
+[ ] Sweep, narrow window, run out of files: the end card fits the
+    media area, text centred, nothing hidden under the sidebar. Wide
+    window: same square card as before
