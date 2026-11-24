@@ -1,3 +1,4 @@
+import { useDataVersion } from "@renderer/hooks/useHistoryVersion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
     DbFile,
@@ -30,6 +31,8 @@ export type CoverageScope = { folderPrefixes: string[] | null; filter: FilterNod
  *  `active` (and again when the tags or the scope change). Null until the
  *  first read. */
 export function useTagCoverage(active: boolean, scope: CoverageScope = null): TagCoverage | null {
+    // Any change (here or in another view, an undo) can move the numbers.
+    const dataVersion = useDataVersion();
     const { allTags } = useTags();
     const [raw, setRaw] = useState<TagCoverageRaw | null>(null);
     const scopeKey = scope
@@ -51,7 +54,7 @@ export function useTagCoverage(active: boolean, scope: CoverageScope = null): Ta
         return () => {
             gone = true;
         };
-    }, [active, allTags, scopeKey]);
+    }, [active, allTags, scopeKey, dataVersion]);
     return useMemo(() => {
         if (!raw) return null;
         return {

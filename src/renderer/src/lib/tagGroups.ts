@@ -29,6 +29,7 @@ export function groupTagsByCategory(tags: DbTagWithCategory[]): TagGroup[] {
     return Array.from(map.values()).sort((a, b) => {
         if (a.categoryId === null) return 1;
         if (b.categoryId === null) return -1;
-        return (a.orderIndex ?? Infinity) - (b.orderIndex ?? Infinity);
+        // Same order as Tag Manager: order_index, then creation (id).
+        return (a.orderIndex ?? Infinity) - (b.orderIndex ?? Infinity) || a.categoryId - b.categoryId;
     });
 }
