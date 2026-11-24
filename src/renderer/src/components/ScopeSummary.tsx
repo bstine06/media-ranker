@@ -57,7 +57,7 @@ export function ScopeSummary({
     );
 }
 
-function CollectionChip({ path }: { path: string }): JSX.Element {
+export function CollectionChip({ path }: { path: string }): JSX.Element {
     const [folder, setFolder] = useState<DbFolder | null>(null);
     useEffect(() => {
         let gone = false;

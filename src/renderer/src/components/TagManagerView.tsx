@@ -16,6 +16,7 @@ import { PendingState, usePendingChange } from "@renderer/contexts/PendingChange
 import { affectedItems, plural, removesCount } from "@renderer/lib/pending";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
+import { Effect, FolderRef, TagRef } from "./InlineRefs";
 import { TagPill } from "./TagPill";
 import { byTagOrder } from "@renderer/lib/tagGroups";
 
@@ -826,6 +827,7 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
                           folders: p.folderNoes.map((n) => ({
                               path: n.path,
                               detail: `Will remove 'no' for "${n.tag}"`,
+                              clearedNo: n.tag,
                           })),
                           removes: removesCount(p.affected),
                       };
@@ -884,51 +886,66 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
         await link({ ...created, category: null });
     };
 
+    // One effect per line, tags and folders as their pills and chips.
     const confirmMessage = (
         action: "add" | "remove",
         target: DbTagWithCategory,
         preview: TagImplicationPreview,
-    ): string => {
+    ): JSX.Element => {
         if (action === "remove") {
             return (
-                `"${tag.name}" will no longer bring "${target.name}" with it. ` +
-                `${count(-preview.files, "file")} will lose "${target.name}".`
+                <div className="flex flex-col gap-1.5">
+                    <Effect>
+                        <TagRef name={tag.name} /> will no longer bring <TagRef name={target.name} />
+                    </Effect>
+                    {-preview.files > 0 && (
+                        <Effect mark="−">
+                            {count(-preview.files, "file")} will lose <TagRef name={target.name} />
+                        </Effect>
+                    )}
+                </div>
             );
-        }
-        let message = `Everything tagged "${tag.name}" will also get "${target.name}".`;
-        if (preview.files > 0) {
-            message += ` That adds "${target.name}" to ${count(preview.files, "file")}.`;
         }
         const converted = [
             preview.convertedFiles > 0 ? count(preview.convertedFiles, "file") : null,
             preview.convertedFolders > 0 ? count(preview.convertedFolders, "folder") : null,
         ].filter(Boolean);
-        if (converted.length > 0) {
-            const one = preview.convertedFiles + preview.convertedFolders === 1;
-            message +=
-                ` ${converted.join(" and ")} already ${one ? "has" : "have"} ` +
-                `"${target.name}" and will get it from "${tag.name}" instead, ` +
-                `so ${one ? "it loses" : "they lose"} it if "${tag.name}" is ` +
-                `removed or this link is deleted.`;
-        }
-        const list = (items: { name: string; files: number }[]) =>
-            items.map((i) => `"${i.name}" (${count(i.files, "file")})`).join(", ");
-        for (const n of preview.folderNoes) {
-            message +=
-                ` Will remove 'no' for "${n.tag}" from the folder "${n.folder}",` +
-                ` since its tags would now give it "${n.tag}".`;
-        }
-        if (preview.noesClearedFiles > 0) {
-            message +=
-                ` Will remove 'no' from ${count(preview.noesClearedFiles, "file")}` +
-                ` that would now get the tag: ${list(preview.noesCleared)}.`;
-        }
-        if (preview.tagsRemovedFiles > 0) {
-            message +=
-                ` Will remove tags from ${count(preview.tagsRemovedFiles, "file")}` +
-                ` whose folder's 'no' would now rule them out: ${list(preview.tagsRemoved)}.`;
-        }
-        return message;
+        const one = preview.convertedFiles + preview.convertedFolders === 1;
+        return (
+            <div className="flex flex-col gap-1.5">
+                <Effect mark="✓">
+                    Everything tagged <TagRef name={tag.name} /> also gets <TagRef name={target.name} />
+                </Effect>
+                {preview.files > 0 && (
+                    <Effect mark="+">
+                        Adds <TagRef name={target.name} /> to {count(preview.files, "file")}
+                    </Effect>
+                )}
+                {preview.folderNoes.map((n) => (
+                    <Effect key={`${n.path}:${n.tag}`} mark="−">
+                        Will remove 'no' for <TagRef name={n.tag} no /> from <FolderRef path={n.path} />
+                    </Effect>
+                ))}
+                {preview.noesCleared.map((n) => (
+                    <Effect key={`c:${n.name}`} mark="−">
+                        Will remove 'no' for <TagRef name={n.name} no /> from {count(n.files, "file")}
+                    </Effect>
+                ))}
+                {preview.tagsRemoved.map((n) => (
+                    <Effect key={`r:${n.name}`} mark="−">
+                        Will remove <TagRef name={n.name} /> from {count(n.files, "file")} (their folder's
+                        'no' rules it out)
+                    </Effect>
+                ))}
+                {converted.length > 0 && (
+                    <Effect tone="muted">
+                        {converted.join(" and ")} already {one ? "has" : "have"} <TagRef name={target.name} />:
+                        from now on {one ? "it comes" : "they come"} with <TagRef name={tag.name} /> (gone if{" "}
+                        <TagRef name={tag.name} /> or this link is removed)
+                    </Effect>
+                )}
+            </div>
+        );
     };
 
     return (

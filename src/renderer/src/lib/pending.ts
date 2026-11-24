@@ -18,21 +18,28 @@ export function affectedDetail(a: Pick<AffectedFile, "loses" | "cleared">): stri
 }
 
 export function affectedItems(list: AffectedFile[]): PendingItem[] {
-    return list.map((a) => ({ fileId: a.fileId, detail: affectedDetail(a) }));
+    return list.map((a) => ({ fileId: a.fileId, detail: affectedDetail(a), loses: a.loses, cleared: a.cleared }));
 }
 
 /** Own tags removed in all. */
 export const removesCount = (list: AffectedFile[]): number =>
     list.reduce((n, a) => n + a.loses.length, 0);
 
-/** Merges items for the same file (details joined). */
+/** Merges items for the same file (details joined, tags and noes pooled). */
 export function mergeItems(items: PendingItem[]): PendingItem[] {
-    const m = new Map<number, string[]>();
+    const m = new Map<number, { details: string[]; loses: Set<string>; cleared: Set<string>; pills: boolean }>();
     for (const i of items) {
         if (!i.detail) continue;
-        const list = m.get(i.fileId) ?? [];
-        if (!list.includes(i.detail)) list.push(i.detail);
-        m.set(i.fileId, list);
+        const e = m.get(i.fileId) ?? { details: [], loses: new Set(), cleared: new Set(), pills: false };
+        if (!e.details.includes(i.detail)) e.details.push(i.detail);
+        i.loses?.forEach((t) => e.loses.add(t));
+        i.cleared?.forEach((t) => e.cleared.add(t));
+        if (i.loses || i.cleared) e.pills = true;
+        m.set(i.fileId, e);
     }
-    return [...m].map(([fileId, d]) => ({ fileId, detail: d.join(" · ") }));
+    return [...m].map(([fileId, e]) => ({
+        fileId,
+        detail: e.details.join(" · "),
+        ...(e.pills ? { loses: [...e.loses], cleared: [...e.cleared] } : {}),
+    }));
 }

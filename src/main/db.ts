@@ -2120,6 +2120,8 @@ export function clearFileNo(fileId: number, tagId: number): void {
  *  wins; those files are skipped. */
 export interface BatchBlock {
     folder: string;
+    /** The folder's relative path. */
+    path: string;
     /** The folder rule's tag (may differ from the batch tag via implication). */
     tag: string;
     files: number;
@@ -2161,7 +2163,7 @@ function batchBlocks(
         mode === "yes"
             ? db
                   .prepare(
-                      `SELECT DISTINCT n.file_id, fo.name AS folder, t.name AS tag
+                      `SELECT DISTINCT n.file_id, fo.name AS folder, fo.path AS path, t.name AS tag
                        FROM file_folder_noes n
                        JOIN folders fo ON fo.id = n.folder_id
                        JOIN tags t ON t.id = n.no_tag_id
@@ -2170,7 +2172,7 @@ function batchBlocks(
                   .all({ ids: JSON.stringify(fileIds), tagId })
             : db
                   .prepare(
-                      `SELECT DISTINCT f.id AS file_id, fo.name AS folder, t.name AS tag
+                      `SELECT DISTINCT f.id AS file_id, fo.name AS folder, fo.path AS path, t.name AS tag
                        FROM files f
                        JOIN folder_tags ft ON ft.folder_id = f.folder_id
                        JOIN folders fo ON fo.id = ft.folder_id
@@ -2181,18 +2183,18 @@ function batchBlocks(
                              WHERE ti.tag_id = ft.tag_id AND ti.implied_id = @tagId))`,
                   )
                   .all({ ids: JSON.stringify(fileIds), tagId })
-    ) as { file_id: number; folder: string; tag: string }[];
+    ) as { file_id: number; folder: string; path: string; tag: string }[];
     const byRule = new Map<string, BatchBlock & { ids: Set<number> }>();
     for (const r of rows) {
         const key = `${r.folder}\u0000${r.tag}`;
-        const b = byRule.get(key) ?? { folder: r.folder, tag: r.tag, files: 0, ids: new Set<number>() };
+        const b = byRule.get(key) ?? { folder: r.folder, path: r.path, tag: r.tag, files: 0, ids: new Set<number>() };
         b.ids.add(r.file_id);
         b.files = b.ids.size;
         byRule.set(key, b);
     }
     return {
         fileIds: new Set(rows.map((r) => r.file_id)),
-        blocks: [...byRule.values()].map(({ folder, tag, files }) => ({ folder, tag, files })),
+        blocks: [...byRule.values()].map(({ folder, path, tag, files }) => ({ folder, path, tag, files })),
     };
 }
 

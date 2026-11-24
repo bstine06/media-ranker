@@ -76,6 +76,8 @@ export interface FolderTagPreview {
  *  wins): a folder no ruling the tag out, or a folder tag giving it. */
 export interface BatchBlock {
     folder: string;
+    /** The folder's relative path. */
+    path: string;
     /** The folder rule's tag. */
     tag: string;
     files: number;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { AffectedPills } from "./InlineRefs";
 import type { DbFile } from "@renderer/shared/types/types";
 import {
     PendingChangeSpec,
@@ -14,7 +15,7 @@ import { useHoverPreview } from "@renderer/browse/hooks/useHoverPreview";
 /** A file's collection: its top-level folder, or Unsorted. */
 const collectionOf = (path: string) => (path.includes("/") ? path.split("/")[0] : "Unsorted");
 
-type Row = { fileId: number; file: DbFile | null; detail: string };
+type Row = { fileId: number; file: DbFile | null; detail: string; loses?: string[]; cleared?: string[] };
 
 /**
  * The docked pending change (see PendingChangeContext): what it would do
@@ -102,6 +103,8 @@ function DockBody({
         fileId: i.fileId,
         file: files.get(i.fileId) ?? null,
         detail: i.detail,
+        loses: i.loses,
+        cleared: i.cleared,
     }));
     // Per collection: its files, and what the change does to the folder
     // itself (shown in the collection's header).
@@ -244,7 +247,11 @@ function DockBody({
                                                 On the folder
                                             </span>
                                             <span className="text-[11px] text-red-300/80">
-                                                {f.detail}
+                                                {f.clearedNo ? (
+                                                    <AffectedPills loses={[]} cleared={[f.clearedNo]} />
+                                                ) : (
+                                                    f.detail
+                                                )}
                                             </span>
                                         </button>
                                     ))}
@@ -341,7 +348,13 @@ function DockRow({
                         {file?.filename ?? "Removed file"}
                     </span>
                     {from && <span className="truncate text-[11px] text-neutral-500">from {from}</span>}
-                    <span className="truncate text-[11px] text-red-300/80">{row.detail}</span>
+                    {row.loses || row.cleared ? (
+                        <span className="mt-0.5 text-[11px] text-red-300/80">
+                            <AffectedPills loses={row.loses ?? []} cleared={row.cleared ?? []} />
+                        </span>
+                    ) : (
+                        <span className="truncate text-[11px] text-red-300/80">{row.detail}</span>
+                    )}
                 </div>
             </button>
             {preview && layout && file && rootPath && (

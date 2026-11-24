@@ -14,6 +14,7 @@ import CategoryGroup from "@renderer/components/CategoryGroup";
 import { TagInput } from "@renderer/components/TagInput";
 import { TagPill } from "@renderer/components/TagPill";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
+import { Effect, FolderRef, TagRef } from "@renderer/components/InlineRefs";
 import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
 import { affectedItems, plural, removesCount } from "@renderer/lib/pending";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -44,41 +45,45 @@ type ConvertConfirm = { tag: string; kind: "tag" | "no"; files: number };
 function BatchTagLines({ r, selected, mode }: { r: BatchTagResult; selected: number; mode: "yes" | "no" }) {
     const blocked = r.blocked.reduce((n, b) => n + b.files, 0);
     const going = selected - blocked;
+    const yes = mode === "yes";
     return (
         <div className="flex flex-col gap-1.5">
             {r.restChanged > 0 && (
-                <p className="text-sm font-semibold text-neutral-100">
-                    {mode === "yes"
-                        ? `⊘ ${plural(r.restChanged, "other file")} shown get a pass no for "${r.tag}"`
-                        : `✓ ${plural(r.restChanged, "other file")} shown get "${r.tag}"`}
-                </p>
+                <Effect mark={yes ? "⊘" : "✓"} tone="strong">
+                    {plural(r.restChanged, "other file")} shown get
+                    {yes ? <>a pass no for <TagRef name={r.tag} no /></> : <TagRef name={r.tag} />}
+                </Effect>
             )}
             {going > 0 && (
-                <p>
-                    {mode === "yes"
-                        ? `✓ ${plural(going, "selected file")} get "${r.tag}"`
-                        : `⊘ ${plural(going, "selected file")} get a no for "${r.tag}"`}
-                </p>
+                <Effect mark={yes ? "✓" : "⊘"}>
+                    {plural(going, "selected file")} get
+                    {yes ? <TagRef name={r.tag} /> : <>a no for <TagRef name={r.tag} no /></>}
+                </Effect>
             )}
-            {r.removed.length > 0 && (
-                <p>
-                    Takes off{" "}
-                    {r.removed.map((x) => `"${x.name}" (${plural(x.files, "file")})`).join(", ")}.
-                </p>
-            )}
-            {r.restUnchanged > 0 && r.restChanged + r.restUnchanged > 0 && (
-                <p className="text-neutral-500">
-                    {plural(r.restUnchanged, "other file")} shown already{" "}
-                    {r.restUnchanged === 1 ? "has" : "have"} "{r.tag}" or{" "}
-                    {r.restUnchanged === 1 ? "is" : "are"} marked no, and won't change.
-                </p>
+            {r.removed.map((x) => (
+                <Effect key={x.name} mark="−">
+                    Takes <TagRef name={x.name} /> off {plural(x.files, "file")}
+                </Effect>
+            ))}
+            {r.restUnchanged > 0 && (
+                <Effect tone="muted">
+                    {plural(r.restUnchanged, "other file")} shown already {r.restUnchanged === 1 ? "has" : "have"} an
+                    answer: unchanged
+                </Effect>
             )}
             {r.blocked.map((b) => (
-                <p key={`${b.folder}:${b.tag}`} className="text-amber-200/90">
-                    {mode === "yes"
-                        ? `! ${plural(b.files, "selected file")} ${b.files === 1 ? "is" : "are"} in ${b.folder}, which has a no for "${b.tag}", so ${b.files === 1 ? "it" : "they"} won't be tagged. To tag ${b.files === 1 ? "it" : "them"}: open ${b.folder}'s folder panel, right-click "${b.tag}", choose "Turn into a no on each file". ${b.folder}'s files keep the no, but files added to ${b.folder} later won't get it.`
-                        : `! ${plural(b.files, "selected file")} ${b.files === 1 ? "is" : "are"} in ${b.folder}, which has the folder tag "${b.tag}", so ${b.files === 1 ? "it" : "they"} won't be marked no. To mark ${b.files === 1 ? "it" : "them"}: open ${b.folder}'s folder panel, right-click "${b.tag}", choose "Turn into a tag on each file". ${b.folder}'s files keep the tag, but files added to ${b.folder} later won't get it.`}
-                </p>
+                <div key={`${b.folder}:${b.tag}`} className="flex flex-col gap-1">
+                    <Effect mark="!" tone="warn">
+                        {plural(b.files, "selected file")} skipped:
+                        <FolderRef path={b.path} />
+                        {yes ? <>has a no for <TagRef name={b.tag} no /></> : <>gives <TagRef name={b.tag} /></>}
+                    </Effect>
+                    <Effect tone="muted">
+                        <span className="w-3 shrink-0" />
+                        To change that: right-click <TagRef name={b.tag} no={yes} /> in its folder panel →{" "}
+                        {yes ? "Turn into a no on each file" : "Turn into a tag on each file"}
+                    </Effect>
+                </div>
             ))}
         </div>
     );
@@ -199,12 +204,17 @@ export default function FolderTagPanel({
                     await requestChange({
                         title: `Add "${trimmed}" to ${folder}?`,
                         message: (
-                            <p>
-                                {plural(preview.files, "file")} in {folder}{" "}
-                                {preview.files === 1 ? "is" : "are"} marked no for{" "}
-                                {quoted(preview.cleared.map((c) => c.name))}. Adding it to the folder
-                                clears those noes.
-                            </p>
+                            <div className="flex flex-col gap-1.5">
+                                <Effect mark="✓">
+                                    Every file in <FolderRef path={folder} /> gets <TagRef name={trimmed} />
+                                </Effect>
+                                {preview.cleared.map((c) => (
+                                    <Effect key={c.name} mark="−">
+                                        Will remove 'no' for <TagRef name={c.name} no /> from{" "}
+                                        {plural(c.files, "file")}
+                                    </Effect>
+                                ))}
+                            </div>
                         ),
                         dockTitle: `Folder tag pending: "${trimmed}" → ${folder}`,
                         initial: stateOf(preview),
@@ -275,15 +285,21 @@ export default function FolderTagPanel({
                 await requestChange({
                     title: `Not "${trimmed}" in ${folder}?`,
                     message: (
-                        <>
+                        <div className="flex flex-col gap-1.5">
+                            <Effect mark="⊘">
+                                No file in <FolderRef path={folder} /> can have <TagRef name={trimmed} />
+                            </Effect>
                             {preview.swap && (
-                                <p className="mb-2">It replaces the folder's tag "{trimmed}".</p>
+                                <Effect mark="−">
+                                    Replaces the folder's tag <TagRef name={trimmed} />
+                                </Effect>
                             )}
-                            <p>
-                                Removes {removedText(preview.removed)} ({plural(preview.files, "file")} in
-                                all).
-                            </p>
-                        </>
+                            {preview.removed.map((r) => (
+                                <Effect key={r.name} mark="−">
+                                    Will remove <TagRef name={r.name} /> from {plural(r.files, "file")}
+                                </Effect>
+                            ))}
+                        </div>
                     ),
                     dockTitle: `Folder no pending: not "${trimmed}" in ${folder}`,
                     initial: stateOf(preview),
@@ -583,9 +599,9 @@ export default function FolderTagPanel({
                                 {b.preview.map((r) => (
                                     <div key={r.tag}>
                                         {b.preview.length > 1 && (
-                                            <p className="mb-1 text-[11px] uppercase tracking-wider text-neutral-500">
-                                                "{r.tag}"
-                                            </p>
+                                            <div className="mb-1.5">
+                                                <TagRef name={r.tag} no={b.mode === "no"} />
+                                            </div>
                                         )}
                                         <BatchTagLines r={r} selected={n} mode={b.mode} />
                                     </div>
@@ -616,9 +632,18 @@ export default function FolderTagPanel({
                             : `Turn "${convert.tag}" into a tag on each file?`
                     }
                     message={
-                        convert.kind === "no"
-                            ? `The ${plural(convert.files, "file")} in ${activeFolder} each get their own no for "${convert.tag}". Files added to ${activeFolder} later won't get it.`
-                            : `The ${plural(convert.files, "file")} in ${activeFolder} each get "${convert.tag}" as their own tag. Files added to ${activeFolder} later won't get it.`
+                        <div className="flex flex-col gap-1.5">
+                            <Effect mark="−">
+                                Will remove <TagRef name={convert.tag} no={convert.kind === "no"} /> from{" "}
+                                <FolderRef path={activeFolder ?? ""} />
+                            </Effect>
+                            <Effect mark={convert.kind === "no" ? "⊘" : "✓"}>
+                                Its {plural(convert.files, "file")} each get{" "}
+                                {convert.kind === "no" ? "their own" : "it as their own"}{" "}
+                                <TagRef name={convert.tag} no={convert.kind === "no"} />
+                            </Effect>
+                            <Effect tone="muted">Files added to the folder later won't get it</Effect>
+                        </div>
                     }
                     danger={false}
                     confirmText={convert.kind === "no" ? "Turn into a no on each file" : "Turn into a tag on each file"}

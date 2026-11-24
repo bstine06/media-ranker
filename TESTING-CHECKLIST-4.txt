@@ -178,3 +178,29 @@ in the side panel. Then, without confirming it:
 [ ] Compare: G opens the side the mouse is over (or the one 1 / 3
     picked) in the file view; closing it goes back to the pair
 [ ] Sweep and Pass: G still works as before
+
+
+======================================================================
+13. WARNINGS: ONE EFFECT PER LINE, TAGS AND FOLDERS AS PILLS / CHIPS
+======================================================================
+
+Every confirm below: each effect on its own line (✓ / ⊘ / − / + / !
+in front), tags shown as tag pills (noes as red ⊘ pills), folders as
+the round folder chips (picture + name). Nothing in "quotes" in the body.
+
+[ ] Batch Tag confirm (Yes and No, one tag and several): readable at a
+    glance; the "files skipped because of a folder rule" note is now 2
+    short lines (what, and how to change it)
+[ ] Moving files into a folder that clashes: "N files clash with
+    [folder chip]", each file with "Will remove [pill]" / "Will remove
+    'no' for [⊘ pill]"
+[ ] Folder panel: add a folder tag over files marked no; add a folder no
+    that takes tags off: both confirms in lines with pills/chip
+[ ] Right-click a folder tag / no → "Turn into … on each file": the
+    confirm is 3 short lines
+[ ] Tag Manager: link two tags that clash (and unlink one): lines with
+    pills; folders as chips
+[ ] Manage… (side panel): each file's "Will remove …" uses pills; a
+    folder's line ("On the folder") shows the no as a pill
+[ ] Pills look like the pills elsewhere (category icon when category
+    names are off); right-clicking one in a confirm does nothing

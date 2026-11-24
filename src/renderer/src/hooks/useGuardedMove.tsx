@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
+import { AffectedPills, Effect, FolderRef } from "@renderer/components/InlineRefs";
 import { affectedDetail, plural } from "@renderer/lib/pending";
 
 type MoveResult = { moved: number; errors: string[] };
@@ -17,6 +18,8 @@ const stateOf = (clashes: Clash[]): PendingState => ({
     items: clashes.map((c) => ({
         fileId: c.fileId,
         detail: affectedDetail({ loses: c.tags, cleared: c.cleared }),
+        loses: c.tags,
+        cleared: c.cleared,
     })),
     removes: clashes.reduce((n, c) => n + c.tags.length, 0),
     clears: clashes.reduce((n, c) => n + c.cleared.length, 0),
@@ -48,23 +51,22 @@ export function useGuardedMove(): {
             const ran = await requestChange({
                 title: `Some files clash with ${folderName}'s tags`,
                 message: (
-                    <>
-                        <p className="mb-2">
-                            {clashes.length === 1 ? "1 file clashes" : `${clashes.length} files clash`} with{" "}
-                            {folderName}'s tags. Moving them in:
-                        </p>
-                        <ul className="max-h-40 overflow-y-auto space-y-0.5">
+                    <div className="flex flex-col gap-2">
+                        <Effect>
+                            {clashes.length === 1 ? "1 file clashes" : `${clashes.length} files clash`} with
+                            <FolderRef path={target} />
+                        </Effect>
+                        <ul className="max-h-48 overflow-y-auto flex flex-col gap-1.5">
                             {clashes.map((c) => (
-                                <li key={c.absPath} className="truncate">
-                                    <span className="text-neutral-300">{c.filename}</span>
-                                    <span className="text-red-300/80">
-                                        {" · "}
-                                        {affectedDetail({ loses: c.tags, cleared: c.cleared })}
+                                <li key={c.absPath} className="flex flex-col gap-0.5">
+                                    <span className="truncate text-neutral-300">{c.filename}</span>
+                                    <span className="pl-2 text-red-300/80">
+                                        <AffectedPills loses={c.tags} cleared={c.cleared} />
                                     </span>
                                 </li>
                             ))}
                         </ul>
-                    </>
+                    </div>
                 ),
                 dockTitle: `Move pending: ${plural(total, "file")} → ${folderName}`,
                 headerFolder: target,

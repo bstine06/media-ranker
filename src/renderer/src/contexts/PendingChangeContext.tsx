@@ -22,7 +22,12 @@ import { useFolders } from "./FolderContext";
 /** One file the change touches, and what happens to it. */
 export interface PendingItem {
     fileId: number;
+    /** Plain text (conflict reasons), or what's below as pills. */
     detail: string;
+    /** Own tags the change takes off this file. */
+    loses?: string[];
+    /** Own noes the change clears on this file. */
+    cleared?: string[];
 }
 
 /** A folder rule the change touches, shown in that collection's header. */
@@ -30,6 +35,8 @@ export interface PendingFolder {
     /** The folder's path (= its collection). */
     path: string;
     detail: string;
+    /** The folder no the change removes (shown as its pill). */
+    clearedNo?: string;
 }
 
 /** What the change would do right now (worked out fresh each time). */
