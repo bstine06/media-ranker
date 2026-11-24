@@ -1,18 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { undoOverride } from "@renderer/lib/undoOverride";
+import { isEditable, undoOverride } from "@renderer/lib/undoOverride";
 import type { HistoryItem } from "../shared/types/types";
 import { useSettings } from "../contexts/SettingsContext";
 
 // ── App-wide undo (see main/undo.ts) ────────────────────────────────────────
-
-function isEditable(el: Element | null): boolean {
-    if (!el) return false;
-    if ((el as HTMLElement).isContentEditable) return true;
-    if (el.tagName === "TEXTAREA") return true;
-    if (el.tagName !== "INPUT") return false;
-    const type = (el as HTMLInputElement).type;
-    return !["checkbox", "radio", "range", "button", "submit", "color", "file"].includes(type);
-}
 
 /**
  * ⌘Z / ⇧⌘Z (Edit ▸ Undo / Redo): in a text field they undo typing;

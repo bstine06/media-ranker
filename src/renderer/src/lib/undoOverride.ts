@@ -20,3 +20,13 @@ export function setUndoOverride(h: Handler): () => void {
 export function undoOverride(): Handler | null {
     return handler;
 }
+
+/** A focused text box, where ⌘Z undoes typing rather than anything else. */
+export function isEditable(el: Element | null): boolean {
+    if (!el) return false;
+    if ((el as HTMLElement).isContentEditable) return true;
+    if (el.tagName === "TEXTAREA") return true;
+    if (el.tagName !== "INPUT") return false;
+    const type = (el as HTMLInputElement).type;
+    return !["checkbox", "radio", "range", "button", "submit", "color", "file"].includes(type);
+}

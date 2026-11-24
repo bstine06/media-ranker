@@ -119,3 +119,24 @@ Manage
 [ ] Move a file in the app, then DELETE it in Finder, ⌘Z: still the
     red "moved or deleted outside the app" (expected)
 [ ] Plain undo with no Finder changes: no delay, no waiting toast
+
+
+======================================================================
+5. ⌘Z WHILE EDITING A FOLDER
+======================================================================
+
+Open a collection in Browse and click its edit (metadata) button.
+
+[ ] Pick a picture, ⌘Z: the editor closes, the picture is unchanged.
+    No "Undid: …" toast and nothing else in the app is undone
+[ ] Pick several pictures in a row, then ⌘Z: same, picture unchanged
+[ ] A collection with NO picture yet: pick one, ⌘Z: editor closes,
+    still no picture
+[ ] Change a field or the name and click away from the text box, ⌘Z:
+    editor closes, the change is gone
+[ ] Typing in the name or a field, ⌘Z: undoes the typing only, and
+    the editor stays open
+[ ] ⇧⌘Z while editing (outside a text box): "Nothing to redo"
+[ ] Leave the editor open, switch to Sweep, ⌘Z: the app's normal undo
+    runs there
+[ ] Save, then ⌘Z: undoes the save as before (old picture back)

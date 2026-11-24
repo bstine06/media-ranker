@@ -22,6 +22,7 @@ import ScrollView from "@renderer/components/ScrollView";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { TagIcon } from "@renderer/components/icons/TagIcon";
 import FolderTagPanel from "./FolderTagPanel";
+import { isEditable, setUndoOverride } from "@renderer/lib/undoOverride";
 import { useGuardedMove } from "@renderer/hooks/useGuardedMove";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
 import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
@@ -73,6 +74,20 @@ export default function BrowseView({
     useEffect(() => {
         if (!editingMetadata) setDraftProfileImage(undefined);
     }, [editingMetadata]);
+    // Nothing in the editor is saved until Save, so the app's history has
+    // nothing of it to undo: while it's open (and Browse is on screen), ⌘Z
+    // outside a text box abandons the edit (picture pick included) and
+    // closes the editor. ⇧⌘Z has nothing to redo.
+    useEffect(() => {
+        if (!editingMetadata || !active) return;
+        return setUndoOverride((action) => {
+            if (isEditable(document.activeElement)) return "pass";
+            if (action === "redo") return "empty";
+            setEditingMetadata(false);
+            setRenameError(null);
+            return "done";
+        });
+    }, [editingMetadata, active]);
     const [draftName, setDraftName] = useState<string>("");
     const [renameError, setRenameError] = useState<string | null>(null);
 
