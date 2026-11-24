@@ -319,6 +319,31 @@ export default function BrowseView({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dataVersion]);
 
+    // With a tag filter on, any tag change (a folder tag, a batch, a link
+    // in Tag Manager, a file tagged anywhere) can change which files match:
+    // reload the list. Not while a file is open here, or tagging it could
+    // pull it out from under you; that waits until the file view closes.
+    const staleFilterList = useRef(false);
+    useEffect(() => {
+        if (dataVersion === 0 || !activeFilter) return;
+        if (browseScrollIndex !== null) {
+            staleFilterList.current = true;
+            return;
+        }
+        getFilesForFolder(activeFolder, activeFilter, showUnsorted);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dataVersion]);
+    useEffect(() => {
+        if (browseScrollIndex !== null || !staleFilterList.current) return;
+        staleFilterList.current = false;
+        if (activeFilter) getFilesForFolder(activeFolder, activeFilter, showUnsorted);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [browseScrollIndex === null]);
+    // A fresh load (other folder or filter) makes any pending reload moot.
+    useEffect(() => {
+        staleFilterList.current = false;
+    }, [rootPath, activeFolder, activeFilter, showUnsorted]);
+
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
         setStatus("Adding files...");

@@ -160,3 +160,23 @@ subfolders) and open it as the library.
 [ ] ⌘Z the folder creation (while it's empty): back to "No folders yet"
 [ ] A completely EMPTY library (no files, no folders): name, search,
     + box and All files show; no selection line
+
+
+======================================================================
+7. BROWSE WITH A TAG FILTER ON KEEPS UP
+======================================================================
+
+Open a collection in Browse with a tag filter on (e.g. only "cat").
+
+[ ] Give the folder the tag "cat" (folder panel): every file in it
+    appears in the grid right away, no need to leave and come back
+[ ] Remove that folder tag: the files that only had it inherited
+    drop out right away
+[ ] Batch tag some files "cat" from another collection's view or All
+    files, come back: they're there
+[ ] Add a link in Tag Manager that gives files "cat", go back to
+    Browse: they're there
+[ ] Open a matching file (file view), remove its "cat": it does NOT
+    vanish while you're looking at it. Close the file view: now it's
+    gone from the grid
+[ ] No filter on: nothing reloads or flickers when you tag things
