@@ -25,9 +25,17 @@ export interface PendingItem {
     detail: string;
 }
 
+/** A folder rule the change touches, shown in that collection's header. */
+export interface PendingFolder {
+    /** The folder's path (= its collection). */
+    path: string;
+    detail: string;
+}
+
 /** What the change would do right now (worked out fresh each time). */
 export interface PendingState {
     items: PendingItem[];
+    folders?: PendingFolder[];
     /** Effects that aren't about one file (a folder rule coming off…). */
     lines?: string[];
     /** Own tags the change would remove in all, for button text. */

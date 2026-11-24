@@ -44,6 +44,7 @@ export default function App(): JSX.Element {
         refreshFolders,
         activeFolder,
         setActiveFolder,
+        setShowUnsorted,
         resetFolders,
     } = useFolders();
     const { resetTags } = useTags();
@@ -264,7 +265,19 @@ export default function App(): JSX.Element {
                         </div>
                     )}
                 </main>
-                {!immersive && (docked ? <PendingDock /> : <HistoryDrawer />)}
+                {!immersive &&
+                    (docked ? (
+                        <PendingDock
+                            onOpenFolder={(path) => {
+                                setOpenFile(null);
+                                setActiveFolder(path);
+                                setShowUnsorted(false);
+                                setView("browse");
+                            }}
+                        />
+                    ) : (
+                        <HistoryDrawer />
+                    ))}
             </div>
             <CursorPointer />
             <UndoToast />

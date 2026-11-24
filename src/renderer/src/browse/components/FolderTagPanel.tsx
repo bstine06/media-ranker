@@ -1,5 +1,5 @@
 import { useTags } from "@renderer/contexts/TagsContext";
-import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
+import { useDataVersion } from "@renderer/hooks/useHistoryVersion";
 import {
     BatchTagResult,
     DbFile,
@@ -121,7 +121,7 @@ export default function FolderTagPanel({
     // A tag that just moved between the folder's tags and noes (a swap).
     const [glow, setGlow] = useState<number | null>(null);
 
-    const historyVersion = useHistoryVersion();
+    const dataVersion = useDataVersion();
     const loadNoes = useCallback(async () => {
         if (!activeFolder) {
             setFolderNoes([]);
@@ -129,9 +129,9 @@ export default function FolderTagPanel({
         }
         setFolderNoes(await window.api.getFolderNoes(activeFolder));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeFolder, historyVersion]);
+    }, [activeFolder, dataVersion]);
+    useEffect(() => setError(null), [activeFolder]);
     useEffect(() => {
-        setError(null);
         void loadNoes();
     }, [loadNoes]);
     useEffect(() => {

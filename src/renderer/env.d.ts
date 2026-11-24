@@ -342,6 +342,8 @@ declare global {
             recordSelectionStep: (before: string[], after: string[]) => Promise<void>;
             onHistoryChanged: (callback: (items: HistoryItem[]) => void) => () => void;
             onHistoryApplied: (callback: (applied: HistoryApplied) => void) => () => void;
+            /** A new undoable change was made (in any view). */
+            onLibraryChanged: (callback: () => void) => () => void;
             /** Edit ▸ Undo / Redo (⌘Z, ⇧⌘Z) from the app menu. */
             onHistoryKey: (callback: (action: "undo" | "redo") => void) => () => void;
             deleteMissingFiles: () => Promise<number>;

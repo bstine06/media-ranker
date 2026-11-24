@@ -1,12 +1,12 @@
 import { useCallback } from "react";
 import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
-import { plural } from "@renderer/lib/pending";
+import { plural, quoted } from "@renderer/lib/pending";
 
 type MoveResult = { moved: number; errors: string[] };
 type Losing = { absPath: string; fileId: number; filename: string; tags: string[] };
 
 const stateOf = (losing: Losing[]): PendingState => ({
-    items: losing.map((l) => ({ fileId: l.fileId, detail: `loses ${l.tags.join(", ")}` })),
+    items: losing.map((l) => ({ fileId: l.fileId, detail: `Will remove ${quoted(l.tags)}` })),
     removes: losing.reduce((n, l) => n + l.tags.length, 0),
 });
 

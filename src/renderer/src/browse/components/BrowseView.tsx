@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
+import { useDataVersion, useHistoryVersion } from "@renderer/hooks/useHistoryVersion";
 import type {
     DbFile,
     FilterNode,
@@ -288,6 +288,21 @@ export default function BrowseView({
         // historyVersion: an undo/redo may have changed the folder's tags,
         // metadata or picture.
     }, [rootPath, activeFolder, historyVersion]);
+
+    // A change made in another view (a tag link in Tag Manager) can change
+    // this folder's tags while Browse sits hidden: refetch just those.
+    const dataVersion = useDataVersion();
+    useEffect(() => {
+        if (dataVersion === 0 || !activeFolder) return;
+        let alive = true;
+        window.api.getFolderTags(activeFolder).then((tags) => {
+            if (alive) setFolderTags(tags);
+        });
+        return () => {
+            alive = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dataVersion]);
 
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();

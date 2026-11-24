@@ -823,9 +823,10 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
                     ? { items: [], lines: [p.error] }
                     : {
                           items: affectedItems(p.affected),
-                          lines: p.folderNoes.map(
-                              (n) => `${n.folder}'s no for "${n.tag}" comes off the folder.`,
-                          ),
+                          folders: p.folderNoes.map((n) => ({
+                              path: n.path,
+                              detail: `Will remove 'no' for "${n.tag}"`,
+                          })),
                           removes: removesCount(p.affected),
                       };
             await requestChange({
@@ -836,10 +837,13 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
                 load: async () =>
                     stateOf(await window.api.previewTagImplication(tag.id, target.id, "add")),
                 confirm: {
-                    label: (live) =>
-                        live.items.length > 0
-                            ? `Link · changes ${plural(live.items.length, "file")}`
-                            : "Link",
+                    label: (live) => {
+                        const parts = [
+                            live.folders?.length ? plural(live.folders.length, "folder") : null,
+                            live.items.length > 0 ? plural(live.items.length, "file") : null,
+                        ].filter(Boolean);
+                        return parts.length > 0 ? `Link · changes ${parts.join(" and ")}` : "Link";
+                    },
                     run: () => commit("add", target),
                 },
             });
@@ -911,19 +915,18 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
             items.map((i) => `"${i.name}" (${count(i.files, "file")})`).join(", ");
         for (const n of preview.folderNoes) {
             message +=
-                ` "${n.folder}" has a no for "${n.tag}", which its tags would now give it,` +
-                ` so that no comes off the folder.`;
+                ` Will remove 'no' for "${n.tag}" from the folder "${n.folder}",` +
+                ` since its tags would now give it "${n.tag}".`;
         }
         if (preview.noesClearedFiles > 0) {
             message +=
-                ` ${count(preview.noesClearedFiles, "file")} marked as no for a tag` +
-                ` ${preview.noesClearedFiles === 1 ? "its" : "their"} folder would now give` +
-                ` ${preview.noesClearedFiles === 1 ? "loses that no" : "lose those noes"}: ${list(preview.noesCleared)}.`;
+                ` Will remove 'no' from ${count(preview.noesClearedFiles, "file")}` +
+                ` whose folder would now give the tag: ${list(preview.noesCleared)}.`;
         }
         if (preview.tagsRemovedFiles > 0) {
             message +=
-                ` ${count(preview.tagsRemovedFiles, "file")} ${preview.tagsRemovedFiles === 1 ? "has a tag its" : "have tags their"}` +
-                ` folder would now rule out, and ${preview.tagsRemovedFiles === 1 ? "loses it" : "lose them"}: ${list(preview.tagsRemoved)}.`;
+                ` Will remove tags from ${count(preview.tagsRemovedFiles, "file")}` +
+                ` whose folder's 'no' would now rule them out: ${list(preview.tagsRemoved)}.`;
         }
         return message;
     };

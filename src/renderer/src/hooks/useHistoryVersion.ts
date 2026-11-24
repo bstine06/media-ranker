@@ -24,3 +24,25 @@ function subscribe(fn: () => void): () => void {
 export function useHistoryVersion(): number {
     return useSyncExternalStore(subscribe, () => version);
 }
+
+// Bumps on every undo/redo AND every new change, wherever it was made. For
+// views that stay mounted while hidden and show rules another view can
+// change (Browse's folder panel after a tag link made in Tag Manager).
+let dataVersion = 0;
+const dataSubscribers = new Set<() => void>();
+const bumpData = () => {
+    dataVersion++;
+    dataSubscribers.forEach((s) => s());
+};
+subscribe(bumpData);
+window.api.onLibraryChanged(bumpData);
+
+export function useDataVersion(): number {
+    return useSyncExternalStore(
+        (fn) => {
+            dataSubscribers.add(fn);
+            return () => dataSubscribers.delete(fn);
+        },
+        () => dataVersion,
+    );
+}

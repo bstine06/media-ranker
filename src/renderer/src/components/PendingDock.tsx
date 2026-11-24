@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { DbFile } from "@renderer/shared/types/types";
 import {
     PendingChangeSpec,
+    PendingFolder,
     PendingState,
     usePendingChange,
 } from "@renderer/contexts/PendingChangeContext";
@@ -20,7 +21,12 @@ type Row = { fileId: number; file: DbFile | null; detail: string };
  * right now, recomputed after every change; files that stop being
  * affected drop off. Takes the undo history's place while open.
  */
-export function PendingDock(): JSX.Element | null {
+export function PendingDock({
+    onOpenFolder,
+}: {
+    /** Opens a folder (by path) in Browse. */
+    onOpenFolder: (path: string) => void;
+}): JSX.Element | null {
     const { docked, finish, setOpenFile } = usePendingChange();
     if (!docked) return null;
     return (
@@ -29,6 +35,7 @@ export function PendingDock(): JSX.Element | null {
             spec={docked.spec}
             finish={finish}
             onOpen={setOpenFile}
+            onOpenFolder={onOpenFolder}
         />
     );
 }
@@ -37,10 +44,12 @@ function DockBody({
     spec,
     finish,
     onOpen,
+    onOpenFolder,
 }: {
     spec: PendingChangeSpec;
     finish: (action: "confirm" | "secondary" | null) => Promise<void>;
     onOpen: (file: DbFile) => void;
+    onOpenFolder: (path: string) => void;
 }): JSX.Element {
     const [live, setLive] = useState<PendingState>(spec.initial);
     const [files, setFiles] = useState<Map<number, DbFile>>(new Map());
@@ -94,15 +103,26 @@ function DockBody({
         file: files.get(i.fileId) ?? null,
         detail: i.detail,
     }));
+    // Per collection: its files, and what the change does to the folder
+    // itself (shown in the collection's header).
+    const folderList = live.folders ?? [];
     const groups = useMemo(() => {
-        const m = new Map<string, Row[]>();
+        const m = new Map<string, { rows: Row[]; folders: PendingFolder[] }>();
+        const at = (key: string) => {
+            let g = m.get(key);
+            if (!g) m.set(key, (g = { rows: [], folders: [] }));
+            return g;
+        };
+        for (const f of folderList) at(collectionOf(f.path)).folders.push(f);
         for (const r of rows) {
-            const key = r.file ? collectionOf(r.file.path) : "Not in the library";
-            m.set(key, [...(m.get(key) ?? []), r]);
+            at(r.file ? collectionOf(r.file.path) : "Not in the library").rows.push(r);
         }
         return [...m].sort((a, b) => a[0].localeCompare(b[0]));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rows.map((r) => `${r.fileId}:${r.file?.path}`).join("|")]);
+    }, [
+        rows.map((r) => `${r.fileId}:${r.file?.path}`).join("|"),
+        folderList.map((f) => `${f.path}:${f.detail}`).join("|"),
+    ]);
 
     const run = async (action: "confirm" | "secondary") => {
         if (busy) return;
@@ -115,7 +135,14 @@ function DockBody({
     };
 
     const pending = live.items.length;
+    const pendingFolders = new Set(folderList.map((f) => f.path)).size;
     const flat = groups.length <= 1;
+    const summary = [
+        pendingFolders > 0 ? `${pendingFolders} folder${pendingFolders === 1 ? "" : "s"}` : null,
+        pending > 0 ? `${pending} file${pending === 1 ? "" : "s"}` : null,
+    ]
+        .filter(Boolean)
+        .join(" and ");
 
     return (
         <aside className="flex w-72 shrink-0 flex-col border-l border-neutral-800 bg-neutral-900">
@@ -141,33 +168,65 @@ function DockBody({
                     </ul>
                 )}
                 <p className="px-3 py-2 text-[11px] text-neutral-500">
-                    {pending === 0
+                    {summary === ""
                         ? spec.emptyText ?? "Nothing clashes any more."
-                        : `${pending} file${pending === 1 ? "" : "s"} affected`}
-                    {pending > 0 && " · click one to open it"}
+                        : `${summary} affected · click one to open it`}
                 </p>
-                {groups.map(([name, list]) => {
+                {groups.map(([name, { rows: list, folders }]) => {
                     const left = list.length;
                     const expanded = flat || open.has(name);
+                    const toggle = () =>
+                        setOpen((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(name)) next.delete(name);
+                            else next.add(name);
+                            return next;
+                        });
                     return (
                         <div key={name}>
-                            {!flat && (
-                                <button
-                                    onClick={() =>
-                                        setOpen((prev) => {
-                                            const next = new Set(prev);
-                                            if (next.has(name)) next.delete(name);
-                                            else next.add(name);
-                                            return next;
-                                        })
+                            {(!flat || folders.length > 0) && (
+                                <div
+                                    className={
+                                        folders.length > 0
+                                            ? "border-y border-neutral-800/70 bg-neutral-800/30 py-1"
+                                            : ""
                                     }
-                                    className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-neutral-300 hover:bg-neutral-800/60"
                                 >
-                                    <span className="w-3 text-neutral-500">{expanded ? "▾" : "▸"}</span>
-                                    <span className="truncate">
-                                        {left} file{left === 1 ? "" : "s"} in {name}
-                                    </span>
-                                </button>
+                                    {left > 0 && !flat ? (
+                                        <button
+                                            onClick={toggle}
+                                            className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-neutral-300 hover:bg-neutral-800/60"
+                                        >
+                                            <span className="w-3 text-neutral-500">
+                                                {expanded ? "▾" : "▸"}
+                                            </span>
+                                            <span className="truncate">
+                                                {left} file{left === 1 ? "" : "s"} in {name}
+                                            </span>
+                                        </button>
+                                    ) : (
+                                        <p className="truncate px-3 py-1.5 text-neutral-300">
+                                            {left > 0
+                                                ? `${left} file${left === 1 ? "" : "s"} in ${name}`
+                                                : name}
+                                        </p>
+                                    )}
+                                    {folders.map((f) => (
+                                        <button
+                                            key={`${f.path}:${f.detail}`}
+                                            onClick={() => onOpenFolder(f.path)}
+                                            title={`Open "${name}" in Browse`}
+                                            className="flex w-full flex-col px-3 py-1 text-left transition-colors hover:bg-neutral-800"
+                                        >
+                                            <span className="text-[11px] text-neutral-500">
+                                                On the folder
+                                            </span>
+                                            <span className="text-[11px] text-red-300/80">
+                                                {f.detail}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
                             )}
                             {expanded &&
                                 list.map((r) => (

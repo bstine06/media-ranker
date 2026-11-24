@@ -238,6 +238,8 @@ export class Step {
         done.push({ id: nextId++, label: this.label, sql: this.sql, disk: this.ops, meta: this.meta });
         while (done.length > MAX_ENTRIES) purge(done.shift()!, true);
         broadcastList();
+        // New library data, made in some view: others refetch what they show.
+        send("library:changed");
     }
 }
 

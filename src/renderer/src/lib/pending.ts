@@ -4,11 +4,14 @@ import type { PendingItem } from "@renderer/contexts/PendingChangeContext";
 export const plural = (n: number, word: string): string =>
     `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 
-/** "loses cat, dog · no for kitten cleared" */
+/** Tag names in quotes: "cat", "dog" */
+export const quoted = (names: string[]): string => names.map((n) => `"${n}"`).join(", ");
+
+/** Will remove "cat", "dog" · Will remove 'no' for "kitten" */
 export function affectedDetail(a: Pick<AffectedFile, "loses" | "cleared">): string {
     return [
-        a.loses.length > 0 ? `loses ${a.loses.join(", ")}` : null,
-        a.cleared.length > 0 ? `no for ${a.cleared.join(", ")} cleared` : null,
+        a.loses.length > 0 ? `Will remove ${quoted(a.loses)}` : null,
+        a.cleared.length > 0 ? `Will remove 'no' for ${quoted(a.cleared)}` : null,
     ]
         .filter(Boolean)
         .join(" · ");

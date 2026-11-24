@@ -1676,7 +1676,7 @@ function unlinkTags(tagId: number, impliesId: number): void {
 // Only what the link newly causes is touched: older conflicts (files moved
 // in Finder) stay as they are.
 interface LinkClashes {
-    folderNoes: { folder: string; tag: string }[];
+    folderNoes: { folder: string; path: string; tag: string }[];
     noesCleared: { file_id: number; tag_id: number }[];
     tagsRemoved: { file_id: number; tag_id: number }[];
 }
@@ -1704,7 +1704,7 @@ function linkWithRules(tagId: number, impliesId: number): LinkClashes {
     // (i) The folder's own contradictions: its no gives way.
     const contradictions = db
         .prepare(
-            `SELECT DISTINCT n.folder_id, n.tag_id, fo.name AS folder, t.name AS tag
+            `SELECT DISTINCT n.folder_id, n.tag_id, fo.name AS folder, fo.path, t.name AS tag
              FROM folder_tags y
              JOIN folder_noes n ON n.folder_id = y.folder_id
              JOIN folders fo ON fo.id = n.folder_id
@@ -1714,7 +1714,13 @@ function linkWithRules(tagId: number, impliesId: number): LinkClashes {
                  WHERE ti.tag_id = y.tag_id AND ti.implied_id = n.tag_id)
              ORDER BY fo.name, t.name`,
         )
-        .all() as { folder_id: number; tag_id: number; folder: string; tag: string }[];
+        .all() as {
+        folder_id: number;
+        tag_id: number;
+        folder: string;
+        path: string;
+        tag: string;
+    }[];
     const dropNo = db.prepare(`DELETE FROM folder_noes WHERE folder_id = ? AND tag_id = ?`);
     for (const c of contradictions) dropNo.run(c.folder_id, c.tag_id);
 
@@ -1732,7 +1738,7 @@ function linkWithRules(tagId: number, impliesId: number): LinkClashes {
     for (const r of tagsRemoved) del.run(r.file_id, r.tag_id);
 
     return {
-        folderNoes: contradictions.map(({ folder, tag }) => ({ folder, tag })),
+        folderNoes: contradictions.map(({ folder, path, tag }) => ({ folder, path, tag })),
         noesCleared,
         tagsRemoved,
     };
@@ -1767,7 +1773,7 @@ export interface TagImplicationPreview {
     /** Folders whose own copy becomes inherited (adding only). */
     convertedFolders: number;
     /** Folder noes taken off because the folder's tags now imply them. */
-    folderNoes: { folder: string; tag: string }[];
+    folderNoes: { folder: string; path: string; tag: string }[];
     /** Files' noes cleared because their folder now gives the tag. */
     noesCleared: { name: string; files: number }[];
     noesClearedFiles: number;
