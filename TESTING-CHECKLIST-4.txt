@@ -165,3 +165,16 @@ in the side panel. Then, without confirming it:
 [ ] Sweep, narrow window, run out of files: the end card fits the
     media area, text centred, nothing hidden under the sidebar. Wide
     window: same square card as before
+
+
+======================================================================
+12. G OPENS THE FILE VIEW EVERYWHERE
+======================================================================
+
+[ ] Browse grid: point at a tile, press G: that file opens in the file
+    view. Same in the list (rows) layout
+[ ] Browse: G with the mouse not on a tile does nothing; while picking
+    a folder picture, G does nothing
+[ ] Compare: G opens the side the mouse is over (or the one 1 / 3
+    picked) in the file view; closing it goes back to the pair
+[ ] Sweep and Pass: G still works as before

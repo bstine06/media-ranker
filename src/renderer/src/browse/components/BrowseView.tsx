@@ -24,6 +24,7 @@ import { TagIcon } from "@renderer/components/icons/TagIcon";
 import FolderTagPanel from "./FolderTagPanel";
 import { isEditable, setUndoOverride } from "@renderer/lib/undoOverride";
 import { useGuardedMove } from "@renderer/hooks/useGuardedMove";
+import { isTyping } from "@renderer/lib/keys";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
 import { useKingOfHill } from "@renderer/contexts/KingOfHillContext";
 import { usePlacement, PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
@@ -183,6 +184,22 @@ export default function BrowseView({
                 getFilesForFolder(activeFolder, activeFilter, showUnsorted);
         });
     }, [activeFolder, activeFilter, showUnsorted]);
+
+    // G: the tile (or row) under the mouse in the file view, as in Sweep,
+    // Pass and Compare. Not while picking a folder picture.
+    useEffect(() => {
+        if (!active || browseScrollIndex !== null || editingMetadata) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.code !== "KeyG" || e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
+            if (document.querySelector("[data-modal]")) return;
+            const el = document.querySelector<HTMLElement>("[data-browse-index]:hover");
+            if (!el) return;
+            e.preventDefault();
+            setBrowseScrollIndex(Number(el.dataset.browseIndex));
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [active, browseScrollIndex, editingMetadata]);
 
     // Files the watcher has seen but is still reading (a drop from outside
     // the library, a Finder copy): the folder says they're coming instead
@@ -1115,6 +1132,7 @@ export default function BrowseView({
                             {sortedFiles.map((file, i) => (
                                 <div
                                     key={file.id}
+                                    data-browse-index={i}
                                     className={`relative cursor-pointer overflow-hidden transition-all ${
                                         draftProfileImage === file.content_hash || isSelected(file)
                                             ? "ring-2 ring-blue-500 bg-blue-500/10"
@@ -1158,8 +1176,8 @@ export default function BrowseView({
                         className="overflow-y-auto flex-1 select-none"
                     >
                         {sortedFiles.map((file, index) => (
+                            <div key={file.id} data-browse-index={index}>
                             <BrowseRow
-                                key={file.id}
                                 file={file}
                                 rank={sortMode === "rank" ? index + 1 : null}
                                 rootPath={rootPath!}
@@ -1169,6 +1187,7 @@ export default function BrowseView({
                                     draftProfileImage === file.content_hash || isSelected(file)
                                 }
                             />
+                            </div>
                         ))}
                     </div>
                 )}

@@ -966,6 +966,12 @@ export default function CompareView({
                     if (e.repeat) return;
                     controls?.togglePlay();
                     break;
+                case "KeyG":
+                    // G: the focused side in the file view, as in Sweep and Pass.
+                    e.preventDefault();
+                    if (e.repeat || !pair) return;
+                    setInspectedFile(focus === "a" ? pair[0] : pair[1]);
+                    break;
             }
         };
         window.addEventListener("keydown", onKey);
