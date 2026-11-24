@@ -210,19 +210,35 @@ export default function BrowseView({
         const offIn = window.api.onMediaIncoming(({ relativePath }) =>
             setIncoming((s) => new Set(s).add(relativePath)),
         );
-        const offDone = window.api.onMediaIncomingDone(({ relativePath }) =>
-            setIncoming((s) => {
-                if (!s.has(relativePath)) return s;
-                const next = new Set(s);
-                next.delete(relativePath);
-                return next;
-            }),
-        );
+        // Done reading: it leaves once it's in the grid (below), or after a
+        // moment if it never shows (refused, or not in this view). Dropping
+        // it straight away left "No media found" up until the list reloaded.
+        const timers = new Set<ReturnType<typeof setTimeout>>();
+        const offDone = window.api.onMediaIncomingDone(({ relativePath }) => {
+            const t = setTimeout(() => {
+                timers.delete(t);
+                setIncoming((s) => {
+                    if (!s.has(relativePath)) return s;
+                    const next = new Set(s);
+                    next.delete(relativePath);
+                    return next;
+                });
+            }, 1500);
+            timers.add(t);
+        });
         return () => {
             offIn();
             offDone();
+            timers.forEach(clearTimeout);
         };
     }, [rootPath]);
+    useEffect(() => {
+        if (incoming.size === 0) return;
+        const shown = new Set(files.map((f) => f.path));
+        if (![...incoming].some((p) => shown.has(p))) return;
+        setIncoming((s) => new Set([...s].filter((p) => !shown.has(p))));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [files]);
     const incomingHere = [...incoming].filter((p) =>
         showUnsorted ? !p.includes("/") : activeFolder ? p.startsWith(activeFolder + "/") : true,
     ).length;

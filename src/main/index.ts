@@ -643,7 +643,19 @@ function registerIpcHandlers(): void {
 
                     if (!record) {
                         // Untracked / external file: plain move, watcher indexes it.
-                        await moveAcrossVolumes(src, dest);
+                        // Views hear it's on its way now, not once the watcher
+                        // notices (the new folder looked empty for a moment);
+                        // the watcher says when it's done.
+                        const incoming = getMediaType(path.extname(dest))
+                            ? path.relative(root, dest)
+                            : null;
+                        if (incoming) win?.webContents.send("media:incoming", { relativePath: incoming });
+                        try {
+                            await moveAcrossVolumes(src, dest);
+                        } catch (err) {
+                            if (incoming) win?.webContents.send("media:incoming-done", { relativePath: incoming });
+                            throw err;
+                        }
                         // Undoable only within one volume (a plain rename back).
                         if (insideLibrary) s.disk({ kind: "move", from: src, to: dest });
                         else {
