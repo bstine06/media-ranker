@@ -293,6 +293,9 @@ interface LaneHandle {
     replaceItemFile: (file: DbFile, turns?: number) => void;
     /** A file was deleted or moved away (anywhere): its tile goes. */
     removeItemPath: (relativePath: string) => void;
+    /** A file was renamed or moved (Finder, the app, an undo): its tile
+     *  follows, so a later delete still finds it. */
+    renameItemPath: (oldRelativePath: string, relativePath: string) => void;
 }
 
 function SweepStrip({
@@ -629,6 +632,14 @@ function SweepStrip({
         () =>
             window.api.onMediaRemoved(({ relativePath }) => {
                 for (const h of laneHandles.current) h?.removeItemPath(relativePath);
+            }),
+        [],
+    );
+    // Renamed or moved: every lane showing it follows the new path.
+    useEffect(
+        () =>
+            window.api.onMediaRenamed(({ oldRelativePath, relativePath }) => {
+                for (const h of laneHandles.current) h?.renameItemPath(oldRelativePath, relativePath);
             }),
         [],
     );
@@ -1167,10 +1178,19 @@ function StripLane({
         },
         [widthOf, width, mouseX],
     );
+    const renameItemPath = useCallback((oldRelativePath: string, relativePath: string) => {
+        if (!itemsRef.current.some((it) => it.file.path === oldRelativePath)) return;
+        const filename = relativePath.split("/").pop() ?? relativePath;
+        const next = itemsRef.current.map((it) =>
+            it.file.path === oldRelativePath ? { ...it, file: { ...it.file, path: relativePath, filename } } : it,
+        );
+        itemsRef.current = next;
+        setItems(next);
+    }, []);
     useEffect(() => {
-        register(index, { replaceItemFile, removeItemPath });
+        register(index, { replaceItemFile, removeItemPath, renameItemPath });
         return () => register(index, null);
-    }, [register, index, replaceItemFile, removeItemPath]);
+    }, [register, index, replaceItemFile, removeItemPath, renameItemPath]);
 
     // A tile's real shape once loaded, if the thumbnail's was off (or the
     // file changed since). Not while a rotation is being previewed.

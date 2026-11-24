@@ -285,6 +285,8 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
         setRunState(r);
     }, []);
     const [runActive, setRunActive] = useState(false);
+    const runActiveRef = useRef(runActive);
+    runActiveRef.current = runActive;
     // Start pressed with an unfinished run: waiting on the confirm.
     const [confirmReplace, setConfirmReplace] = useState(false);
     // Ids for the queue's parts.
@@ -463,13 +465,14 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
 
     // Undoing a pass no, or a tag put on / taken off (Space, V) before
     // moving on: back to that file, but only from the very next spot (2
-    // and 3 move on by one); from further on, the run stays put.
+    // and 3 move on by one); from further on, the run stays put. Only while
+    // the run is on screen: an undo in another view never moves it.
     useEffect(
         () =>
             window.api.onHistoryApplied((a) => {
                 if (a.direction !== "undo" || a.error || (a.meta?.kind !== "pass-no" && a.meta?.kind !== "file-tag")) return;
                 const r = runRef.current;
-                if (!r) return;
+                if (!r || !runActiveRef.current) return;
                 const { fileId, tagId } = a.meta;
                 const prev = prevSpot(r, r.t, r.pos);
                 if (!prev) return;
@@ -505,6 +508,24 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
                     return { ...x, files };
                 });
                 setRun({ ...r, tags, pos });
+            }),
+        [setRun],
+    );
+
+    // Renamed or moved (Finder, the app, an undo): the run follows the new
+    // path, so a later delete still finds it.
+    useEffect(
+        () =>
+            window.api.onMediaRenamed(({ oldRelativePath, relativePath }) => {
+                const r = runRef.current;
+                if (!r || !r.tags.some((x) => x.files?.some((f) => f.path === oldRelativePath))) return;
+                const filename = relativePath.split("/").pop() ?? relativePath;
+                const tags = r.tags.map((x) =>
+                    x.files?.some((f) => f.path === oldRelativePath)
+                        ? { ...x, files: x.files.map((f) => (f.path === oldRelativePath ? { ...f, path: relativePath, filename } : f)) }
+                        : x,
+                );
+                setRun({ ...r, tags });
             }),
         [setRun],
     );

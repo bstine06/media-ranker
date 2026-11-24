@@ -2209,7 +2209,13 @@ function batchOneTag(
             if (has.get(id, tagId)) selectedChanged++;
         }
     } else {
-        selectedChanged = open.filter((id) => has.get(id, tagId) || !hardNo.get(id, tagId)).length;
+        // Already a no from its folder: nothing changes for that file.
+        const folderNo = db.prepare(
+            `SELECT 1 FROM file_folder_noes WHERE file_id = ? AND tag_id = ? LIMIT 1`,
+        );
+        selectedChanged = open.filter(
+            (id) => has.get(id, tagId) || (!hardNo.get(id, tagId) && !folderNo.get(id, tagId)),
+        ).length;
         removed = summarizeRemoved(applyBatchNo(open, tagId)).removed;
     }
     const undecided = rest.length

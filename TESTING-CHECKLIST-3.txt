@@ -33,7 +33,7 @@ folder's one (greyed, no ×). Sweep seconds are kept.
     → both app and Finder
 [y] Batch No on files whose folder already has that no: nothing
     breaks; the files show only the folder's no
-    → works, but the preview counts those files as "2 changed" when nothing changes (minor)
+    → works; the preview's "2 changed" for files already under the folder's no is FIXED (now 0)
 [y] Files that ALREADY had both before this version: after opening
     the library, only the folder's no shows
 [y] Coverage seconds for that tag are unchanged by all of the above
@@ -67,9 +67,9 @@ File view opened from Sweep, Pass, the dock or the sidebar
     → the file view closes, BUT see Sweep/Pass below
 
 Sweep
-[N] Delete a file (via its file view, or in Finder) that's still in a
+[y] Delete a file (via its file view, or in Finder) that's still in a
     lane: its tile is gone when you're back
-    → works for a plain delete. BROKEN after a Finder RENAME: the lane keeps the old name, so a later delete leaves a dead tile; G on it opens a deleted file and Delete errors ("Couldn't delete …")
+    → works for a plain delete. FIXED (checked by Claude): was BROKEN after a Finder RENAME: the lane kept the old name, so a later delete leaves a dead tile; G on it opens a deleted file and Delete errors ("Couldn't delete …")
 [y] One left of the pointer: nothing on screen jumps
 [y] The one under the pointer: the next tile closes up under it
 
@@ -78,7 +78,7 @@ Pass
     takes its place; the last one: the one before; none left: the card
 [y] Delete one further ahead in the run: you stay on your file, and
     the deleted one never comes up
-    → BROKEN for a file renamed in Finder first: it stays in the run (counter off by one), same cause as Sweep
+    → FIXED (checked by Claude): a file renamed in Finder first used to stay in the run
 [y] Delete one behind you: you stay on your file; 1 (back) skips it
 
 Compare (unchanged, check it still works)
@@ -217,4 +217,4 @@ me in a scratch library and already worked.)
     stay where you are
 [y] Tag a file in file view or Browse while a pass is open elsewhere,
     ⌘Z: the pass doesn't move
-    → edge: if that file is the one right behind you in the pass, ⌘Z steps back to it
+    → FIXED: an undo in another view no longer moves the pass, even for the file right behind you

@@ -475,15 +475,21 @@ function insideLibrary(abs: string): boolean {
 /** A file in `dir` (not below it) with this size and content hash. Only
  *  same-size files are hashed. */
 async function findByHash(dir: string, hash: string, size: number): Promise<string | null> {
-    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
-    for (const e of entries) {
-        if (!e.isFile() || e.name.startsWith(".")) continue;
-        const p = path.join(dir, e.name);
-        const st = await fs.stat(p).catch(() => null);
-        if (!st || st.size !== size) continue;
-        if ((await host!.hashFile(p).catch(() => "")) === hash) return p;
+    // Reading a big file takes a moment: say so, as the watcher wait does.
+    const slow = setTimeout(() => send("history:waiting"), 400);
+    try {
+        const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+        for (const e of entries) {
+            if (!e.isFile() || e.name.startsWith(".")) continue;
+            const p = path.join(dir, e.name);
+            const st = await fs.stat(p).catch(() => null);
+            if (!st || st.size !== size) continue;
+            if ((await host!.hashFile(p).catch(() => "")) === hash) return p;
+        }
+        return null;
+    } finally {
+        clearTimeout(slow);
     }
-    return null;
 }
 
 /** Keeps the watcher off paths the app is moving, a little past the move
