@@ -994,18 +994,27 @@ function registerIpcHandlers(): void {
     });
 
     ipcMain.handle("add-tag", (_event, fileId: number, tag: string) => {
-        record(`Tagged ${fileLabel(fileId)} ${quote(tag.trim().toLowerCase())}`, () => {
-            const { id: tagId } = upsertTag(tag, undefined);
-            addTagToFile(fileId, tagId);
-        });
+        // The tag's id is only known once it's made (or found).
+        const meta = { kind: "file-tag" as const, fileId, tagId: 0 };
+        record(
+            `Tagged ${fileLabel(fileId)} ${quote(tag.trim().toLowerCase())}`,
+            () => {
+                const { id: tagId } = upsertTag(tag, undefined);
+                meta.tagId = tagId;
+                addTagToFile(fileId, tagId);
+            },
+            meta,
+        );
         return getTagsForFile(fileId);
     });
 
     ipcMain.handle("remove-tag", (_event, fileId: number, tag: string) => {
         const existing = getTagByName(tag);
         if (existing) {
-            record(`Removed ${quote(existing.name)} from ${fileLabel(fileId)}`, () =>
-                removeTagFromFile(fileId, existing.id),
+            record(
+                `Removed ${quote(existing.name)} from ${fileLabel(fileId)}`,
+                () => removeTagFromFile(fileId, existing.id),
+                { kind: "file-tag", fileId, tagId: existing.id },
             );
         }
         return getTagsForFile(fileId);

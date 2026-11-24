@@ -281,6 +281,7 @@ export type HistoryMeta =
     | { kind: "compare"; winnerId: number; loserId: number }
     | { kind: "placement"; placingId: number; opponentId: number }
     | { kind: "pass-no"; fileId: number; tagId: number }
+    | { kind: "file-tag"; fileId: number; tagId: number }
     | { kind: "delete"; fileIds: number[] }
     | { kind: "filter"; before: FilterState; after: FilterState }
     | { kind: "selection"; before: string[]; after: string[] };

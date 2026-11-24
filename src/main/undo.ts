@@ -55,6 +55,8 @@ export type EntryMeta =
     | { kind: "placement"; placingId: number; opponentId: number }
     /** Views showing the file may step back to it on undo. */
     | { kind: "pass-no"; fileId: number; tagId: number }
+    /** A tag put on or taken off one file (Space in Pass, file view…). */
+    | { kind: "file-tag"; fileId: number; tagId: number }
     | { kind: "delete"; fileIds: number[] }
     /** View state, not library data (no database or disk change): the
      *  renderer puts back `before` on undo and `after` on redo. */

@@ -180,3 +180,21 @@ Open a collection in Browse with a tag filter on (e.g. only "cat").
     vanish while you're looking at it. Close the file view: now it's
     gone from the grid
 [ ] No filter on: nothing reloads or flickers when you tag things
+
+
+======================================================================
+8. UNDO IN A PASS STEPS BACK
+======================================================================
+
+(Plain 3 then ⌘Z, from the end card, and fast presses were checked by
+me in a scratch library and already worked.)
+
+[ ] In a pass, press Space on a file (tags it), then 3 or 2 to move
+    on, then ⌘Z: you're back on that file and the tag is off
+[ ] Same with Space taking a tag OFF (file had it), then move on, ⌘Z:
+    back on that file, tag on again
+[ ] In a pair pass: V on a file, move on, ⌘Z: back on that file
+[ ] Move on two or more files, then ⌘Z: the tag/no comes off but you
+    stay where you are
+[ ] Tag a file in file view or Browse while a pass is open elsewhere,
+    ⌘Z: the pass doesn't move
