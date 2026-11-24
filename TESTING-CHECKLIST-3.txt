@@ -70,3 +70,36 @@ Pass
 
 Compare (unchanged, check it still works)
 [ ] Delete a file that's in the current pair: a new pair loads
+
+
+======================================================================
+3. MOVING FILES INTO A FOLDER CHECKS BOTH WAYS
+======================================================================
+
+Try each from: dragging onto a sidebar collection, filing from the
+sidebar search, and dropping into Browse.
+
+[ ] File with its own tag "cat" → folder with a no for "cat": asks
+    first ("Some files clash with Pets' tags"), row says
+    Will remove "cat"
+[ ] File with a hard no for "dog" → folder that has the tag "dog":
+    asks first, row says Will remove 'no' for "dog"
+[ ] Same with a PASS no for "dog"
+[ ] Same through a link: folder has "puppy", "puppy" also tags as
+    "dog", file has a no for "dog": asks
+[ ] Move all: the tags come off / the noes are cleared and the files
+    get "dog" from the folder. Sweep seconds for "dog" unchanged
+[ ] Button reads e.g. "Move 6 files · removes 2 tags and 3 noes"
+[ ] "Move only the N that don't clash": only those move, nothing
+    else changes
+[ ] Nothing clashes: no dialog, it just moves
+[ ] ONE undo step: ⌘Z puts the files back with their tags and noes
+
+Manage
+[ ] One flat list (no collection groups); each row says "from Beach"
+    (or "from Unsorted") under the filename
+[ ] The header "MOVE PENDING: … → Pets" is clickable: Pets opens in
+    Browse with its folder panel. Change Pets' tags there: files
+    the change fixes drop off the list
+[ ] Click a file: it opens; clear its no / remove its tag: it drops off
+[ ] Afterwards Coverage shows NO new conflict for these files

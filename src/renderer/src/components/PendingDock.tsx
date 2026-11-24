@@ -147,9 +147,19 @@ function DockBody({
     return (
         <aside className="flex w-72 shrink-0 flex-col border-l border-neutral-800 bg-neutral-900">
             <div className="flex min-h-9 shrink-0 items-center justify-between gap-2 border-b border-neutral-800 py-1.5 pl-3 pr-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-amber-300/90">
-                    {spec.dockTitle}
-                </span>
+                {spec.headerFolder != null ? (
+                    <button
+                        onClick={() => onOpenFolder(spec.headerFolder!)}
+                        title={`Open "${collectionOf(spec.headerFolder + "/")}" in Browse to change its tags`}
+                        className="rounded text-left text-xs font-semibold uppercase tracking-wide text-amber-300/90 underline decoration-amber-300/30 underline-offset-2 transition-colors hover:text-amber-200 hover:decoration-amber-200"
+                    >
+                        {spec.dockTitle}
+                    </button>
+                ) : (
+                    <span className="text-xs font-semibold uppercase tracking-wide text-amber-300/90">
+                        {spec.dockTitle}
+                    </span>
+                )}
                 <button
                     onClick={() => void finish(null)}
                     title={spec.confirm ? "Cancel this change" : "Close"}
@@ -172,7 +182,19 @@ function DockBody({
                         ? spec.emptyText ?? "Nothing clashes any more."
                         : `${summary} affected · click one to open it`}
                 </p>
-                {groups.map(([name, { rows: list, folders }]) => {
+                {/* A move: one flat list, each file saying where it's
+                    coming from (grouping by collection would read as if
+                    they were already in the wrong place). */}
+                {spec.byOrigin &&
+                    rows.map((r) => (
+                        <DockRow
+                            key={r.fileId}
+                            row={r}
+                            onOpen={onOpen}
+                            from={r.file ? collectionOf(r.file.path) : undefined}
+                        />
+                    ))}
+                {!spec.byOrigin && groups.map(([name, { rows: list, folders }]) => {
                     const left = list.length;
                     const expanded = flat || open.has(name);
                     const toggle = () =>
@@ -276,7 +298,16 @@ function DockBody({
     );
 }
 
-function DockRow({ row, onOpen }: { row: Row; onOpen: (file: DbFile) => void }): JSX.Element {
+function DockRow({
+    row,
+    onOpen,
+    from,
+}: {
+    row: Row;
+    onOpen: (file: DbFile) => void;
+    /** Where the file is now (a move's list). */
+    from?: string;
+}): JSX.Element {
     const { rootPath } = useFolders();
     const { file } = row;
     const [thumb, setThumb] = useState<string | null>(null);
@@ -309,6 +340,7 @@ function DockRow({ row, onOpen }: { row: Row; onOpen: (file: DbFile) => void }):
                     <span className="truncate text-neutral-200">
                         {file?.filename ?? "Removed file"}
                     </span>
+                    {from && <span className="truncate text-[11px] text-neutral-500">from {from}</span>}
                     <span className="truncate text-[11px] text-red-300/80">{row.detail}</span>
                 </div>
             </button>

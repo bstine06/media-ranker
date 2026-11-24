@@ -70,6 +70,7 @@ import {
     addFolderNo,
     removeFolderNo,
     tagsRuledOutByFolder,
+    noesGivenByFolder,
     getNoesForFile,
     clearFileNo,
     previewBatchApply,
@@ -703,8 +704,9 @@ function registerIpcHandlers(): void {
             moveIntoFolder(absPaths, targetFolder, enforceNoes === true),
     );
 
-    // Before a move: the library files that would lose own tags to the
-    // target folder's noes (for the confirm), with those tags.
+    // Before a move: the library files that clash with the target folder's
+    // rules (for the confirm): own tags its noes rule out (`tags`), and own
+    // noes on tags it gives (`cleared`).
     ipcMain.handle(
         "preview-move-into-folder",
         (_event, absPaths: string[], targetFolder: string) => {
@@ -712,7 +714,13 @@ function registerIpcHandlers(): void {
             const folder = getFolderByPath(targetFolder);
             if (!folder) return [];
             const targetDir = path.join(rootPath, targetFolder);
-            const out: { absPath: string; fileId: number; filename: string; tags: string[] }[] = [];
+            const out: {
+                absPath: string;
+                fileId: number;
+                filename: string;
+                tags: string[];
+                cleared: string[];
+            }[] = [];
             for (const src of absPaths) {
                 if (path.dirname(src) === targetDir) continue;
                 const rel = path.relative(rootPath, src);
@@ -720,8 +728,9 @@ function registerIpcHandlers(): void {
                 const record = getFileByPath(rel);
                 if (!record) continue;
                 const tags = tagsRuledOutByFolder(record.id, folder.id);
-                if (tags.length > 0) {
-                    out.push({ absPath: src, fileId: record.id, filename: record.filename, tags });
+                const cleared = noesGivenByFolder(record.id, folder.id);
+                if (tags.length > 0 || cleared.length > 0) {
+                    out.push({ absPath: src, fileId: record.id, filename: record.filename, tags, cleared });
                 }
             }
             return out;

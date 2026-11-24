@@ -1111,6 +1111,27 @@ export function tagsRuledOutByFolder(fileId: number, folderId: number): string[]
     ).map((r) => r.name);
 }
 
+// A file's own noes (hard or pass) on tags a folder gives (as a folder tag,
+// or one a folder tag implies): moving it there would clear them.
+export function noesGivenByFolder(fileId: number, folderId: number): string[] {
+    return (
+        getDb()
+            .prepare(
+                `SELECT DISTINCT t.name FROM tag_checks c
+                 JOIN tags t ON t.id = c.tag_id
+                 WHERE c.file_id = ? AND (c.rejected = 1 OR c.passed = 1)
+                   AND EXISTS (
+                       SELECT 1 FROM folder_tags fo
+                       WHERE fo.folder_id = ?
+                         AND (fo.tag_id = c.tag_id OR EXISTS (
+                             SELECT 1 FROM tag_implied ti
+                             WHERE ti.tag_id = fo.tag_id AND ti.implied_id = c.tag_id)))
+                 ORDER BY t.name`,
+            )
+            .all(fileId, folderId) as { name: string }[]
+    ).map((r) => r.name);
+}
+
 export function getTagsForFolderByPath(folderPath: string): FileTag[] {
     const folder = getFolderByPath(folderPath);
     if (!folder) return [];
@@ -1163,8 +1184,9 @@ export function getMostUsedTags(folderId?: number): DbTag[] {
 // Move a tracked file to a new path/folder in one go (used for in-app moves;
 // the watcher is told to ignore the filesystem events). It now inherits the
 // new folder's tags, and loses the old one's. `enforceNoes`: the user
-// confirmed losing own tags the new folder's noes rule out; otherwise they
-// stay (and show as a conflict).
+// confirmed the new folder's rules winning: own tags its noes rule out come
+// off, and own noes on tags it gives are cleared (Sweep seconds kept).
+// Otherwise they stay (and show as a conflict).
 export function moveFileRecord(
     fileId: number,
     newRelativePath: string,
@@ -1178,7 +1200,13 @@ export function moveFileRecord(
             `UPDATE files SET path = ?, filename = ?, folder_id = ? WHERE id = ?`,
         ).run(newRelativePath, newFilename, folderId, fileId);
         dropTagsCoveredByInheritance({ fileId });
-        if (enforceNoes) enforceFolderNoes({ fileId });
+        if (enforceNoes) {
+            enforceFolderNoes({ fileId });
+            db.prepare(
+                `UPDATE tag_checks AS c SET rejected = 0, passed = 0, updated_at = datetime('now')
+                 WHERE c.file_id = ? AND (c.rejected = 1 OR c.passed = 1) AND ${FOLDER_GIVES}`,
+            ).run(fileId);
+        }
     })();
 }
 

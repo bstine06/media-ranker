@@ -290,11 +290,12 @@ declare global {
                 targetFolder: string,
                 enforceNoes?: boolean,
             ) => Promise<{ moved: number; errors: string[] }>;
-            /** Library files that would lose own tags to the target's noes. */
+            /** Library files that clash with the target's rules: own tags its
+             *  noes rule out (`tags`), own noes on tags it gives (`cleared`). */
             previewMoveIntoFolder: (
                 absPaths: string[],
                 targetFolder: string,
-            ) => Promise<{ absPath: string; fileId: number; filename: string; tags: string[] }[]>;
+            ) => Promise<{ absPath: string; fileId: number; filename: string; tags: string[]; cleared: string[] }[]>;
             getPathForFile: (file: File) => string;
             getSettingsSync: () => Record<string, unknown>;
             saveSettings: (settings: Record<string, unknown>) => Promise<void>;

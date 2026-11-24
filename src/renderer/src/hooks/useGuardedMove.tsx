@@ -1,21 +1,34 @@
 import { useCallback } from "react";
 import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
-import { plural, quoted } from "@renderer/lib/pending";
+import { affectedDetail, plural } from "@renderer/lib/pending";
 
 type MoveResult = { moved: number; errors: string[] };
-type Losing = { absPath: string; fileId: number; filename: string; tags: string[] };
+type Clash = {
+    absPath: string;
+    fileId: number;
+    filename: string;
+    /** Own tags the folder's noes rule out. */
+    tags: string[];
+    /** Own noes on tags the folder gives. */
+    cleared: string[];
+};
 
-const stateOf = (losing: Losing[]): PendingState => ({
-    items: losing.map((l) => ({ fileId: l.fileId, detail: `Will remove ${quoted(l.tags)}` })),
-    removes: losing.reduce((n, l) => n + l.tags.length, 0),
+const stateOf = (clashes: Clash[]): PendingState => ({
+    items: clashes.map((c) => ({
+        fileId: c.fileId,
+        detail: affectedDetail({ loses: c.tags, cleared: c.cleared }),
+    })),
+    removes: clashes.reduce((n, c) => n + c.tags.length, 0),
+    clears: clashes.reduce((n, c) => n + c.cleared.length, 0),
 });
 
 /**
- * Moving files into a folder, checked against the folder's noes first. If
- * some files would lose their own tags (the folder rules them out), it asks
- * (Confirm · Cancel · Manage…, see PendingChangeContext): move all and
- * remove those tags, move only the files that keep their tags, or cancel.
- * Otherwise it just moves.
+ * Moving files into a folder, checked against the folder's rules first.
+ * Files that clash with them (own tags its noes rule out, or own noes on
+ * tags it gives) make it ask (Confirm · Cancel · Manage…, see
+ * PendingChangeContext): move all with the folder's rules winning (those
+ * tags come off, those noes are cleared), move only the files that don't
+ * clash, or cancel. Otherwise it just moves.
  */
 export function useGuardedMove(): {
     guardedMove: (absPaths: string[], target: string) => Promise<MoveResult | null>;
@@ -26,45 +39,55 @@ export function useGuardedMove(): {
 
     const guardedMove = useCallback(
         async (absPaths: string[], target: string): Promise<MoveResult | null> => {
-            const losing = await window.api.previewMoveIntoFolder(absPaths, target);
-            if (losing.length === 0) return window.api.moveIntoFolder(absPaths, target);
+            const clashes = await window.api.previewMoveIntoFolder(absPaths, target);
+            if (clashes.length === 0) return window.api.moveIntoFolder(absPaths, target);
 
             const folderName = target.split("/").pop() ?? target;
             const total = absPaths.length;
             let result: MoveResult | null = null;
             const ran = await requestChange({
-                title: `Some files would lose tags in ${folderName}`,
+                title: `Some files clash with ${folderName}'s tags`,
                 message: (
                     <>
                         <p className="mb-2">
-                            {losing.length === 1 ? "1 file has tags" : `${losing.length} files have tags`}{" "}
-                            that aren't allowed in {folderName}:
+                            {clashes.length === 1 ? "1 file clashes" : `${clashes.length} files clash`} with{" "}
+                            {folderName}'s tags. Moving them in:
                         </p>
                         <ul className="max-h-40 overflow-y-auto space-y-0.5">
-                            {losing.map((l) => (
-                                <li key={l.absPath} className="truncate">
-                                    <span className="text-neutral-300">{l.filename}</span>
-                                    <span className="text-red-300/80"> · {l.tags.join(", ")}</span>
+                            {clashes.map((c) => (
+                                <li key={c.absPath} className="truncate">
+                                    <span className="text-neutral-300">{c.filename}</span>
+                                    <span className="text-red-300/80">
+                                        {" · "}
+                                        {affectedDetail({ loses: c.tags, cleared: c.cleared })}
+                                    </span>
                                 </li>
                             ))}
                         </ul>
                     </>
                 ),
                 dockTitle: `Move pending: ${plural(total, "file")} → ${folderName}`,
-                initial: stateOf(losing),
+                headerFolder: target,
+                byOrigin: true,
+                initial: stateOf(clashes),
                 load: async () => stateOf(await window.api.previewMoveIntoFolder(absPaths, target)),
                 confirm: {
-                    label: (live) =>
-                        live.items.length > 0
-                            ? `Move ${plural(total, "file")} · removes ${plural(live.removes ?? 0, "tag")}`
-                            : `Move ${plural(total, "file")}`,
+                    label: (live) => {
+                        const parts = [
+                            live.removes ? plural(live.removes, "tag") : null,
+                            live.clears ? plural(live.clears, "no").replace(/nos$/, "noes") : null,
+                        ].filter(Boolean);
+                        return parts.length > 0
+                            ? `Move ${plural(total, "file")} · removes ${parts.join(" and ")}`
+                            : `Move ${plural(total, "file")}`;
+                    },
                     run: async () => {
                         result = await window.api.moveIntoFolder(absPaths, target, true);
                     },
                 },
                 secondary: {
                     label: (live) =>
-                        `Move only the ${(total - live.items.length).toLocaleString()} that keep their tags`,
+                        `Move only the ${(total - live.items.length).toLocaleString()} that don't clash`,
                     danger: false,
                     disabled: (live) => total - live.items.length === 0 || live.items.length === 0,
                     run: async () => {

@@ -152,7 +152,7 @@ const api = {
     previewMoveIntoFolder: (
         absPaths: string[],
         targetFolder: string,
-    ): Promise<{ absPath: string; fileId: number; filename: string; tags: string[] }[]> =>
+    ): Promise<{ absPath: string; fileId: number; filename: string; tags: string[]; cleared: string[] }[]> =>
         ipcRenderer.invoke("preview-move-into-folder", absPaths, targetFolder),
 
     getSettingsSync: (): Record<string, unknown> =>

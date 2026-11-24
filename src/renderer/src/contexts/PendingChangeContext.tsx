@@ -40,6 +40,8 @@ export interface PendingState {
     lines?: string[];
     /** Own tags the change would remove in all, for button text. */
     removes?: number;
+    /** Own noes the change would clear in all, for button text. */
+    clears?: number;
 }
 
 export interface PendingAction {
@@ -67,6 +69,12 @@ export interface PendingChangeSpec {
     secondary?: PendingAction;
     /** Shown when nothing is affected any more. */
     emptyText?: string;
+    /** A folder the change is about (a move's target): the dock's header
+     *  opens it in Browse, to change its rules instead of each file. */
+    headerFolder?: string;
+    /** One flat list, each file saying where it is now ("from Beach"),
+     *  instead of grouping by collection (a move: they're leaving it). */
+    byOrigin?: boolean;
 }
 
 interface Current {
