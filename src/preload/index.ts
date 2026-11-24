@@ -527,6 +527,11 @@ const api = {
         ipcRenderer.on("history:changed", handler);
         return () => ipcRenderer.removeListener("history:changed", handler);
     },
+    onHistoryWaiting: (callback: () => void) => {
+        const handler = () => callback();
+        ipcRenderer.on("history:waiting", handler);
+        return () => ipcRenderer.removeListener("history:waiting", handler);
+    },
     onLibraryChanged: (callback: () => void) => {
         const handler = () => callback();
         ipcRenderer.on("library:changed", handler);

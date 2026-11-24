@@ -100,7 +100,13 @@ interface Entry {
 export interface UndoHost {
     rootPath: () => string | null;
     ignoredPaths: Set<string>;
-    fileById: (id: number) => { path: string; content_hash: string; media_type: string } | undefined;
+    fileById: (
+        id: number,
+    ) => { path: string; content_hash: string; media_type: string; size: number } | undefined;
+    /** Waits for the watcher to catch up with the disk (a Finder rename
+     *  still being hashed), up to a limit; `onSlow` if it takes a moment. */
+    settle: (onSlow: () => void) => Promise<void>;
+    hashFile: (absPath: string) => Promise<string>;
     /** Active files under a folder path. */
     filesUnder: (relPath: string) => { path: string; content_hash: string; media_type: string }[];
     /** Regenerate a thumbnail if it's missing (a restored version). */
@@ -365,6 +371,9 @@ async function step(direction: "undo" | "redo"): Promise<Applied | null> {
     followed = [];
     const after: (() => void | Promise<void>)[] = [];
     try {
+        // A Finder change the watcher is still working out (a rename being
+        // hashed) would make a file look gone: let it catch up first.
+        if (entry.disk.length > 0) await host!.settle(() => send("history:waiting"));
         // Disk first: if a file can't go back, the database is untouched.
         const ops = direction === "undo" ? [...entry.disk].reverse() : entry.disk;
         const moved: DiskOp[] = [];
@@ -461,6 +470,20 @@ function insideLibrary(abs: string): boolean {
     return !r.startsWith("..") && !path.isAbsolute(r) && !r.startsWith(HOLDING_DIR);
 }
 
+/** A file in `dir` (not below it) with this size and content hash. Only
+ *  same-size files are hashed. */
+async function findByHash(dir: string, hash: string, size: number): Promise<string | null> {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const e of entries) {
+        if (!e.isFile() || e.name.startsWith(".")) continue;
+        const p = path.join(dir, e.name);
+        const st = await fs.stat(p).catch(() => null);
+        if (!st || st.size !== size) continue;
+        if ((await host!.hashFile(p).catch(() => "")) === hash) return p;
+    }
+    return null;
+}
+
 /** Keeps the watcher off paths the app is moving, a little past the move
  *  (chokidar reports events after rename returns). */
 function ignore(paths: string[]): void {
@@ -535,6 +558,23 @@ async function runDisk(op: DiskOp, direction: "undo" | "redo"): Promise<() => vo
         if (newName !== oldName && insideLibrary(destPlanned)) {
             dest = path.join(path.dirname(destPlanned), newName);
             followed.push({ op, direction, src, dest, fileId: op.fileId!, oldName, newName });
+        }
+    }
+    if (!existsSync(src) && tracked && insideLibrary(srcPlanned) && !op.folder) {
+        // Still not found: maybe renamed in Finder and the watcher hasn't
+        // caught it. Same size, same content hash, in the folder it was in.
+        const found = await findByHash(path.dirname(src), tracked.content_hash, tracked.size);
+        if (found) {
+            const oldName = path.basename(srcPlanned);
+            const newName = path.basename(found);
+            src = found;
+            followed = followed.filter((f) => f.op !== op);
+            if (insideLibrary(destPlanned)) {
+                dest = path.join(path.dirname(destPlanned), newName);
+                if (newName !== oldName) {
+                    followed.push({ op, direction, src, dest, fileId: op.fileId!, oldName, newName });
+                }
+            }
         }
     }
     const name = path.basename(dest);

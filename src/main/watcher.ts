@@ -113,13 +113,47 @@ async function waitUntilFileStable(
     throw new Error(`File never stabilized: ${filePath}`);
 }
 
+// Added files waiting out their debounce, and ones being checked (waiting
+// to stop changing, being hashed) right now.
+const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let addsInFlight = 0;
+
+/** Something seen on disk isn't in the database yet: an added file still
+ *  being hashed, or a remove/add waiting for its other half (a rename). */
+export function watcherBusy(): boolean {
+    return (
+        debounceTimers.size > 0 ||
+        addsInFlight > 0 ||
+        pendingUnlinks.size > 0 ||
+        pendingAdds.size > 0 ||
+        pendingDirUnlinks.size > 0 ||
+        pendingDirAdds.size > 0
+    );
+}
+
+/** Waits until the watcher has caught up (see watcherBusy), at most
+ *  `timeoutMs`. `onSlow` runs once if that takes more than a moment.
+ *  Resolves true if it caught up. */
+export async function waitForWatcher(timeoutMs: number, onSlow: () => void): Promise<boolean> {
+    const start = Date.now();
+    let told = false;
+    while (watcherBusy()) {
+        const waited = Date.now() - start;
+        if (waited >= timeoutMs) return false;
+        if (!told && waited >= 400) {
+            told = true;
+            onSlow();
+        }
+        await new Promise((r) => setTimeout(r, 100));
+    }
+    return true;
+}
+
 export function watchFolder(rootPath: string, _win: BrowserWindow): void {
     if (watchers.has(rootPath)) return;
 
     const thumbDir = join(rootPath, "_thumbnails");
     ensureDir(thumbDir);
-
-    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     // Folders are top-level, as in the scanner and in-app moves: a file
     // anywhere under "cats/" belongs to "cats". null = library root.
@@ -243,6 +277,7 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
             filePath,
             setTimeout(async () => {
                 debounceTimers.delete(filePath);
+                addsInFlight++;
                 try {
                     await waitUntilFileStable(filePath);
                     // Library closed / switched while we waited.
@@ -362,6 +397,8 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                     });
                 } catch (err) {
                     console.error("Watcher failed to process:", filePath, err);
+                } finally {
+                    addsInFlight--;
                 }
             }, 500),
         );
@@ -550,4 +587,6 @@ export async function unwatchAll(): Promise<void> {
         for (const { timer } of pending.values()) clearTimeout(timer);
         pending.clear();
     }
+    for (const timer of debounceTimers.values()) clearTimeout(timer);
+    debounceTimers.clear();
 }

@@ -343,6 +343,8 @@ declare global {
             recordSelectionStep: (before: string[], after: string[]) => Promise<void>;
             onHistoryChanged: (callback: (items: HistoryItem[]) => void) => () => void;
             onHistoryApplied: (callback: (applied: HistoryApplied) => void) => () => void;
+            /** An undo/redo is waiting for the watcher to catch up. */
+            onHistoryWaiting: (callback: () => void) => () => void;
             /** A new undoable change was made (in any view). */
             onLibraryChanged: (callback: () => void) => () => void;
             /** Edit ▸ Undo / Redo (⌘Z, ⇧⌘Z) from the app menu. */

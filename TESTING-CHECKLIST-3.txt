@@ -103,3 +103,19 @@ Manage
     the change fixes drop off the list
 [ ] Click a file: it opens; clear its no / remove its tag: it drops off
 [ ] Afterwards Coverage shows NO new conflict for these files
+
+
+======================================================================
+4. UNDO AFTER A FINDER RENAME
+======================================================================
+
+[ ] Move a file into a folder in the app. Rename it in Finder, then
+    ⌘Z RIGHT AWAY: it goes back under its NEW name, toast uses the new
+    name. No error, older history kept
+[ ] Same with a big video (slow to read): the toast may say "Waiting
+    for Finder changes…" first, then it works
+[ ] Same, but wait a few seconds before ⌘Z: works, no waiting toast
+[ ] ⇧⌘Z after that: it moves forward again, new name kept
+[ ] Move a file in the app, then DELETE it in Finder, ⌘Z: still the
+    red "moved or deleted outside the app" (expected)
+[ ] Plain undo with no Finder changes: no delay, no waiting toast

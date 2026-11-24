@@ -61,9 +61,12 @@ export function UndoToast(): JSX.Element | null {
                 show(`${verb}: ${applied.label}`);
             }
         });
+        // Finder changes the app is still working out come first.
+        const offWaiting = window.api.onHistoryWaiting(() => show("Waiting for Finder changes…"));
         return () => {
             offKey();
             offApplied();
+            offWaiting();
             if (timer.current) clearTimeout(timer.current);
         };
     }, []);

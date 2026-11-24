@@ -126,7 +126,7 @@ const pool = (p: PoolFilter): PoolFilter => ({
 });
 import { promisify } from "util";
 import { renameFolderPaths } from "./db";
-import { watchFolder, unwatchAll, ignoredPaths } from "./watcher";
+import { watchFolder, unwatchAll, ignoredPaths, waitForWatcher } from "./watcher";
 import { replaceTrackedFile } from "./replaceFile";
 import {
     getPlacementCandidate,
@@ -155,7 +155,7 @@ import {
     hasHeldFiles,
     type Step,
 } from "./undo";
-import { generateSizedImage, getMediaType } from "./scanner";
+import { generateSizedImage, getMediaType, hashFile } from "./scanner";
 import {
     getPassFiles,
     getPassCounts,
@@ -217,6 +217,10 @@ function openLibraryDb(root: string): void {
         rootPath: () => rootPath,
         ignoredPaths,
         fileById: (id) => getFileById(id),
+        settle: async (onSlow) => {
+            await waitForWatcher(10_000, onSlow);
+        },
+        hashFile: (abs) => hashFile(abs),
         filesUnder: (relPath) => getFilesByPathPrefix(relPath),
         ensureThumbnail: async (relPath) => {
             if (!rootPath) return;
