@@ -16,7 +16,7 @@ import { PendingState, usePendingChange } from "@renderer/contexts/PendingChange
 import { affectedItems, plural, removesCount } from "@renderer/lib/pending";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TagIcon } from "./icons/TagIcon";
-import { Effect, FolderRef, TagRef } from "./InlineRefs";
+import { Effect, FolderRef, RichText, TagRef } from "./InlineRefs";
 import { TagPill } from "./TagPill";
 import { byTagOrder } from "@renderer/lib/tagGroups";
 
@@ -49,7 +49,7 @@ export const PRESET_ICONS = ["●", "▲", "■", "◆", "★"];
 // apply until it's fixed in the filter builder.
 function feedsWarning(names: string[]): string {
     if (names.length === 0) return "";
-    const list = names.map((n) => `"${n}"`).join(", ");
+    const list = names.map((n) => `“${n}”`).join(", ");
     return names.length === 1
         ? ` The saved feed ${list} uses it, and won't apply until you fix it.`
         : ` The saved feeds ${list} use it, and won't apply until you fix them.`;
@@ -612,7 +612,7 @@ function TagEditor({
                 </p>
                 {mergeError && (
                     <p className="text-[11px] text-red-400">
-                        Couldn't merge: {mergeError}
+                        Couldn't merge: <RichText text={mergeError} />
                     </p>
                 )}
             </div>
@@ -691,7 +691,7 @@ function TagEditor({
             {mergeTarget && (
                 <ConfirmDialog
                     title="Merge tags?"
-                    message={
+                    message={<RichText text={
                         `A tag named "${mergeTarget.name}" already exists` +
                         ` (${usageText(mergeTarget)}). ` +
                         `Merge "${tag.name}" into it? Everything tagged ` +
@@ -700,7 +700,7 @@ function TagEditor({
                         (targetCategory
                             ? `"${mergeTarget.name}" stays in ${targetCategory.name}.`
                             : `"${mergeTarget.name}" has no category.`)
-                    }
+                    } />}
                     confirmText="Merge"
                     danger={false}
                     onConfirm={handleMerge}
@@ -710,13 +710,13 @@ function TagEditor({
             {deleteUsage && (
                 <ConfirmDialog
                     title="Delete tag?"
-                    message={
+                    message={<RichText text={
                         (deleteUsage.files === 0 && deleteUsage.folders === 0
                             ? `Delete "${tag.name}"? It isn't on any files.`
                             : `Delete "${tag.name}"? It's on ${usageText(deleteUsage)}, ` +
                               `and will be removed from all of them. ⌘Z brings it back.`) +
                         feedsWarning(deleteFeeds)
-                    }
+                    } />}
                     confirmText="Delete"
                     onConfirm={handleDelete}
                     onCancel={() => setDeleteUsage(null)}
@@ -832,7 +832,11 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
                           removes: removesCount(p.affected),
                       };
             await requestChange({
-                title: "Link tags?",
+                title: (
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                        Link <TagRef name={tag.name} /> → <TagRef name={target.name} />?
+                    </span>
+                ),
                 message: confirmMessage("add", target, preview),
                 dockTitle: `Link pending: ${tag.name} → ${target.name}`,
                 initial: stateOf(preview),
@@ -1023,7 +1027,7 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
                     </div>
                 )}
             </div>
-            {error && <p className="text-[11px] text-red-400">{error}</p>}
+            {error && <p className="text-[11px] text-red-400"><RichText text={error} /></p>}
 
             {impliedBy.length > 0 && (
                 <p className="text-[11px] text-neutral-500">
@@ -1033,7 +1037,12 @@ function TagLinksEditor({ tag }: { tag: DbTagWithCategory }) {
 
             {pending && (
                 <ConfirmDialog
-                    title={pending.action === "add" ? "Link tags?" : "Remove link?"}
+                    title={
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                            {pending.action === "add" ? "Link" : "Remove the link"} <TagRef name={tag.name} /> →{" "}
+                            <TagRef name={pending.target.name} />?
+                        </span>
+                    }
                     message={confirmMessage(pending.action, pending.target, pending.preview)}
                     confirmText={pending.action === "add" ? "Link" : "Remove link"}
                     danger={pending.action === "remove"}

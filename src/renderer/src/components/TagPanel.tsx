@@ -8,6 +8,7 @@ import {
 } from "@renderer/shared/types/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryGroup from "./CategoryGroup";
+import { plainText, RichText } from "./InlineRefs";
 import { TagPill } from "./TagPill";
 import { useClipboard } from "@renderer/contexts/ClipboardContext";
 import { useFileTags } from "@renderer/hooks/useFileTags";
@@ -17,7 +18,8 @@ import { groupTagsByCategory } from "@renderer/lib/tagGroups";
 // The "Not" section stays open or closed across files (this session).
 let notOpenRemembered = false;
 
-/** Where a no on a file comes from, one line each. */
+/** Where a no on a file comes from, one line each, names marked for
+ *  RichText ("tag", «folder»); plainText() of it for hover titles. */
 function noSource(n: FileNo): string {
     const lines: string[] = [];
     if (n.hard) lines.push("Marked as no");
@@ -25,8 +27,8 @@ function noSource(n: FileNo): string {
     if (n.folder) {
         lines.push(
             n.via
-                ? `Not allowed in ${n.folder}: ${n.name} means ${n.via}`
-                : `Not allowed in ${n.folder}`,
+                ? `Not allowed in «${n.folder}»: "${n.name}" means "${n.via}"`
+                : `Not allowed in «${n.folder}»`,
         );
     }
     return lines.join("\n");
@@ -197,7 +199,11 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                 onCreate={addTag}
                 className="px-3 pb-1"
             />
-            {note && <p className="px-4 pb-1 text-[11px] text-red-300/90">{note}</p>}
+            {note && (
+                <p className="px-4 pb-1 text-[11px] text-red-300/90">
+                    <RichText text={note} />
+                </p>
+            )}
 
             {/* Noes: less useful than the tags, so folded away by default. */}
             <div className="border-t border-neutral-800 mt-2">
@@ -236,7 +242,7 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                                             applied
                                             no
                                             inherited={!own}
-                                            title={noSource(n)}
+                                            title={plainText(noSource(n))}
                                             onRemove={own ? () => clearNo(n) : undefined}
                                         />
                                     );

@@ -62,7 +62,7 @@ export interface PendingAction {
 }
 
 export interface PendingChangeSpec {
-    title: string;
+    title: ReactNode;
     /** The modal's text (at request time). */
     message: ReactNode;
     /** The dock's header, e.g. "Move pending: 6 files → Pets". */
@@ -243,7 +243,7 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
             )}
             {replacing && (
                 <ConfirmDialog
-                    title={`Show "${replacing.spec.dockTitle ?? replacing.spec.title}"?`}
+                    title={`Show "${replacing.spec.dockTitle ?? "this list"}"?`}
                     message={`The side panel shows one thing at a time. "${current?.spec.dockTitle ?? "A change"}" is open there and hasn't been confirmed: showing this drops it (nothing changes).`}
                     confirmText="Drop it and show this"
                     danger={false}

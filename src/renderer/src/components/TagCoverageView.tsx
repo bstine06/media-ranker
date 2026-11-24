@@ -12,6 +12,7 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { filterKey } from "@renderer/lib/tagFilters";
 import { ScopeSummary } from "./ScopeSummary";
+import { TagRef } from "./InlineRefs";
 import { inTagPointer } from "@renderer/contexts/TagPointerContext";
 import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
 
@@ -195,7 +196,11 @@ export default function TagCoverageView({
             };
         };
         showList({
-            title: `Conflicts for "${tag.name}"`,
+            title: (
+                <span className="inline-flex flex-wrap items-center gap-1.5">
+                    Conflicts for <TagRef name={tag.name} />
+                </span>
+            ),
             message: null,
             dockTitle: `Conflicts for "${tag.name}"`,
             initial: await load(),

@@ -20,7 +20,8 @@ function ConfirmDialog({
     secondary,
     extra,
 }: {
-    title: string;
+    /** Words, pills and chips (see InlineRefs). */
+    title: ReactNode;
     message: ReactNode;
     confirmText: string;
     onConfirm: () => void;

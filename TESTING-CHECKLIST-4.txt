@@ -204,3 +204,15 @@ the round folder chips (picture + name). Nothing in "quotes" in the body.
     folder's line ("On the folder") shows the no as a pill
 [ ] Pills look like the pills elsewhere (category icon when category
     names are off); right-clicking one in a confirm does nothing
+[ ] Confirm TITLES use pills/chips too (e.g. "Add [tag] to (Pets)?",
+    "Link [forest] → [tree]?", "Some files clash with (Pets)")
+[ ] Coverage → a tag's conflicts: each file's reason reads e.g.
+    "Marked as no for [cat], but (Pets) gives it"
+[ ] Folder panel errors (e.g. folder no for a tag the folder's other
+    tag implies), link errors, merge errors, "A folder named (x) already
+    exists": names as pills / chips
+[ ] Merge tags / delete tag confirms: tag names as pills (saved feed
+    names stay in curly quotes, not pills)
+[ ] File view: adding a tag the folder rules out shows a short note with
+    the folder chip and tag pills; hovering a no in "Not" still explains
+    it in plain text

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AffectedPills } from "./InlineRefs";
+import { AffectedPills, RichText } from "./InlineRefs";
 import type { DbFile } from "@renderer/shared/types/types";
 import {
     PendingChangeSpec,
@@ -176,7 +176,9 @@ function DockBody({
                 {live.lines && live.lines.length > 0 && (
                     <ul className="flex flex-col gap-1 border-b border-neutral-800/70 px-3 py-2 text-neutral-400">
                         {live.lines.map((l) => (
-                            <li key={l}>{l}</li>
+                            <li key={l}>
+                                <RichText text={l} />
+                            </li>
                         ))}
                     </ul>
                 )}
@@ -353,7 +355,9 @@ function DockRow({
                             <AffectedPills loses={row.loses ?? []} cleared={row.cleared ?? []} />
                         </span>
                     ) : (
-                        <span className="truncate text-[11px] text-red-300/80">{row.detail}</span>
+                        <span className="text-[11px] text-red-300/80">
+                            <RichText text={row.detail} />
+                        </span>
                     )}
                 </div>
             </button>

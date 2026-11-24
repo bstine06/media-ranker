@@ -49,7 +49,11 @@ export function useGuardedMove(): {
             const total = absPaths.length;
             let result: MoveResult | null = null;
             const ran = await requestChange({
-                title: `Some files clash with ${folderName}'s tags`,
+                title: (
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                        Some files clash with <FolderRef path={target} />
+                    </span>
+                ),
                 message: (
                     <div className="flex flex-col gap-2">
                         <Effect>

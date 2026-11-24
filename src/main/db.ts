@@ -815,10 +815,11 @@ function folderContradiction(
         | undefined;
 }
 
+// Names are marked for the renderer (InlineRefs RichText): "tag", «folder».
 function contradictionMessage(c: { folder: string; yes: string; no: string }): string {
     return c.yes === c.no
-        ? `"${c.folder}" can't both have "${c.yes}" and not have it.`
-        : `"${c.folder}" has "${c.yes}", which means "${c.no}", and "${c.no}" is not allowed there. Remove "${c.yes}" from the folder first.`;
+        ? `«${c.folder}» can't both have "${c.yes}" and not have it.`
+        : `«${c.folder}» has "${c.yes}", which means "${c.no}", and "${c.no}" is not allowed there. Remove "${c.yes}" from the folder first.`;
 }
 
 /** Thrown inside a transaction to roll it back with a message. */
@@ -2383,12 +2384,15 @@ export function getConflictFiles(
              ORDER BY f.path`,
         )
         .all(tagId, ...scope.params) as (DbFile & { kind: number; folderName: string | null })[];
+    const tag = tagName(tagId) ?? "?";
+    // Names marked for the renderer: "tag", «folder».
+    const where = (name: string | null) => (name ? `«${name}»` : "its folder");
     return rows.map(({ kind, folderName, ...f }) => ({
         ...f,
         reason:
             kind === 1
-                ? "Marked as no, but the folder gives it this tag"
-                : `Has the tag, but it's not allowed in ${folderName ?? "its folder"}`,
+                ? `Marked as no for "${tag}", but ${where(folderName)} gives it`
+                : `Has "${tag}", but it's not allowed in ${where(folderName)}`,
     }));
 }
 

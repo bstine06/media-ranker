@@ -14,7 +14,7 @@ import CategoryGroup from "@renderer/components/CategoryGroup";
 import { TagInput } from "@renderer/components/TagInput";
 import { TagPill } from "@renderer/components/TagPill";
 import ConfirmDialog from "@renderer/components/ConfirmDialog";
-import { Effect, FolderRef, TagRef } from "@renderer/components/InlineRefs";
+import { Effect, FolderRef, RichText, TagRef } from "@renderer/components/InlineRefs";
 import { PendingState, usePendingChange } from "@renderer/contexts/PendingChangeContext";
 import { affectedItems, plural, removesCount } from "@renderer/lib/pending";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -202,7 +202,11 @@ export default function FolderTagPanel({
                     const stateOf = (p: FolderTagPreview | { error: string }): PendingState =>
                         "error" in p ? { items: [], lines: [p.error] } : { items: affectedItems(p.affected) };
                     await requestChange({
-                        title: `Add "${trimmed}" to ${folder}?`,
+                        title: (
+                            <span className="inline-flex flex-wrap items-center gap-1.5">
+                                Add <TagRef name={trimmed} /> to <FolderRef path={folder} />?
+                            </span>
+                        ),
                         message: (
                             <div className="flex flex-col gap-1.5">
                                 <Effect mark="✓">
@@ -283,7 +287,11 @@ export default function FolderTagPanel({
                               removes: removesCount(p.affected),
                           };
                 await requestChange({
-                    title: `Not "${trimmed}" in ${folder}?`,
+                    title: (
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                            <TagRef name={trimmed} no /> in <FolderRef path={folder} />?
+                        </span>
+                    ),
                     message: (
                         <div className="flex flex-col gap-1.5">
                             <Effect mark="⊘">
@@ -502,7 +510,7 @@ export default function FolderTagPanel({
                         danger
                         className="px-3 pb-3"
                     />
-                    {error && <p className="px-4 pb-3 text-[11px] text-red-300/90">{error}</p>}
+                    {error && <p className="px-4 pb-3 text-[11px] text-red-300/90"><RichText text={error} /></p>}
                 </>
             )}
 
@@ -590,9 +598,13 @@ export default function FolderTagPanel({
                 return (
                     <ConfirmDialog
                         title={
-                            b.mode === "yes"
-                                ? `Tag ${quoted(b.names)} on ${plural(n, "file")}?`
-                                : `Mark ${quoted(b.names)} as no on ${plural(n, "file")}?`
+                            <span className="inline-flex flex-wrap items-center gap-1.5">
+                                {b.mode === "yes" ? "Tag" : "Mark"}
+                                {b.names.map((nm) => (
+                                    <TagRef key={nm} name={nm} no={b.mode === "no"} />
+                                ))}
+                                {b.mode === "yes" ? "on" : "as no on"} {plural(n, "file")}?
+                            </span>
                         }
                         message={
                             <div className="flex flex-col gap-3">
@@ -627,9 +639,10 @@ export default function FolderTagPanel({
             {convert && (
                 <ConfirmDialog
                     title={
-                        convert.kind === "no"
-                            ? `Turn "${convert.tag}" into a no on each file?`
-                            : `Turn "${convert.tag}" into a tag on each file?`
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                            Turn <TagRef name={convert.tag} no={convert.kind === "no"} /> into{" "}
+                            {convert.kind === "no" ? "a no" : "a tag"} on each file?
+                        </span>
                     }
                     message={
                         <div className="flex flex-col gap-1.5">

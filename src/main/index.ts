@@ -519,7 +519,7 @@ function registerIpcHandlers(): void {
             ) {
                 return {
                     ok: false,
-                    error: `A folder named "${newName}" already exists here`,
+                    error: `A folder named «${newName}» already exists here`,
                 };
             }
 

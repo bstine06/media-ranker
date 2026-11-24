@@ -102,3 +102,22 @@ export function AffectedPills({ loses, cleared }: { loses: string[]; cleared: st
         </span>
     );
 }
+
+/** A message from the main process with its names marked: "tag" becomes
+ *  the tag's pill, «folder» the folder's chip. Anything else is text. */
+export function RichText({ text }: { text: string }): JSX.Element {
+    const parts: ReactNode[] = [];
+    const re = /"([^"]+)"|«([^»]+)»/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+        if (m.index > last) parts.push(text.slice(last, m.index));
+        parts.push(m[1] != null ? <TagRef key={m.index} name={m[1]} /> : <FolderRef key={m.index} path={m[2]} />);
+        last = m.index + m[0].length;
+    }
+    if (last < text.length) parts.push(text.slice(last));
+    return <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-1">{parts}</span>;
+}
+
+/** The same message as plain text (for hover titles): markers dropped. */
+export const plainText = (text: string): string => text.replace(/«([^»]+)»/g, "$1");

@@ -1,6 +1,7 @@
 // ─── MetadataView ─────────────────────────────────────────────────────────────
 
 import { DbFile, DbTag } from "@renderer/shared/types/types";
+import { RichText } from "@renderer/components/InlineRefs";
 import { URL_RE } from "../types/browserTypes";
 import { useEffect, useMemo, useState } from "react";
 import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
@@ -137,7 +138,7 @@ export default function MetadataView({
                             />
                             {renameError && (
                                 <p className="text-[10px] text-red-400">
-                                    {renameError}
+                                    <RichText text={renameError} />
                                 </p>
                             )}
                         </div>
