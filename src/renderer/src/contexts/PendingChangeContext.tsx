@@ -275,6 +275,12 @@ export function PendingChangeProvider({ children }: { children: ReactNode }): JS
                               }
                             : undefined
                     }
+                    extra={{
+                        text: "Manage…",
+                        onClick: () => {},
+                        disabledReason:
+                            "Conflicts can't be managed here while another change is being managed in the side panel.",
+                    }}
                 />
             )}
         </PendingChangeContext.Provider>

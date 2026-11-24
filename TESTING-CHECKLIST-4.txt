@@ -100,8 +100,12 @@ in the side panel. Then, without confirming it:
     happen (as before)
 [ ] Do something that clashes (e.g. a folder no that would take a
     file's tag off): its OWN confirm appears, saying what it will do,
-    with Confirm / Cancel (no Manage…). No "Discard the pending
-    change?" any more
+    with Confirm / Cancel. No "Discard the pending change?" any more
+[ ] On that confirm, Manage… is there but greyed out; hovering it
+    says conflicts can't be managed while another change is being
+    managed in the side panel. Clicking it does nothing
+[ ] On a normal confirm (nothing in the side panel), Manage… looks
+    like a real button (outlined, lighter on hover) and works
 [ ] Confirm it: it happens, and the side panel's list is still there
     (and drops files this change fixed)
 [ ] Cancel it: nothing happens, the side panel is untouched
