@@ -220,8 +220,7 @@ the round folder chips (picture + name). Nothing in "quotes" in the body.
 
 ----------------------------------------------------------------------
 2026-11-24 CLAUDE'S SCRATCH RUN (sections 4-13, done)
-Checked and working: sections 4-13, every item, EXCEPT 7.6 visual "no
-flicker" style items noted below.
+Checked and working: sections 4-13, every item.
 Fixed during the run: category order ties; Coverage refreshing while on
 screen; side panel filing a folder line under "Unsorted"; conflict reason
 not naming the folder; replace-prompt title; side panel headers as
