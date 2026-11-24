@@ -1,0 +1,32 @@
+MEDIA RANKER — TEST CHECKLIST 3
+Branch feature/untested
+
+Only what's new since you finished TESTING-CHECKLIST-2.txt.
+
+Tick each box as you go. Note anything odd next to the item.
+Tip: test on a COPY of a library, not the real one.
+
+
+======================================================================
+1. A FOLDER'S NO REPLACES A FILE'S OWN NO
+======================================================================
+
+Same rule as tags: when the folder has a no, the file only shows the
+folder's one (greyed, no ×). Sweep seconds are kept.
+
+[ ] A file marked no for "dog" (hard no, and separately a pass no).
+    Give its folder a no for "dog": the file view's Not section shows
+    "dog" greyed with no ×
+[ ] ⌘Z that: the folder no goes AND the file's own no is back
+[ ] Remove the folder's no for "dog": the file is undecided for "dog"
+    (expected, the trade-off we agreed)
+[ ] Folder has a no for "cat", "kitten" is linked to "cat"; a file with
+    its own no for "kitten": after giving the folder the no, "kitten"
+    is greyed too
+[ ] Move a file with its own no for "dog" into a folder that has a no
+    for "dog" (app and Finder): only the folder's no shows
+[ ] Batch No on files whose folder already has that no: nothing
+    breaks; the files show only the folder's no
+[ ] Files that ALREADY had both before this version: after opening
+    the library, only the folder's no shows
+[ ] Coverage seconds for that tag are unchanged by all of the above
