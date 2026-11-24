@@ -113,6 +113,8 @@ export interface UndoHost {
     filesUnder: (relPath: string) => { path: string; content_hash: string; media_type: string }[];
     /** Regenerate a thumbnail if it's missing (a restored version). */
     ensureThumbnail: (relPath: string) => Promise<void>;
+    /** A file left the library (marks it missing, as the watcher would). */
+    fileGone: (relPath: string) => void;
 }
 
 let db: Database.Database | null = null;
@@ -598,6 +600,11 @@ async function runDisk(op: DiskOp, direction: "undo" | "redo"): Promise<() => vo
     // A file from outside the library (dropped in): the watcher indexes or
     // drops it, as for any file moved in or out in Finder.
     const external = op.fileId == null && !op.folder;
+    // A dropped-in file going back out: it's gone from the library now, not
+    // once the watcher has waited out its rename window (views showed it
+    // for a moment after the undo).
+    const leaving = external && srcIn && !destIn;
+    if (leaving) ignore([src]);
     if (!external) {
         const paths = [src, dest];
         if (op.folder) {
@@ -608,6 +615,10 @@ async function runDisk(op: DiskOp, direction: "undo" | "redo"): Promise<() => vo
         ignore(paths);
     }
     await fs.rename(src, dest);
+    if (leaving) {
+        host!.fileGone(rel(src));
+        return () => send("media:removed", { relativePath: rel(src) });
+    }
     if (external) return () => {};
 
     return () => {

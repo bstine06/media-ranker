@@ -272,6 +272,9 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
 
         const existing = debounceTimers.get(filePath);
         if (existing) clearTimeout(existing);
+        // Seen but not read yet (hashing, thumbnail): views can show it's on
+        // its way instead of an empty folder.
+        else getActiveWindow()?.webContents.send("media:incoming", { relativePath: relative(rootPath, filePath) });
 
         debounceTimers.set(
             filePath,
@@ -399,6 +402,9 @@ export function watchFolder(rootPath: string, _win: BrowserWindow): void {
                     console.error("Watcher failed to process:", filePath, err);
                 } finally {
                     addsInFlight--;
+                    getActiveWindow()?.webContents.send("media:incoming-done", {
+                        relativePath: relative(rootPath, filePath),
+                    });
                 }
             }, 500),
         );

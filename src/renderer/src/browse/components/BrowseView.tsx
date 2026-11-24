@@ -184,6 +184,34 @@ export default function BrowseView({
         });
     }, [activeFolder, activeFilter, showUnsorted]);
 
+    // Files the watcher has seen but is still reading (a drop from outside
+    // the library, a Finder copy): the folder says they're coming instead
+    // of looking empty for a moment.
+    const [incoming, setIncoming] = useState<Set<string>>(new Set());
+    useEffect(() => {
+        setIncoming(new Set());
+        const offIn = window.api.onMediaIncoming(({ relativePath }) =>
+            setIncoming((s) => new Set(s).add(relativePath)),
+        );
+        const offDone = window.api.onMediaIncomingDone(({ relativePath }) =>
+            setIncoming((s) => {
+                if (!s.has(relativePath)) return s;
+                const next = new Set(s);
+                next.delete(relativePath);
+                return next;
+            }),
+        );
+        return () => {
+            offIn();
+            offDone();
+        };
+    }, [rootPath]);
+    const incomingHere = [...incoming].filter((p) =>
+        showUnsorted ? !p.includes("/") : activeFolder ? p.startsWith(activeFolder + "/") : true,
+    ).length;
+    const addingNote =
+        incomingHere > 0 ? `Adding ${incomingHere} file${incomingHere === 1 ? "" : "s"}…` : null;
+
     // An undo/redo can change which files match the tag filter.
     const historyVersion = useHistoryVersion();
     useEffect(() => {
@@ -1048,9 +1076,22 @@ export default function BrowseView({
                     />
                 )}
 
+                {files.length > 0 && addingNote && (
+                    <div className="flex items-center gap-2 px-4 py-1.5 text-xs text-neutral-400">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+                        {addingNote}
+                    </div>
+                )}
                 {files.length === 0 ? (
-                    <div className="flex flex-1 items-center justify-center text-neutral-600 text-sm">
-                        No media found in this folder.
+                    <div className="flex flex-1 items-center justify-center gap-2 text-neutral-600 text-sm">
+                        {addingNote ? (
+                            <>
+                                <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-700 border-t-neutral-300" />
+                                {addingNote}
+                            </>
+                        ) : (
+                            "No media found in this folder."
+                        )}
                     </div>
                 ) : viewMode === "grid" ? (
                     <div

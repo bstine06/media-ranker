@@ -532,6 +532,17 @@ const api = {
         ipcRenderer.on("history:waiting", handler);
         return () => ipcRenderer.removeListener("history:waiting", handler);
     },
+    /** The watcher saw a new file and is reading it (then -done). */
+    onMediaIncoming: (callback: (e: { relativePath: string }) => void) => {
+        const handler = (_e: unknown, d: { relativePath: string }) => callback(d);
+        ipcRenderer.on("media:incoming", handler);
+        return () => ipcRenderer.removeListener("media:incoming", handler);
+    },
+    onMediaIncomingDone: (callback: (e: { relativePath: string }) => void) => {
+        const handler = (_e: unknown, d: { relativePath: string }) => callback(d);
+        ipcRenderer.on("media:incoming-done", handler);
+        return () => ipcRenderer.removeListener("media:incoming-done", handler);
+    },
     onLibraryChanged: (callback: () => void) => {
         const handler = () => callback();
         ipcRenderer.on("library:changed", handler);

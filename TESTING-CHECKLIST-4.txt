@@ -125,3 +125,29 @@ in the side panel. Then, without confirming it:
     for real
 [ ] ⌘Z: the link goes and the file's no for "tree" is back
 [ ] Remove the link instead (after Confirm): the no does NOT come back
+
+
+======================================================================
+9. UNDO LABELS FOR "TURN INTO A TAG / NO ON EACH FILE"
+======================================================================
+
+[ ] Folder panel: right-click a folder tag → "Turn into a tag on each
+    file". The toast / history reads: Removed "cat" from Pets and gave
+    each of its files the tag
+[ ] Same for a folder no → "Turn into a no on each file": Removed 'no'
+    for "cat" from Pets and gave each of its files a 'no'
+
+
+======================================================================
+10. FILES ARRIVING / LEAVING DON'T FLASH
+======================================================================
+
+[ ] Drag a few files in from OUTSIDE the library and file them into a
+    NEW folder: the folder shows a spinner and "Adding 3 files…" (not
+    "No media found") until they appear
+[ ] Copy files into an open collection in Finder: "Adding N files…"
+    shows above the grid until they're in
+[ ] Big video copied in: the note stays until it's ready, then goes
+[ ] ⌘Z the "file into a new folder" from above: the files leave right
+    away. They don't show up in All files for a moment
+[ ] ⇧⌘Z: they come back with the same tags/score as before

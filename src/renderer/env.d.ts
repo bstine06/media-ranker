@@ -347,6 +347,8 @@ declare global {
             onHistoryWaiting: (callback: () => void) => () => void;
             /** A new undoable change was made (in any view). */
             onLibraryChanged: (callback: () => void) => () => void;
+            onMediaIncoming: (callback: (e: { relativePath: string }) => void) => () => void;
+            onMediaIncomingDone: (callback: (e: { relativePath: string }) => void) => () => void;
             /** Edit ▸ Undo / Redo (⌘Z, ⇧⌘Z) from the app menu. */
             onHistoryKey: (callback: (action: "undo" | "redo") => void) => () => void;
             deleteMissingFiles: () => Promise<number>;

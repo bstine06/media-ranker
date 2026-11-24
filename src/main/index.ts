@@ -57,6 +57,7 @@ import {
     updateTagCategory,
     getFileById,
     markFileMissingById,
+    markFileMissing,
     moveFileRecord,
     getRootFiles,
     countRootFiles,
@@ -222,6 +223,7 @@ function openLibraryDb(root: string): void {
         },
         hashFile: (abs) => hashFile(abs),
         filesUnder: (relPath) => getFilesByPathPrefix(relPath),
+        fileGone: (relPath) => markFileMissing(relPath),
         ensureThumbnail: async (relPath) => {
             if (!rootPath) return;
             const f = getFileByPath(relPath);
@@ -1283,10 +1285,11 @@ function registerIpcHandlers(): void {
             const folder = getFolderByPath(folderRelPath);
             const existing = getTagByName(tag);
             if (!folder || !existing) return 0;
+            // Both halves: the folder's rule goes, each file gets its own.
             const label =
                 kind === "tag"
-                    ? `Gave each file in ${folder.name} the tag ${quote(existing.name)}`
-                    : `Gave each file in ${folder.name} a no for ${quote(existing.name)}`;
+                    ? `Removed ${quote(existing.name)} from ${folder.name} and gave each of its files the tag`
+                    : `Removed 'no' for ${quote(existing.name)} from ${folder.name} and gave each of its files a 'no'`;
             return record(label, () => convertFolderRule(folder.id, existing.id, kind));
         },
     );
