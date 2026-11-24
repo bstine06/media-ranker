@@ -2094,10 +2094,20 @@ export function getNoesForFile(fileId: number): FileNo[] {
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Removing a no from a file: back to unchecked for that tag (hard no, pass
-// no and its Sweep time all go). Noes from the folder are removed there.
+// Removing a no from a file (× in file view): no answer for that tag any
+// more (hard no and pass no go). Noes from the folder are removed there.
 export function clearFileNo(fileId: number, tagId: number): void {
-    getDb().prepare(`DELETE FROM tag_checks WHERE file_id = ? AND tag_id = ?`).run(fileId, tagId);
+    // The no goes; Sweep seconds stay (like a yes, or a folder rule clearing
+    // a no): nothing watched is thrown away. A row left with nothing in it
+    // goes too.
+    const db = getDb();
+    db.transaction(() => {
+        db.prepare(
+            `UPDATE tag_checks SET rejected = 0, passed = 0, updated_at = datetime('now')
+             WHERE file_id = ? AND tag_id = ? AND (rejected = 1 OR passed = 1)`,
+        ).run(fileId, tagId);
+        db.prepare(`DELETE FROM tag_checks WHERE file_id = ? AND tag_id = ? AND seconds = 0`).run(fileId, tagId);
+    })();
 }
 
 /** A folder rule that keeps some selected files out of a batch: a folder

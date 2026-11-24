@@ -1246,7 +1246,7 @@ function registerIpcHandlers(): void {
     // ── Noes on files ──
     ipcMain.handle("get-file-noes", (_event, fileId: number) => getNoesForFile(fileId));
     ipcMain.handle("clear-file-no", (_event, fileId: number, tagId: number) =>
-        record(`Reset ${tagLabel(tagId)} on ${fileLabel(fileId)} to undecided`, () =>
+        record(`Removed 'no' for ${tagLabel(tagId)} from ${fileLabel(fileId)}`, () =>
             clearFileNo(fileId, tagId),
         ),
     );

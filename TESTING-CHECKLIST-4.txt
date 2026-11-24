@@ -41,3 +41,15 @@ Tick each box as you go. Note anything odd next to the item.
 [ ] Click the library name top left: it shows the library in Finder
 [ ] Press the real ⌘Z / ⇧⌘Z keys a few times anywhere (Claude sent the
     menu's signal directly): same toasts as usual
+
+
+======================================================================
+4. CLEARING A NO KEEPS SWEEP TIME
+======================================================================
+
+[ ] Sweep a tag for a while over some files, then mark one of them no
+    (take the tag off, or 3 in a pass). In file view, open "Not" and
+    click × on that no: the no goes, and the file's Sweep coverage for
+    that tag doesn't drop (Coverage view shows the same % as before)
+[ ] The undo history / toast reads: Removed 'no' for "cat" from x.png
+[ ] ⌘Z: the no is back
