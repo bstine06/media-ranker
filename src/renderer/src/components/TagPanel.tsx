@@ -31,6 +31,9 @@ function noSource(n: FileNo): string {
                 : `Not allowed in «${n.folder}»`,
         );
     }
+    if (n.impliedBy) {
+        lines.push(`From its no for "${n.impliedBy}": "${n.name}" means "${n.impliedBy}"`);
+    }
     return lines.join("\n");
 }
 

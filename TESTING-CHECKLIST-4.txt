@@ -229,3 +229,32 @@ space; a drop-in to a NEW folder flashed "No media found" between the
 spinner and the files (twice: before the watcher noticed, and while the
 grid reloaded) — now spinner → files.
 Still yours: sections 1-3 (real drags, video, look and feel).
+
+
+======================================================================
+14. A NO CARRIES UP THROUGH LINKS (kitten means cat)
+======================================================================
+
+Set up: Tag Manager, "kitten" → also tags as "cat".
+
+[ ] A file marked no for "cat" (hard no): file view's Not section also
+    shows "kitten", greyed, no ×. Hover: From its no for "cat":
+    "kitten" means "cat"
+[ ] Same with a PASS no for "cat" (3 in a pass on cat)
+[ ] Chain: "cat" → "animal" too; a no for "animal" makes cat AND kitten
+    greyed noes
+[ ] × on the "cat" no: "kitten" goes too (no answer for either)
+[ ] Coverage for "kitten" counts that file (checked); a pass on "kitten"
+    skips it; Sweep with "Skipping answered" doesn't show it for kitten
+[ ] The file had its OWN no for "kitten" as well: after linking (or on
+    opening the library), only the greyed kitten no shows (own one
+    replaced, same rule as folder noes)
+[ ] Tag the file "kitten" (file view, Space, batch Yes): the file's no
+    for "cat" is cleared (it now has kitten AND cat), no conflict left
+[ ] ⌘Z that: kitten off, the no for "cat" back
+[ ] Batch No on "kitten" for files already no for "cat": counts them as
+    unchanged, nothing written
+[ ] A file tagged "cat" with an old no for "cat" left over, or tagged
+    "kitten" with an old no for "cat": after opening the library the
+    stale no is gone. (A file whose FOLDER gives "cat" but marked no for
+    it is still listed in Coverage → conflicts, as before)

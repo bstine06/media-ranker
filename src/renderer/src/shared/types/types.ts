@@ -41,6 +41,8 @@ export interface FileNo extends DbTag {
     pass: boolean;
     folder?: string;
     via?: string;
+    /** Implied by the file's own no for this tag (kitten: the no for cat). */
+    impliedBy?: string;
 }
 
 export type FolderRuleResult = { ok: true } | { ok: false; error: string };

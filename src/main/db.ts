@@ -353,6 +353,24 @@ function createViews(db: Database.Database): void {
             SELECT f.id, ti.tag_id, n.tag_id, n.folder_id
             FROM files f JOIN folder_noes n ON n.folder_id = f.folder_id
             JOIN tag_implied ti ON ti.implied_id = n.tag_id;
+
+        -- Noes a file gets from its own noes (hard or pass): a no for cat
+        -- is a no for every tag that implies cat (kitten). no_tag_id: the
+        -- file's own no it comes from.
+        DROP VIEW IF EXISTS file_implied_noes;
+        CREATE VIEW file_implied_noes AS
+            SELECT c.file_id, ti.tag_id, c.tag_id AS no_tag_id
+            FROM tag_checks c JOIN tag_implied ti ON ti.implied_id = c.tag_id
+            WHERE c.rejected = 1 OR c.passed = 1;
+
+        -- Every no a file gets from elsewhere (its folder, or its own noes
+        -- through links). Like inherited tags: it replaces a file's own no
+        -- for the same tag. (A tag the file has still wins.)
+        DROP VIEW IF EXISTS file_derived_noes;
+        CREATE VIEW file_derived_noes AS
+            SELECT file_id, tag_id FROM file_folder_noes
+            UNION ALL
+            SELECT file_id, tag_id FROM file_implied_noes;
     `);
 }
 
@@ -430,16 +448,28 @@ export function dropTagsCoveredByInheritance(
         db.prepare(
             `UPDATE tag_checks SET rejected = 0, passed = 0, updated_at = datetime('now')
              WHERE (rejected = 1 OR passed = 1)
-               AND EXISTS (SELECT 1 FROM file_folder_noes n
+               AND (
+                   -- covered by a no from elsewhere (folder, or a link)
+                   EXISTS (SELECT 1 FROM file_derived_noes n
                            WHERE n.file_id = tag_checks.file_id AND n.tag_id = tag_checks.tag_id)
+                   -- silently contradicted by the file's own tags (the tag
+                   -- itself, or one implying it). Folder-given yeses stay:
+                   -- those are conflicts Coverage lists for the user.
+                   OR EXISTS (SELECT 1 FROM file_tags ft
+                              WHERE ft.file_id = tag_checks.file_id AND ft.tag_id = tag_checks.tag_id)
+                   OR EXISTS (SELECT 1 FROM file_tags ft
+                              JOIN tag_implied ti ON ti.tag_id = ft.tag_id
+                              WHERE ft.file_id = tag_checks.file_id AND ti.implied_id = tag_checks.tag_id)
+               )
                ${fileScope.sql.replaceAll("file_tags.", "tag_checks.")}`,
         ).run(...fileScope.params);
     })();
 }
 
 // SQL guard for writing a file's own no (params: file id, tag id): skipped
-// when its folder already rules the tag out (that no is the folder's).
-const NOT_FOLDER_NO = `NOT EXISTS (SELECT 1 FROM file_folder_noes n
+// when the file already has that no from elsewhere (its folder, or another
+// of its own noes through a link).
+const NOT_FOLDER_NO = `NOT EXISTS (SELECT 1 FROM file_derived_noes n
                                     WHERE n.file_id = ? AND n.tag_id = ?)`;
 
 function runMigrations(db: Database.Database): void {
@@ -2066,7 +2096,14 @@ function conflictsForFile(fileId: number): Map<number, string> {
 /** A no shown on a file: its own (hard and/or from a pass, removable) or
  *  from its folder (`folder`; `via`: the folder no it follows from when
  *  the tag implies it). Tags the file has aren't listed (yes wins). */
-export type FileNo = DbTag & { hard: boolean; pass: boolean; folder?: string; via?: string };
+export type FileNo = DbTag & {
+    hard: boolean;
+    pass: boolean;
+    folder?: string;
+    via?: string;
+    /** Implied by the file's own no for this tag (kitten: the no for cat). */
+    impliedBy?: string;
+};
 
 export function getNoesForFile(fileId: number): FileNo[] {
     const db = getDb();
@@ -2092,8 +2129,22 @@ export function getNoesForFile(fileId: number): FileNo[] {
              GROUP BY t.id`,
         )
         .all(fileId, fileId) as (DbTag & { folder: string; via: string | null; direct: number })[];
+    const implied = db
+        .prepare(
+            `SELECT t.*, MIN(nt.name) AS impliedBy
+             FROM file_implied_noes n
+             JOIN tags t ON t.id = n.tag_id
+             JOIN tags nt ON nt.id = n.no_tag_id
+             WHERE n.file_id = ? AND ${has}
+             GROUP BY t.id`,
+        )
+        .all(fileId, fileId) as (DbTag & { impliedBy: string })[];
     const byId = new Map<number, FileNo>();
     for (const r of own) byId.set(r.id, { ...r, hard: r.hard === 1, pass: r.pass === 1 });
+    for (const r of implied) {
+        const prev = byId.get(r.id);
+        byId.set(r.id, prev ? { ...prev, impliedBy: r.impliedBy } : { ...r, hard: false, pass: false });
+    }
     for (const { via, direct, ...r } of fromFolder) {
         const prev = byId.get(r.id);
         const extra = { folder: r.folder, ...(direct ? {} : via ? { via } : {}) };
@@ -2152,7 +2203,7 @@ const UNDECIDED = `NOT EXISTS (SELECT 1 FROM file_effective_tags e
     AND NOT EXISTS (SELECT 1 FROM tag_checks c
                     WHERE c.file_id = f.id AND c.tag_id = @tagId
                       AND (c.rejected = 1 OR c.passed = 1))
-    AND NOT EXISTS (SELECT 1 FROM file_folder_noes n
+    AND NOT EXISTS (SELECT 1 FROM file_derived_noes n
                     WHERE n.file_id = f.id AND n.tag_id = @tagId)`;
 
 // Selected files a folder rule keeps out, per folder rule.
@@ -2231,7 +2282,7 @@ function batchOneTag(
     } else {
         // Already a no from its folder: nothing changes for that file.
         const folderNo = db.prepare(
-            `SELECT 1 FROM file_folder_noes WHERE file_id = ? AND tag_id = ? LIMIT 1`,
+            `SELECT 1 FROM file_derived_noes WHERE file_id = ? AND tag_id = ? LIMIT 1`,
         );
         selectedChanged = open.filter(
             (id) => has.get(id, tagId) || (!hardNo.get(id, tagId) && !folderNo.get(id, tagId)),
@@ -2423,6 +2474,17 @@ export function addTagToFile(fileId: number, tagId: number): void {
                  WHERE n.file_id = @fileId AND n.tag_id = @tagId
              )`,
         ).run({ fileId, tagId });
+        // The file now has the tag (and what it implies): its own noes on
+        // those go, so it never holds a yes and a no for the same thing
+        // (tagging kitten clears a no for cat). Sweep seconds stay. Only
+        // these tags: older conflicts elsewhere on the file are left.
+        db.prepare(
+            `UPDATE tag_checks SET rejected = 0, passed = 0, updated_at = datetime('now')
+             WHERE file_id = @fileId AND (rejected = 1 OR passed = 1)
+               AND (tag_id = @tagId OR tag_id IN (SELECT implied_id FROM tag_implied WHERE tag_id = @tagId))
+               AND EXISTS (SELECT 1 FROM file_effective_tags e
+                           WHERE e.file_id = @fileId AND e.tag_id = tag_checks.tag_id)`,
+        ).run({ fileId, tagId });
         dropTagsCoveredByInheritance({ fileId });
     })();
 }
@@ -2554,7 +2616,7 @@ export function getTagCoverage(
     // Untagged checks: firm noes (taken off, a pass, or ruled out by the
     // folder), else bucketed by seconds.
     const firm = `SELECT file_id, tag_id FROM tag_checks WHERE rejected = 1 OR passed = 1
-                  UNION SELECT file_id, tag_id FROM file_folder_noes`;
+                  UNION SELECT file_id, tag_id FROM file_derived_noes`;
     const untagged = (alias: string) => `NOT EXISTS (
         SELECT 1 FROM file_effective_tags e
         WHERE e.file_id = ${alias}.file_id AND e.tag_id = ${alias}.tag_id)`;

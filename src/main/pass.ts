@@ -12,14 +12,15 @@ import type { FilterNode } from "./tagFilter";
 export type PassWhich = "needs-firm" | "all";
 
 // Needs a firm answer for the tag; takes the tag id three times
-// (positional). A folder no is a firm answer too.
+// (positional). A no from the folder, or implied by another of the file's
+// own noes (kitten, when it's a no for cat), is a firm answer too.
 const NEEDS_FIRM = `
     NOT EXISTS (SELECT 1 FROM file_effective_tags e
                 WHERE e.file_id = f.id AND e.tag_id = ?)
     AND NOT EXISTS (SELECT 1 FROM tag_checks c
                     WHERE c.file_id = f.id AND c.tag_id = ?
                       AND (c.rejected = 1 OR c.passed = 1))
-    AND NOT EXISTS (SELECT 1 FROM file_folder_noes n
+    AND NOT EXISTS (SELECT 1 FROM file_derived_noes n
                     WHERE n.file_id = f.id AND n.tag_id = ?)`;
 
 /** A stretch of a pass: one tag, or a pair (the upper tag optional). A
@@ -122,7 +123,7 @@ export function setPassNo(fileId: number, tagId: number): void {
                AND EXISTS (SELECT 1 FROM tags WHERE id = ?)
                AND NOT EXISTS (SELECT 1 FROM file_effective_tags e
                                WHERE e.file_id = ? AND e.tag_id = ?)
-               AND NOT EXISTS (SELECT 1 FROM file_folder_noes n
+               AND NOT EXISTS (SELECT 1 FROM file_derived_noes n
                                WHERE n.file_id = ? AND n.tag_id = ?)
              ON CONFLICT (file_id, tag_id)
              DO UPDATE SET passed = 1, updated_at = datetime('now')`,
@@ -155,7 +156,7 @@ export function getFirmNoes(
              FROM (SELECT file_id, tag_id, rejected AS hard, passed AS pass FROM tag_checks
                    WHERE rejected = 1 OR passed = 1
                    UNION ALL
-                   SELECT file_id, tag_id, 1, 0 FROM file_folder_noes) c
+                   SELECT file_id, tag_id, 1, 0 FROM file_derived_noes) c
              WHERE c.tag_id = ?
                AND c.file_id IN (SELECT value FROM json_each(?))
                AND NOT EXISTS (SELECT 1 FROM file_effective_tags e
