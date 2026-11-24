@@ -14,43 +14,76 @@ Tip: test on a COPY of a library, not the real one.
 ======================================================================
 
 File view
-[ ] Score updates right after Compare picks (no rescan needed)
-[ ] Rename a file in Finder while the app is open: the file view shows
+[ y] Score updates right after Compare picks (no rescan needed)
+[ y] Rename a file in Finder while the app is open: the file view shows
     the new name
-[ ] The "Unsorted" folder button (top right, file in no folder) opens
+[ y] The "Unsorted" folder button (top right, file in no folder) opens
     the real Unsorted view
 
+Yeah. The folder button doesn't do anything when you got to the file view from browse view in that folder though. It should exit the file view. Also we need to make g for file view work everywhere.
+
 Undo
-[ ] Drag files in from outside the library and file them into a NEW
+[ y] Drag files in from outside the library and file them into a NEW
     folder, then ⌘Z once: files go back AND the new folder is gone
-[ ] Undo while picking a folder picture: the selection box closes
-[ ] Rename a tag or category, then ⌘Z: the field shows the old name
+
+Yeah, but it was a little buggy. Both on the add and the remove. When adding, the folder shows and then says no media added. And then like a second later when the watcher picks it up it shows the files. We should have a little loading thing so it doesn't look broken for a split second.
+On the undo, the folder disappeared, and the browse view switched over to All files (? I think) and the files I had moved briefly displayed there before the watcher picked up that they were no longer there. We can do better here since we should be able to know what is being undone.
+
+[ no. only in one case. ] Undo while picking a folder picture: the selection box closes
+
+It worked when I selected a potential new pfp over an old one, then pressed undo. It didnt work when I made multiple potential selections in a row before hitting undo. It didn't work when there was no pfp set yet, and I clicked one file then pressed undo. in fact, it set the currently selected item as the thumbnail. it did exit the selection process. this needs work. I think the best solution for undo in this scenario might be to just abandon any thumbnail change process and exit the folder metadata editor?
+
+[ y] Rename a tag or category, then ⌘Z: the field shows the old name
     and there's no leftover "Save name" button
-[ ] Rotate a video, then ⌘Z: it refreshes and plays right away
-[ ] App moves a file, you rename it in Finder, then ⌘Z: the toast uses
+[ y] Rotate a video, then ⌘Z: it refreshes and plays right away
+[ No, i got an error that says the file could not be found] App moves a file, you rename it in Finder, then ⌘Z: the toast uses
     the NEW name, and the file keeps that name
-[ ] Undo a pass no right after making it: it steps back to that file.
+
+sysctlbyname for kern.hv_vmm_present failed with status -1Couldn't undo "Moved backflipToRaily.mp4 to forests": UndoBlocked [Error]: backflipToRaily.mp4 was moved or deleted outside the app.
+    at runDisk (/Users/bstine06/Programming/Media Ranker/media-ranker/out/main/index.js:3474:34)
+    at step (/Users/bstine06/Programming/Media Ranker/media-ranker/out/main/index.js:3336:26)
+    at /Users/bstine06/Programming/Media Ranker/media-ranker/out/main/index.js:3300:33
+
+
+[ nope, it does not jump back to the previous file.] Undo a pass no right after making it: it steps back to that file.
     Undo one from further back: it does NOT jump you back
-[ ] Delete a file in Browse file view, ⌘Z: the file slides back in only
+[ y] Delete a file in Browse file view, ⌘Z: the file slides back in only
     if it lands right next to where you are
-[ ] After deleting a file in Browse file view, the next file shown is
+
+Yeah, it worked, but there was a bug. i delete the file, then undo, and it scrolls back up, good. but if i then scroll down after that, it doesnt go to the next file, it jumps ahead two. definitely a stale reference for next file. we arent rolling back the reference to next file on this undo case.
+
+[ yes, but see above. deleting and restoring the same file consecutively skips the next file (same as scrolling after one deletion)] After deleting a file in Browse file view, the next file shown is
     the right one (no file skipped)
 
+i found another bug. redoing a deletion while im looking at that file -- it doesnt get "deleted" out of the app. This was in file view from browse. I was able to keep watching the video even though i redid the deletion. I assume this happens in other views as well. 
+
+Oh god now im getting doubles of the deleted content when i undo the deletion to restore it. Definitely again a stale reference to next/previous. this needs to get sorted.
+
 Look and feel
-[ ] Noes show ⊘ (circle with a slash) everywhere, not a red ×
-[ ] Undo history entries have dividers between them
-[ ] On/off switches (e.g. tag pointer) don't make the text jump
-[ ] Browse keeps its scroll position after closing file view; changing
+[ y] Noes show ⊘ (circle with a slash) everywhere, not a red ×
+[ y] Undo history entries have dividers between them
+[ y] On/off switches (e.g. tag pointer) don't make the text jump
+
+Note: i noticed a very slight dimming when the tag pointer is on and over a content. Whats that about? no dimming.
+
+[ y] Browse keeps its scroll position after closing file view; changing
     folder starts at the top
-[ ] H in Sweep: nothing jumps or repositions
+
+remark: should we persist scroll position per collection even when you leave? and have a small chip that says "back to top" at the top of the grid/ list area?
+
+[ y] H in Sweep: nothing jumps or repositions
+
+Note: i noticed the "keys" button on the top right of sweep mode opens a popover that doesn't fit into the window if the window is small enough. tbh idek why we have this keys thing. I don't remember saying we should have that.
 
 Sweep
-[ ] With a collection or tag filter on, the end card says the feed is
+[ y] With a collection or tag filter on, the end card says the feed is
     limited ("in the selected collections and tag filter", "Limited
     to …"), with "No tag filter" when there isn't one
 
+Note: again, when the window is thin enough, the text on this card gets partially hidden beneath the left sidebar. The easy fix is to just center the card to the media area width.
+
 Holding folder
-[ ] After quitting, rotation originals are deleted for good (NOT in the
+[ y] After quitting, rotation originals are deleted for good (NOT in the
     Trash). Deleted files still go to the Trash.
 
 
@@ -59,23 +92,26 @@ Holding folder
 ======================================================================
 
 Folder tag
-[ ] Add a folder tag to a folder where some files are marked no for it
+[ y... but i can't confirm that pass seconds are kept when end user testing.] Add a folder tag to a folder where some files are marked no for it
     (or for a tag it implies): confirm lists them, "Clear noes on N
     files and add". After Confirm, those noes are gone (pass noes too)
     and the files have the tag. Coverage seconds are kept
 
 Tag links (Tag Manager → a tag → Also tags as)
-[ ] Folder has tag A and a folder no for B. Link A → B: the confirm
+[ y] Folder has tag A and a folder no for B. Link A → B: the confirm
     says the folder's no for B comes off. (This used to be refused.)
-[ ] Folder has tag A; a file in it is marked no for B. Link A → B:
+[ y] Folder has tag A; a file in it is marked no for B. Link A → B:
     confirm says that file's no is cleared; after, it has B
-[ ] Folder has a no for B; a file in it has its own tag A. Link A → B:
+
+theres a typo in the confirm "4 files marked as no for a tag their folder would now give lose those noes: "bail" (4 files)." "now give lose"
+
+[ y] Folder has a no for B; a file in it has its own tag A. Link A → B:
     confirm says that file loses A; after, A is gone
-[ ] Each of these is ONE undo step: ⌘Z puts everything back
-[ ] A link that clashes with nothing still gets the plain confirm
+[ y] Each of these is ONE undo step: ⌘Z puts everything back
+[ y] A link that clashes with nothing still gets the plain confirm
 
 The one conflict left: files moved in outside the app
-[ ] Give a folder a no for "dog". In Finder, move a file tagged "dog"
+[ y] Give a folder a no for "dog". In Finder, move a file tagged "dog"
     into that folder. Coverage shows a red "1 conflict" badge on "dog",
     and the file view shows a red "!" on the tag
 
@@ -88,27 +124,40 @@ The confirms that list files (move into a folder with noes, folder tag
 over noes, folder no that removes tags, clashing tag links) now show:
 Manage… · Cancel · Confirm.  (Batch Tag has its own confirm, section 4.)
 
-[ ] Cancel does nothing; Confirm works as before
-[ ] Manage… opens a panel on the right, in place of the undo history
+[ y] Cancel does nothing; Confirm works as before
+[ y] Manage… opens a panel on the right, in place of the undo history
     (history comes back afterwards if it's turned on)
-[ ] The header names the change (e.g. "Move pending: 6 files → Pets")
-[ ] Files in several collections are grouped ("6 files in Pets"),
+[ y] The header names the change (e.g. "Move pending: 6 files → Pets")
+[ y] Files in several collections are grouped ("6 files in Pets"),
     click a group to open it; one collection shows a flat list
-[ ] Thumbnails show; hovering one shows the big preview
-[ ] Clicking a file opens it in place of the current view; closing it
+
+note: i think the semantics in the manage conflicts sidebar are off. On the one hand, im getting a red text under the file that says "no for forest cleared" which took me a while to realize that it is a prospective change but written in the past tense. This text doesn't do a good job of indicating anything, its just confusing.
+
+On the other hand... forest is on the folder, and there is no indication in the sidebar that forest is a folder no. Furthermore, while managing, im able to remove a no on a file that was given to it by its folder (it should be greyed out, right?), but i can see that it does in fact still have an inherited no. The sidebar should show if the conflict on files is coming from the folder level or the individual level (or both) but the ability to "remove" a no from a file even when that no is inherited is also unacceptable.
+
+Actually, upon further investigation, it seems that conflicting folder noes are actually not accounted for in this manage conflict dock at all. they are mentioned in the total on the confirm modal before launching the dock, but theres no indication that they need to be managed from within the dock. things will be silently changed even if a user is trying to manage the conflicts properly. unacceptable.
+
+[ y] Thumbnails show; hovering one shows the big preview
+[ y] Clicking a file opens it in place of the current view; closing it
     goes back
-[ ] Fix a file while the panel is open (clear its no, remove its tag,
+[ y] Fix a file while the panel is open (clear its no, remove its tag,
     move it out): it drops off the list, and the counts and button text
     update (e.g. "Move 6 files · removes 9 tags")
-[ ] Fix them all: the panel says "Nothing clashes any more"
-[ ] Move: "Move only the N that keep their tags" follows the list, and
+[ y] Fix them all: the panel says "Nothing clashes any more"
+
+Still on the same issue as the 3 paragraphs above - i got to nothing clashes anymore, confirmed, and then went back to a folder that had a yes and no for respective tags we just linked together. It STILL displayed the yes and the no for tags that are apparently linked! only when i removed the no, removed the yes, then reinstated the yes did it fix.
+
+[ i was unable to produce a conflict modal from moving files, and therefore unable to produce a dock titled MOVE. it allowed me to move the files and instead presented only as a conflict in tag coverage. Otherwise it silently allowed me to move the files with conflicting tags] Move: "Move only the N that keep their tags" follows the list, and
     is greyed out when none or all of the files clash
-[ ] Confirm from the panel is ONE undo step
-[ ] × and Cancel both drop the change; nothing happens
-[ ] Start another such change while one is in the panel: it asks to
+[ y] Confirm from the panel is ONE undo step
+[ y] × and Cancel both drop the change; nothing happens
+[ kinda. im not allowed to tag anything while theres a dock open... even ones that dont conflict. And trying to instigate another link that would conflict makes no reference to the fact that it would cause conflicts, so it feels abrupt and sstrange and doesnt explain itself well] Start another such change while one is in the panel: it asks to
     discard the one in the panel
-[ ] Switching library drops the pending change
-[ ] Coverage → a tag's conflicts: opens in the same panel (Close
+[ y] Switching library drops the pending change
+
+i found a new bug from switching to a new library: i chose a folder with no child folders, and the name of the parent library folder did not show up in the top left, there was no search bar for folders, and the files did not get placed into an "unsorted" folder visually. Once i made a new folder in finder, this bug fixed itself. but i should be able to create subfolders from within the app when there are none yet.
+
+[ y] Coverage → a tag's conflicts: opens in the same panel (Close
     instead of Cancel, no Confirm). Fix one in Finder or the app: it
     drops off. All fixed: "No conflicts left."
 
@@ -120,55 +169,64 @@ Manage… · Cancel · Confirm.  (Batch Tag has its own confirm, section 4.)
 Apply now ALWAYS asks first. Cancel has focus.
 
 Yes mode
-[ ] Confirm says how many OTHER files shown get a pass no (big, bold
+[ y] Confirm says how many OTHER files shown get a pass no (big, bold
     line), how many selected get the tag, and how many others already
     have it or are marked no (they don't change)
-[ ] Main button "Yes on N · no on M" tags the selection AND gives the
+[ y] Main button "Yes on N · no on M" tags the selection AND gives the
     other shown files a pass no
-[ ] "Only the N selected" tags just the selection, nothing else
-[ ] Others that already have the tag (own, from their folder, or via a
+[ y] "Only the N selected" tags just the selection, nothing else
+[ y] Others that already have the tag (own, from their folder, or via a
     linked tag) or are already marked no: untouched
-[ ] With a tag filter on, files hidden by the filter are untouched
-[ ] Several staged tags: one block per tag in the confirm
+[ y] With a tag filter on, files hidden by the filter are untouched
+
+i noticed a bug, with the tag filter on, changing folder tags does not update the browse view properly until you leave the collection and then come back to it.
+
+[ y] Several staged tags: one block per tag in the confirm
 
 No mode
-[ ] Main button "No on N · yes on M" marks the selection no AND tags
+[ y] Main button "No on N · yes on M" marks the selection no AND tags
     the other shown files (red button)
-[ ] Others already marked no for it stay no; others that have it stay
-[ ] Selected files that have the tag as their own lose it (confirm
+[ y] Others already marked no for it stay no; others that have it stay
+[ y] Selected files that have the tag as their own lose it (confirm
     says "Takes off …")
 
 Folder rules win
-[ ] Yes: a selected file in a folder with a no for the tag is skipped;
+[ y] Yes: a selected file in a folder with a no for the tag is skipped;
     the confirm explains (amber "!") and says how to allow it
-[ ] No: a selected file whose folder has the tag as a folder tag is
+
+such a wordy paragraph. the functionality works, so backburner this polish, but wowwww.
+
+[ y] No: a selected file whose folder has the tag as a folder tag is
     skipped, same kind of note
-[ ] Batch never takes anything off a folder any more
+[ y] Batch never takes anything off a folder any more
 
 Each batch is ONE undo step (the rest included).
 
 Folder panel: turning a folder rule into one on each file
-[ ] Right-click a folder tag pill → "Turn into a tag on each file":
+[ y] Right-click a folder tag pill → "Turn into a tag on each file":
     confirm says how many files and that new files won't get it. After:
     the pill leaves the folder tags; every file has the tag as its own
-[ ] Right-click a "Not in this folder" pill → "Turn into a no on each
+[ y] Right-click a "Not in this folder" pill → "Turn into a no on each
     file": every file gets its own no; the folder no is gone
-[ ] Then the batch from "Folder rules win" works on those files
-[ ] One undo step each
-[ ] The usual category options are still in the right-click menu
+
+note: both of these actions in the undo history are lacking, they should say that the folder tag/no was removed AND we gave each file in collection the tag/no
+
+[ ?] Then the batch from "Folder rules win" works on those files
+[ y] One undo step each
+[ y] The usual category options are still in the right-click menu
 
 
 ======================================================================
 5. LEFTOVERS FROM TEST PASS 1
 ======================================================================
 
-[ ] "Show undo history" is remembered after restarting
-[ ] After H hides the tag pointer, Space and tile clicks tag nothing
-[ ] A pass skips files whose folder rules the tag out (you wrote
+[ y] "Show undo history" is remembered after restarting
+[ y] After H hides the tag pointer, Space and tile clicks tag nothing
+[ probably?] A pass skips files whose folder rules the tag out (you wrote
     "probably")
-[ ] (Optional) Put a file with the same name where a deleted file used
+[ such an edge case, defer till later] (Optional) Put a file with the same name where a deleted file used
     to be, then undo the delete: refused with a red toast, nothing lost
-[ ] (Optional) The history holds 200 steps; older ones drop off
+[ defer till later] (Optional) The history holds 200 steps; older ones drop off
 
 
 ======================================================================
@@ -176,81 +234,81 @@ Folder panel: turning a folder rule into one on each file
 ======================================================================
 
 Collections
-[ ] Every view (Browse included) shows a checkbox, then the picture,
+[ y] Every view (Browse included) shows a checkbox, then the picture,
     then the name. Names sit in the same place in every view
-[ ] The checkboxes are the app's own (rounded, white with a dark check
+[ y] The checkboxes are the app's own (rounded, white with a dark check
     when checked, lighter on hover), not the browser's grey ones
-[ ] Clicking a checkbox (or just around it) selects/unselects
-[ ] Clicking a NAME opens that collection in Browse, from any view
+[ y] Clicking a checkbox (or just around it) selects/unselects
+[ y] Clicking a NAME opens that collection in Browse, from any view
     (Sweep, Compare, Pass, Tag Manager). From the side-panel file view
     too: the file closes and Browse opens
-[ ] Collections stay in name order; selecting one doesn't move it
-[ ] Dropping files on a collection still moves them there
+[ y] Collections stay in name order; selecting one doesn't move it
+[ y] Dropping files on a collection still moves them there
 
 Top rows
-[ ] "All files" opens every file in Browse, from any view; dropping
+[ y] "All files" opens every file in Browse, from any view; dropping
     files on it moves them to the library folder
-[ ] "Unsorted" (when shown) opens Unsorted in Browse, from any view
-[ ] Unsorted has a checkbox like the collections. Checked on startup.
+[ y] "Unsorted" (when shown) opens Unsorted in Browse, from any view
+[ y] Unsorted has a checkbox like the collections. Checked on startup.
     Uncheck it: Sweep / Compare / Pass leave out files sitting directly
     in the library folder; the row reads "N selected"
-[ ] Select only Unsorted plus a collection or two: Sweep / Compare /
+[ y] Select only Unsorted plus a collection or two: Sweep / Compare /
     Pass use exactly those (Unsorted files included)
-[ ] Unsorted shows as an "Unsorted" chip in Sweep's end card, the Pass
+[ y] Unsorted shows as an "Unsorted" chip in Sweep's end card, the Pass
     lobby and Coverage when it's part of a partial selection
-[ ] clear / select all / reset include Unsorted
-[ ] Library name at the very top: still shows the library in Finder
-[ ] On opening the app (and after switching library) everything is
+[ y] clear / select all / reset include Unsorted
+[ y] Library name at the very top: still shows the library in Finder
+[ y] On opening the app (and after switching library) everything is
     selected; the row reads "All collections · clear"
-[ ] Uncheck one: "N selected · show only · reset"; Sweep / Compare /
+[ y] Uncheck one: "N selected · show only · reset"; Sweep / Compare /
     Pass leave that collection out
-[ ] "reset" selects everything again
-[ ] "clear" (from All collections) unchecks everything: the row reads
+[ y] "reset" selects everything again
+[ y] "clear" (from All collections) unchecks everything: the row reads
     "None selected · select all"; check a few to pick just those
-[ ] With none selected: Sweep says "No collections selected", Compare
+[ y] With none selected: Sweep says "No collections selected", Compare
     says "No collections selected in the sidebar.", the Pass lobby and
     Coverage (selection) show a "No collections selected" chip / 0 files
-[ ] "select all" selects everything again
-[ ] "show only" lists just the selected collections; it turns into
+[ y] "select all" selects everything again
+[ y] "show only" lists just the selected collections; it turns into
     "show all". Unchecking one while shown only keeps it listed until
     "show all"
-[ ] Searching while "show only" is on searches every collection
-[ ] Everything selected, then make a folder (+ button, or file dropped
+[ y] Searching while "show only" is on searches every collection
+[ y] Everything selected, then make a folder (+ button, or file dropped
     files into a new folder): the new folder is checked too
-[ ] Everything selected, then make a folder IN FINDER: it shows up
+[ y] Everything selected, then make a folder IN FINDER: it shows up
     checked, and Sweep / Compare include its files
-[ ] Only some selected (or none), then make a folder: it's NOT checked
-[ ] Clear, then make a folder: the boxes stay empty (they used to all
+[ y] Only some selected (or none), then make a folder: it's NOT checked
+[ y] Clear, then make a folder: the boxes stay empty (they used to all
     fill in)
-[ ] The text in Compare (not enough files) and the Pass lobby says
+[ y] The text in Compare (not enough files) and the Pass lobby says
     "selected", not "ticked"
 
 Bottom
-[ ] ⚙ at the end of the view buttons opens Settings
-[ ] Settings → Library has Rescan and Change library…; both work and
+[ y] ⚙ at the end of the view buttons opens Settings
+[ y] Settings → Library has Rescan and Change library…; both work and
     close Settings. They're gone from the bottom of the sidebar
-[ ] Status messages (e.g. after moving files) float just above the
+[ y] Status messages (e.g. after moving files) float just above the
     view buttons and nothing moves when they appear or go. Clicking
     one hides it
 
 Width
-[ ] Drag the sidebar's right edge: it resizes, 208px (today's width)
+[ y] Drag the sidebar's right edge: it resizes, 208px (today's width)
     up to about 400px. Long names show more
-[ ] The width is kept after restarting
-[ ] File view: the tag panel's width is kept too (closing and opening
+[ y] The width is kept after restarting
+[ y] File view: the tag panel's width is kept too (closing and opening
     file view, and after restarting)
 
 Making a folder
-[ ] + box: the new folder opens in Browse (from any view) and the list
+[ y] + box: the new folder opens in Browse (from any view) and the list
     scrolls so its row is in the middle
-[ ] Search, then "Create folder …": same; the search clears
-[ ] Drop files on the search, file them into a NEW folder: same, and
+[ y] Search, then "Create folder …": same; the search clears
+[ y] Drop files on the search, file them into a NEW folder: same, and
     Browse shows the files just filed
-[ ] With "show only" on: making a folder turns it off so the new row
+[ y] With "show only" on: making a folder turns it off so the new row
     can be seen
-[ ] From a Pass: you land in Browse; going back to Pass offers to pick
+[ y] From a Pass: you land in Browse; going back to Pass offers to pick
     up the run where it was
-[ ] A folder made in Finder does NOT open or scroll anything
+[ y] A folder made in Finder does NOT open or scroll anything
 
 
 ======================================================================
@@ -258,38 +316,38 @@ Making a folder
 ======================================================================
 
 Filter editor (its own undo while it's open)
-[ ] Add tags, flip AND/OR, toggle WITHOUT, remove items: ⌘Z steps back
+[ y] Add tags, flip AND/OR, toggle WITHOUT, remove items: ⌘Z steps back
     one change at a time, ⇧⌘Z steps forward
-[ ] The ↶ ↷ buttons (bottom right, next to Clear) do the same and are
+[ y] The ↶ ↷ buttons (bottom right, next to Clear) do the same and are
     greyed out when there's nothing to step
-[ ] Click a saved feed or a recent filter: ⌘Z gets back what you had
-[ ] Type a count (e.g. 3 → 35): one ⌘Z undoes the whole number
-[ ] Nothing left: ⌘Z shows "Nothing to undo" (and nothing behind the
+[ y] Click a saved feed or a recent filter: ⌘Z gets back what you had
+[ y] Type a count (e.g. 3 → 35): one ⌘Z undoes the whole number
+[ y] Nothing left: ⌘Z shows "Nothing to undo" (and nothing behind the
     editor changes)
-[ ] IMPORTANT: with the editor open, ⌘Z NEVER undoes anything in the
+[ y] IMPORTANT: with the editor open, ⌘Z NEVER undoes anything in the
     library (tag a file, open the editor, press ⌘Z a few times, close:
     the file still has the tag)
-[ ] With text typed in the tag search box, ⌘Z undoes the typing; with
+[ y] With text typed in the tag search box, ⌘Z undoes the typing; with
     the box empty, it undoes the filter
-[ ] Closing the editor ends its undo; reopening starts fresh
+[ y] Closing the editor ends its undo; reopening starts fresh
 
 App history
-[ ] Close the editor with a changed filter, then ⌘Z: the old filter
+[ y] Close the editor with a changed filter, then ⌘Z: the old filter
     comes back (toast "Undid: Applied filter “…”" or "Applied a
     filter"); ⇧⌘Z puts the new one back
-[ ] × next to the filter in the sidebar, then ⌘Z: the filter comes back
+[ y] × next to the filter in the sidebar, then ⌘Z: the filter comes back
     ("Cleared the filter")
-[ ] Check / uncheck several collections in a row: ONE history entry
+[ y] Check / uncheck several collections in a row: ONE history entry
     "Changed the collection selection"; ⌘Z puts back the selection from
     before the first click
-[ ] Do something else (tag a file), then change the selection again:
+[ y] Do something else (tag a file), then change the selection again:
     that's a new entry
-[ ] clear / select all / reset are part of that same kind of entry
-[ ] Change the selection back to exactly how it was: the entry goes
+[ y] clear / select all / reset are part of that same kind of entry
+[ y] Change the selection back to exactly how it was: the entry goes
     away
-[ ] Making a folder, the first load and Finder changes add NO selection
+[ y] Making a folder, the first load and Finder changes add NO selection
     entry
-[ ] Undo a tag change, then click a checkbox: the tag change can no
+[ y] Undo a tag change, then click a checkbox: the tag change can no
     longer be redone (expected)
 
 
@@ -298,27 +356,49 @@ App history
 ======================================================================
 
 Normal mode
-[ ] Pick 3 pairs (note them), ⌘Z 3 times: each undo brings back the
+[ y] Pick 3 pairs (note them), ⌘Z 3 times: each undo brings back the
     earlier pair, sides as they were
-[ ] Pick again (same OR different side): the pairs you saw before come
+[ y] Pick again (same OR different side): the pairs you saw before come
     back in the same order, same sides; after them, new pairs
-[ ] ⌘Z, then ⇧⌘Z: the next pair is the one you saw before (not new)
-[ ] Remembers about 5: undo 7 times, pick through: 5 familiar pairs,
+[ y] ⌘Z, then ⇧⌘Z: the next pair is the one you saw before (not new)
+[ y] Remembers about 5: undo 7 times, pick through: 5 familiar pairs,
     then new ones
 
 King of the Hill
-[ ] ⌘Z a pick, pick the SAME side: the same next pairs come back
-[ ] ⌘Z a pick, pick the OTHER side: the new winner stays on (new king /
+[ y] ⌘Z a pick, pick the SAME side: the same next pairs come back
+[ y] ⌘Z a pick, pick the OTHER side: the new winner stays on (new king /
     king keeps the hill), and the next pairs are new, not the old ones
-[ ] ⇧⌘Z a king's pick: the streak / new king is right and the
+[ y] ⇧⌘Z a king's pick: the streak / new king is right and the
     remembered next pair shows
 
 Placement
-[ ] ⌘Z a placement match, pick the same way: same next opponent
-[ ] Pick the other way: a different opponent (range changed)
+[ y] ⌘Z a placement match, pick the same way: same next opponent
+[ y] Pick the other way: a different opponent (range changed)
 
 Dropped when it no longer fits
-[ ] ⌘Z a few, change the collection selection or the filter, pick:
+[ y] ⌘Z a few, change the collection selection or the filter, pick:
     new pairs
-[ ] ⌘Z, crown a king from Browse, pick: new pairs
-[ ] A remembered pair with a file deleted meanwhile is skipped
+[ y] ⌘Z, crown a king from Browse, pick: new pairs
+[ y] A remembered pair with a file deleted meanwhile is skipped
+
+
+======================================================================
+ 9. FIXES FROM PASS 2 (untested)
+======================================================================
+
+Link dock: folder rules
+[ y] Folder has tag A + a no for B. Link A → B → Manage…: that
+    collection's header is thicker and says "On the folder · Will
+    remove 'no' for "B"". Clicking it opens the folder in Browse
+[ y] Take A off the folder (or the no for B) while docked: the folder
+    line drops off. "Nothing clashes any more" only shows once the
+    folder lines AND the files are all gone
+[ y] Link button counts folders too ("Link · changes 1 folder and 3 files")
+[ y] File rows read "Will remove 'no' for "forest"" / "Will remove "cat""
+    (move dock too)
+[ y] Confirm text: no "now give lose"; folder/file parts start with
+    "Will remove"
+
+Browse refreshes after changes made elsewhere
+[ y] Open a folder with tag A + no for B in Browse. Go to Tag Manager,
+    link A → B, Confirm. Back in Browse: the no for B is gone right away
