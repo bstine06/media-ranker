@@ -12,20 +12,20 @@ Tick each box as you go. Note anything odd next to the item.
 1. REAL DRAGS (Claude ran the drop code directly, not a macOS drag)
 ======================================================================
 
-[ ] Drag a file whose own tag "cat" clashes onto a sidebar collection
+[y] Drag a file whose own tag "cat" clashes onto a sidebar collection
     with a no for "cat": the "Some files clash with …" box appears
-[ ] Same by dropping files on the folder search (filing), then picking
+[y] Same by dropping files on the folder search (filing), then picking
     the collection: the same box appears
-[ ] Same by dropping files from Finder into Browse with that collection
+[y] Same by dropping files from Finder into Browse with that collection
     open: the same box appears
-[ ] A drag that doesn't clash just moves, no box
+[y] A drag that doesn't clash just moves, no box
 
 
 ======================================================================
 2. VIDEO
 ======================================================================
 
-[ ] Browse file view on a VIDEO: delete it, ⌘Z, then ⇧⌘Z while it's on
+[y] Browse file view on a VIDEO: delete it, ⌘Z, then ⇧⌘Z while it's on
     screen: it goes, the next file slides in, and no sound or video
     keeps playing
 
@@ -34,12 +34,22 @@ Tick each box as you go. Note anything odd next to the item.
 3. LOOK AND FEEL
 ======================================================================
 
-[ ] Browse with NO tag filter: tag and untag files (file view, batch,
+[y] Browse with NO tag filter: tag and untag files (file view, batch,
     folder panel): the grid doesn't flicker or jump
-[ ] Sweep, lanes MOVING (not stopped): delete a file that's left of the
+[y] Sweep, lanes MOVING (not stopped): delete a file that's left of the
     pointer (in Finder): nothing on screen jumps
-[ ] Click the library name top left: it shows the library in Finder
-[ ] Press the real ⌘Z / ⇧⌘Z keys a few times anywhere (Claude sent the
+    >> First run deleted in the app (via file view) instead: lanes came
+       back scrambled. Retested in Finder: works. The scramble is coming
+       BACK FROM FILE VIEW (G), not the delete — see BUG below.
+[N] BUG (2026-11-25): Sweep → G (file view) → delete there → back to
+    Sweep: lanes reordered past recognition, maybe a fresh Sweep.
+    >> FIX BUILT (untested): hiding Sweep under file view measured 0 × 0
+       and reset the row to its far left. Retest:
+[ ] Sweep moving → G on a file → delete it there → back to Sweep: same
+    files around the pointer, nothing reordered
+[ ] Same without deleting: G, look, Esc: right back where you were
+[y] Click the library name top left: it shows the library in Finder
+[y] Press the real ⌘Z / ⇧⌘Z keys a few times anywhere (Claude sent the
     menu's signal directly): same toasts as usual
 
 

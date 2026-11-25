@@ -533,7 +533,13 @@ function SweepStrip({
     useEffect(() => {
         const el = boxRef.current;
         if (!el) return;
-        const ro = new ResizeObserver(() => setBox({ width: el.clientWidth, height: el.clientHeight }));
+        // Hidden (the single file view is open over the sweep) measures
+        // 0 × 0: keep the last real size, or the lanes rescale around the
+        // pointer to nothing and come back at the far left of the row.
+        const ro = new ResizeObserver(() => {
+            if (el.clientWidth === 0 || el.clientHeight === 0) return;
+            setBox({ width: el.clientWidth, height: el.clientHeight });
+        });
         ro.observe(el);
         return () => ro.disconnect();
     }, []);
