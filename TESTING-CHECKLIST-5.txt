@@ -94,3 +94,29 @@ Set up: Tag Manager, "kitten" → also tags as "cat".
     "kitten" with an old no for "cat": after opening the library the
     stale no is gone. (A file whose FOLDER gives "cat" but marked no for
     it is still listed in Coverage → conflicts, as before)
+
+
+======================================================================
+15. COMPARE: FILE VIEW AS AN INSPECTION (proof of concept, UNTESTED)
+======================================================================
+
+Open the file view from Compare (G on the focused side, or click a
+side's file name).
+
+[ ] An image: it grows from its spot in Compare to the file view spot
+    (about a quarter second); the rest of Compare dims to near black in
+    place; the buttons and tag panel fade in. Nothing snaps
+[ ] ← Back: it shrinks back onto its side and Compare brightens around
+    it; it lands exactly on the picture, no jump at the end
+[ ] Both sides: left and right, tall and wide files
+[ ] A video playing part-way: the file view carries on from the same
+    moment (no restart). Scrub somewhere else, ← Back: Compare's side
+    carries on from there
+[ ] A paused video stays paused going in and coming back
+[ ] The other side's video keeps playing, silent, while you're in the
+    file view; sound comes back as before after closing
+[ ] Delete the file from the file view: it fades away (no flying back
+    to a file that's gone); Compare refills that side
+[ ] Rotate a file in the file view, ← Back: Compare shows it rotated
+[ ] Opening the file view from Sweep, Pass, Browse, Coverage, the side
+    panel: works exactly as before (no animation yet)

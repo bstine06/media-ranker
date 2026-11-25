@@ -1,6 +1,7 @@
 import React from "react";
 import { DbFile } from "@renderer/shared/types/types";
 import { MediaPlayer } from "./MediaPlayer";
+import { PlayState } from "@renderer/lib/inspect";
 
 export const MediaSlide = React.forwardRef<
     HTMLVideoElement,
@@ -10,8 +11,12 @@ export const MediaSlide = React.forwardRef<
         disabled: boolean;
         /** Preview turn, in quarter turns to the left (before it's saved). */
         rotation?: number;
+        /** A video picks up here instead of from the top (see MediaPlayer). */
+        startAt?: PlayState | null;
+        /** There's something to show (see MediaPlayer). */
+        onReady?: () => void;
     }
->(({ file, rootPath, disabled, rotation = 0 }, _ref) => (
+>(({ file, rootPath, disabled, rotation = 0, startAt, onReady }, _ref) => (
     <div className="relative flex h-full w-full flex-col bg-black">
         <MediaPlayer
             file={file}
@@ -20,6 +25,8 @@ export const MediaSlide = React.forwardRef<
             className="h-full w-full"
             disabled={disabled}
             rotation={rotation}
+            startAt={startAt}
+            onReady={onReady}
         />
     </div>
 ));

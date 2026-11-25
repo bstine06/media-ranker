@@ -1,4 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+    INSPECT_EASE,
+    INSPECT_MS,
+    PlayState,
+    flyTo,
+    pictureRect,
+    playStateIn,
+} from "@renderer/lib/inspect";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
@@ -23,6 +31,19 @@ import { useEdgeResize } from "@renderer/hooks/useEdgeResize";
 /** How close to the top of the media the mouse must be to show Rotate. */
 const NEAR_TOP_PX = 96;
 
+/** Opened as an inspection: the picture grows from where it was on screen
+ *  and, on closing, goes back there (see lib/inspect.ts). */
+export interface InspectProps {
+    /** The picture's rect where it was opened from; null: just appear. */
+    from: DOMRect | null;
+    /** A video's play state there, so it carries on here. */
+    startAt: PlayState | null;
+    /** Set to close: go back to `to`, or fade out if it's null. */
+    closing: { to: DOMRect | null } | null;
+    /** Done closing, with the video's play state at that moment. */
+    onClosed: (state: PlayState | null) => void;
+}
+
 export default function ScrollView({
     initialFile,
     resolver,
@@ -38,7 +59,9 @@ export default function ScrollView({
     onPlace,
     allowRotate = false,
     jumpTo = null,
+    inspect,
 }: {
+    inspect?: InspectProps;
     initialFile: DbFile | null;
     resolver: SlotResolver;
     active: boolean;
@@ -105,6 +128,86 @@ export default function ScrollView({
     });
     const sidebarWidth = panelResize.width;
     const [showConfirm, setShowConfirm] = useState(false);
+
+    // ── Inspection: grow in, go back ──
+    // The media area itself moves: a transform puts the picture over where
+    // it came from, a clip hides the bars around it, and both ease to
+    // nothing. The buttons and panel fade in alongside. Done straight on the
+    // element, so React's renders never get in the way mid-move.
+    const areaRef = useRef<HTMLDivElement>(null);
+    const [chromeShown, setChromeShown] = useState(!inspect);
+    const inspectRef = useRef(inspect);
+    inspectRef.current = inspect;
+    const flewIn = useRef(false);
+    const moveArea = (from: { transform: string; clipPath: string }, to: { transform: string; clipPath: string }) => {
+        const area = areaRef.current;
+        if (!area) return;
+        area.style.transformOrigin = "0 0";
+        area.style.transition = "none";
+        area.style.transform = from.transform;
+        area.style.clipPath = from.clipPath;
+        area.style.opacity = "1";
+        void area.offsetWidth; // start from there
+        area.style.transition = `transform ${INSPECT_MS}ms ${INSPECT_EASE}, clip-path ${INSPECT_MS}ms ${INSPECT_EASE}`;
+        area.style.transform = to.transform;
+        area.style.clipPath = to.clipPath;
+    };
+    const SETTLED = { transform: "none", clipPath: "inset(0px 0px 0px 0px)" };
+    // Hidden until there's a picture to measure (it starts where it was).
+    useLayoutEffect(() => {
+        if (inspect?.from && areaRef.current) areaRef.current.style.opacity = "0";
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    const growIn = useCallback(() => {
+        const insp = inspectRef.current;
+        if (flewIn.current || !insp) return;
+        flewIn.current = true;
+        setChromeShown(true);
+        const area = areaRef.current;
+        const pic = pictureRect(area);
+        if (!area || !insp.from || !pic) {
+            if (area) area.style.opacity = "1";
+            return;
+        }
+        moveArea(flyTo(area.getBoundingClientRect(), pic, insp.from), SETTLED);
+        setTimeout(() => {
+            if (inspectRef.current?.closing) return;
+            area.style.transition = "";
+            area.style.transform = "";
+            area.style.clipPath = "";
+        }, INSPECT_MS + 50);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    // A slow load doesn't hold it up for long.
+    useEffect(() => {
+        if (!inspect) return;
+        const t = setTimeout(growIn, inspect.startAt ? 250 : 150);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    const closing = !!inspect?.closing;
+    useEffect(() => {
+        const insp = inspectRef.current;
+        if (!insp?.closing) return;
+        flewIn.current = true;
+        setChromeShown(false);
+        const area = areaRef.current;
+        const to = insp.closing.to;
+        const pic = pictureRect(area);
+        if (area && to && pic) {
+            moveArea(SETTLED, flyTo(area.getBoundingClientRect(), pic, to));
+        } else if (area) {
+            area.style.transition = `opacity ${INSPECT_MS}ms ease-out`;
+            area.style.opacity = "0";
+        }
+        // The video keeps playing on the way back: hand over where it got to.
+        const t = setTimeout(() => insp.onClosed(playStateIn(area)), INSPECT_MS);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [closing]);
+    const chromeStyle: React.CSSProperties | undefined = inspect
+        ? { opacity: chromeShown ? 1 : 0, transition: `opacity ${INSPECT_MS}ms ease-out` }
+        : undefined;
 
     useEffect(() => {
         if (currentFile) onFileChange?.(currentFile);
@@ -181,7 +284,7 @@ export default function ScrollView({
     return (
         <div className="relative flex min-h-0 flex-1">
             {onClose && (
-                <div className="absolute top-3 left-0 right-0 z-20">
+                <div className="absolute top-3 left-0 right-0 z-20" style={chromeStyle}>
                     <button
                         onClick={onClose}
                         className="absolute left-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
@@ -225,6 +328,7 @@ export default function ScrollView({
                     </button>
                 )}
                 <div
+                    ref={areaRef}
                     className={`relative min-h-0 flex-1 overflow-hidden ${pointer.cursorClass}`}
                     onWheel={handleWheel}
                     {...pointer.handlers}
@@ -247,6 +351,11 @@ export default function ScrollView({
                                     ref={videoRefs[slot]}
                                     disabled={!active || slot !== frontSlot}
                                     rotation={rotationOf(slotFiles[slot]!.id)}
+                                    {...(inspect &&
+                                    slot === frontSlot &&
+                                    slotFiles[slot]!.id === initialFile?.id
+                                        ? { startAt: inspect.startAt, onReady: growIn }
+                                        : {})}
                                 />
                             )}
                         </div>
@@ -254,6 +363,7 @@ export default function ScrollView({
                 </div>
 
                 <div
+                    style={chromeStyle}
                     className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group"
                     onKeyDown={(e) => {
                         if (e.key === " ") {
@@ -281,6 +391,7 @@ export default function ScrollView({
             {/* Draggable divider */}
             <div
                 className="relative w-1 bg-neutral-800 hover:bg-neutral-600 cursor-ew-resize group z-30"
+                style={chromeStyle}
                 onMouseDown={panelResize.onMouseDown}
             >
                 <div className="absolute inset-y-0 -left-1 -right-1" />
@@ -288,7 +399,7 @@ export default function ScrollView({
 
             <div
                 className="flex flex-col h-full overflow-hidden"
-                style={{ width: `${sidebarWidth}px` }}
+                style={{ width: `${sidebarWidth}px`, ...chromeStyle }}
             >
                 <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
                     <div

@@ -6,7 +6,7 @@ import {
 } from "react";
 import { DbFile, View } from "@renderer/shared/types/types";
 import { useFolders } from "@renderer/contexts/FolderContext";
-import ScrollView from "./ScrollView";
+import ScrollView, { InspectProps } from "./ScrollView";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { SlotResolver } from "@renderer/hooks/useScrollSlots";
 import { usePlacement } from "@renderer/contexts/PlacementContext";
@@ -17,11 +17,14 @@ export default function SingleFileView({
     file,
     active,
     setView,
+    inspect,
 }: {
     onClose: () => void;
     file: DbFile;
     active: boolean;
     setView: (view: View) => void;
+    /** Opened as an inspection (grows from its spot; see ScrollView). */
+    inspect?: InspectProps;
 }): JSX.Element {
     const [folderProfileHash, setFolderProfileHash] = useState<string | null>(
         null,
@@ -93,6 +96,7 @@ export default function SingleFileView({
                 setView("compare");
             }}
             allowRotate
+            inspect={inspect}
         />
     );
 }

@@ -10,6 +10,7 @@ import React, {
 import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { isTyping } from "@renderer/lib/keys";
+import { PlayState } from "@renderer/lib/inspect";
 
 /** How far ahead of the old version a rotated video's new version starts,
  *  to cover the time its seek takes while the old one keeps playing. */
@@ -49,6 +50,9 @@ interface MediaPlayerProps {
     rotation?: number;
     /** Called once there's something to show: a video's first frame, or an image (or its blurred thumbnail). */
     onReady?: () => void;
+    /** A video picks up here (opened from another player that was showing
+     *  it) instead of starting from the top. Read on mount only. */
+    startAt?: PlayState | null;
 }
 
 export function MediaPlayer({
@@ -64,6 +68,7 @@ export function MediaPlayer({
     controlsRef,
     onReady,
     rotation = 0,
+    startAt = null,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -94,7 +99,7 @@ export function MediaPlayer({
 
     const thumbUrl = thumb?.for === fullUrl ? thumb.url : null;
 
-    const [playing, setPlaying] = useState(true);
+    const [playing, setPlaying] = useState(!startAt?.paused);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [scrubbing, setScrubbing] = useState(false);
@@ -154,7 +159,11 @@ export function MediaPlayer({
     // Where the new version should pick up. Kept apart from `handoff` (the
     // visual cover), which gives up after a few seconds: a slow load must
     // still resume at the same moment rather than restart.
-    const resumeRef = useRef<{ time: number; paused: boolean } | null>(null);
+    // Opened from another player: the first load picks up where it was
+    // (same seek-then-play as a hand-off).
+    const resumeRef = useRef<{ time: number; paused: boolean } | null>(
+        isVideo && startAt ? { ...startAt } : null,
+    );
     const shownRef = useRef({ id: file.id, url: fullUrl, turns: rotation });
     if (shownRef.current.url !== fullUrl) {
         const old = videoRef.current;

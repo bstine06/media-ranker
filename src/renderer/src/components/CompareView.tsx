@@ -40,6 +40,13 @@ import {
     type PointerTarget,
 } from "@renderer/contexts/TagPointerContext";
 import { MediaFlash } from "./TagPointer";
+import {
+    INSPECT_MS,
+    type PlayState,
+    applyPlayState,
+    pictureRect,
+    playStateIn,
+} from "@renderer/lib/inspect";
 
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
     if (file.media_type === "video") return;
@@ -101,7 +108,68 @@ export default function CompareView({
     // Always one side focused: it has sound and gets V / Q / E (Tab switches).
     // Starts on the left, then follows whichever side won the last round.
     const [focus, setFocus] = useState<Side>("a");
-    const [inspectedFile, setInspectedFile] = useState<DbFile | null>(null);
+    // A side open in the file view, as an inspection: its picture grows from
+    // that side and goes back there on closing (Compare stays underneath,
+    // dimmed, and keeps playing).
+    const [inspect, setInspect] = useState<{
+        file: DbFile;
+        side: Side;
+        from: DOMRect | null;
+        startAt: PlayState | null;
+        closing: { to: DOMRect | null } | null;
+    } | null>(null);
+    const inspectRef = useRef(inspect);
+    inspectRef.current = inspect;
+    const inspectedFile = inspect?.file ?? null;
+    // The file changed in place (rotated, renamed): same inspection.
+    const setInspectedFile = useCallback(
+        (update: (f: DbFile) => DbFile) =>
+            setInspect((i) => {
+                if (!i) return i;
+                const file = update(i.file);
+                return file === i.file ? i : { ...i, file };
+            }),
+        [],
+    );
+    const cardsRef = useRef<HTMLDivElement>(null);
+    const sideRoot = (side: Side): Element | null =>
+        cardsRef.current?.querySelector(`[data-side="${side}"] [data-current]`) ?? null;
+    const openInspect = useCallback((side: Side) => {
+        const p = pairRef.current;
+        if (!p || inspectRef.current) return;
+        const root = sideRoot(side);
+        setInspect({
+            file: side === "a" ? p[0] : p[1],
+            side,
+            from: pictureRect(root),
+            startAt: playStateIn(root),
+            closing: null,
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    // Back to its side if that side still shows it; otherwise (deleted, or
+    // the side moved on) it fades out.
+    const closeInspect = useCallback((flyBack: boolean) => {
+        const i = inspectRef.current;
+        if (!i || i.closing) return;
+        const p = pairRef.current;
+        const still = !!p && (i.side === "a" ? p[0] : p[1]).id === i.file.id;
+        const next = { ...i, closing: { to: flyBack && still ? pictureRect(sideRoot(i.side)) : null } };
+        inspectRef.current = next;
+        setInspect(next);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    // Gone back: the side carries on from where the file view's video got to.
+    const onInspectClosed = useCallback((state: PlayState | null) => {
+        const i = inspectRef.current;
+        const p = pairRef.current;
+        if (i && p && (i.side === "a" ? p[0] : p[1]).id === i.file.id) {
+            applyPlayState(sideRoot(i.side), state);
+        }
+        inspectRef.current = null;
+        setInspect(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const undoStackRef = useRef<UndoEntry[]>([]);
     const pairShownAtRef = useRef(0);
@@ -398,7 +466,8 @@ export default function CompareView({
         kingRef.current = null;
         setPlacement(null);
         // Started from a file opened here: show the matches, not the file.
-        setInspectedFile(null);
+        inspectRef.current = null;
+        setInspect(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session]);
 
@@ -417,7 +486,7 @@ export default function CompareView({
                 kingRef.current = k;
                 setKing(k);
             }
-            setInspectedFile((f) => (f ? swap(f) : f));
+            setInspectedFile(swap);
             const st = placementRef.current;
             if (st?.file.id === file.id) setPlacement({ ...st, file });
             undoStackRef.current = undoStackRef.current.map((e) => ({
@@ -470,7 +539,8 @@ export default function CompareView({
             undoStackRef.current = undoStackRef.current.filter(
                 (e) => !e.pair.some(gone),
             );
-            setInspectedFile((f) => (f && gone(f) ? null : f));
+            // Its file deleted: the file view fades out (nothing to go back to).
+            if (inspectRef.current && gone(inspectRef.current.file)) closeInspect(false);
             if (placementRef.current && gone(placementRef.current.file)) {
                 setPlacement(null);
             }
@@ -503,7 +573,7 @@ export default function CompareView({
                     move(p[1]),
                 ];
                 setPair((p) => (p ? movePair(p) : p));
-                setInspectedFile((f) => (f ? move(f) : f));
+                setInspectedFile(move);
                 const pre = prefetchedRef.current;
                 if (pre) pre.pair = movePair(pre.pair);
                 undoStackRef.current = undoStackRef.current.map((e) => ({
@@ -970,7 +1040,7 @@ export default function CompareView({
                     // G: the focused side in the file view, as in Sweep and Pass.
                     e.preventDefault();
                     if (e.repeat || !pair) return;
-                    setInspectedFile(focus === "a" ? pair[0] : pair[1]);
+                    openInspect(focus);
                     break;
             }
         };
@@ -1038,17 +1108,15 @@ export default function CompareView({
             : undefined;
 
 
-    if (inspectedFile) {
-        return (<SingleFileView
-            onClose={() => setInspectedFile(null)}
-            file={inspectedFile}
-            active={active}
-            setView={setView}
-        />)
-    }
-
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden">
+        <div
+            className="relative flex flex-1 flex-col overflow-hidden"
+            style={{
+                opacity: inspect && !inspect.closing ? 0.06 : 1,
+                transition: `opacity ${INSPECT_MS}ms ease-out`,
+            }}
+        >
             {session && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-3 z-40 flex justify-center">
                     <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-black/70 px-3 py-1 text-xs text-white/80 shadow">
@@ -1078,7 +1146,7 @@ export default function CompareView({
                     </div>
                 </div>
             )}
-            <div className="flex flex-1 min-h-0 overflow-hidden bg-black">
+            <div ref={cardsRef} className="flex flex-1 min-h-0 overflow-hidden bg-black">
                     <CompareCard
                         file={a}
                         side="a"
@@ -1086,13 +1154,13 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "a"}
-                        audible={compareBothAudio || focus === "a"}
+                        audible={(compareBothAudio || focus === "a") && !inspect}
                         controlsRef={controlsA}
                         rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
                         onPick={() => handlePick("a")}
                         onInspectFile={() => {
-                            setInspectedFile(a);
+                            openInspect("a");
                         }}
                         isKing={king?.file.id === a.id}
                         placingLabel={placingLabel(a)}
@@ -1114,13 +1182,13 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "b"}
-                        audible={compareBothAudio || focus === "b"}
+                        audible={(compareBothAudio || focus === "b") && !inspect}
                         controlsRef={controlsB}
                         rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
                         onPick={() => handlePick("b")}
                         onInspectFile={() => {
-                            setInspectedFile(b);
+                            openInspect("b");
                         }}
                         isKing={king?.file.id === b.id}
                         placingLabel={placingLabel(b)}
@@ -1135,6 +1203,23 @@ export default function CompareView({
                         }}
                     />
             </div>
+        </div>
+            {inspect && (
+                <div className="absolute inset-0 z-50 flex flex-col">
+                    <SingleFileView
+                        onClose={() => closeInspect(true)}
+                        file={inspect.file}
+                        active={active}
+                        setView={setView}
+                        inspect={{
+                            from: inspect.from,
+                            startAt: inspect.startAt,
+                            closing: inspect.closing,
+                            onClosed: onInspectClosed,
+                        }}
+                    />
+                </div>
+            )}
         </div>
     );
 }
@@ -1264,6 +1349,7 @@ function CompareCard({
                     return (
                         <div
                             key={f.id}
+                            data-current={isOutgoing ? undefined : ""}
                             className={`absolute inset-0 ${isOutgoing ? "pointer-events-none z-10" : ""}`}
                         >
                             {isOutgoing ? (
