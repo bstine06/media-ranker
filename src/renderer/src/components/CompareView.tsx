@@ -117,6 +117,9 @@ export default function CompareView({
         from: DOMRect | null;
         startAt: PlayState | null;
         closing: { to: DOMRect | null } | null;
+        /** The file view's copy is showing: this side hides its own (it
+         *  keeps playing) until the file view has gone back and closed. */
+        shown: boolean;
     } | null>(null);
     const inspectRef = useRef(inspect);
     inspectRef.current = inspect;
@@ -144,6 +147,7 @@ export default function CompareView({
             from: pictureRect(root),
             startAt: playStateIn(root),
             closing: null,
+            shown: false,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -159,6 +163,12 @@ export default function CompareView({
         setInspect(next);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    const onInspectShown = useCallback(() => {
+        setInspect((i) => (i && !i.shown ? { ...i, shown: true } : i));
+    }, []);
+    // This side's own copy is hidden while the file view's is up.
+    const hiddenSide = (side: Side, file: DbFile): boolean =>
+        !!inspect?.shown && inspect.side === side && inspect.file.id === file.id;
     // Gone back: the side carries on from where the file view's video got to.
     const onInspectClosed = useCallback((state: PlayState | null) => {
         const i = inspectRef.current;
@@ -1155,6 +1165,7 @@ export default function CompareView({
                         disabled={!active}
                         focused={focus === "a"}
                         audible={(compareBothAudio || focus === "a") && !inspect}
+                        hideMedia={hiddenSide("a", a)}
                         controlsRef={controlsA}
                         rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
@@ -1183,6 +1194,7 @@ export default function CompareView({
                         disabled={!active}
                         focused={focus === "b"}
                         audible={(compareBothAudio || focus === "b") && !inspect}
+                        hideMedia={hiddenSide("b", b)}
                         controlsRef={controlsB}
                         rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
@@ -1216,6 +1228,7 @@ export default function CompareView({
                             startAt: inspect.startAt,
                             closing: inspect.closing,
                             onClosed: onInspectClosed,
+                            onShown: onInspectShown,
                         }}
                     />
                 </div>
@@ -1248,7 +1261,11 @@ function CompareCard({
     onCrown,
     onUncrown,
     onReplaceFile,
+    hideMedia,
 }: {
+    /** Open in the file view, whose copy is on screen: this one is hidden
+     *  (still playing) so there aren't two. */
+    hideMedia: boolean;
     file: DbFile;
     side: Side;
     /** Tag pointer: hides the cursor while the pointer shows over it. */
@@ -1350,6 +1367,7 @@ function CompareCard({
                         <div
                             key={f.id}
                             data-current={isOutgoing ? undefined : ""}
+                            style={!isOutgoing && hideMedia ? { opacity: 0 } : undefined}
                             className={`absolute inset-0 ${isOutgoing ? "pointer-events-none z-10" : ""}`}
                         >
                             {isOutgoing ? (

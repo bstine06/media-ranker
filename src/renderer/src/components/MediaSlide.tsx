@@ -15,9 +15,11 @@ export const MediaSlide = React.forwardRef<
         startAt?: PlayState | null;
         /** There's something to show (see MediaPlayer). */
         onReady?: () => void;
+        /** No black behind the media (see MediaPlayer). */
+        seeThrough?: boolean;
     }
->(({ file, rootPath, disabled, rotation = 0, startAt, onReady }, _ref) => (
-    <div className="relative flex h-full w-full flex-col bg-black">
+>(({ file, rootPath, disabled, rotation = 0, startAt, onReady, seeThrough = false }, _ref) => (
+    <div className={`relative flex h-full w-full flex-col ${seeThrough ? "" : "bg-black"}`}>
         <MediaPlayer
             file={file}
             rootPath={rootPath}
@@ -27,6 +29,7 @@ export const MediaSlide = React.forwardRef<
             rotation={rotation}
             startAt={startAt}
             onReady={onReady}
+            seeThrough={seeThrough}
         />
     </div>
 ));

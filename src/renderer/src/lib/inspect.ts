@@ -56,13 +56,11 @@ export function pictureRect(root: Element | null): DOMRect | null {
 
 /**
  * The transform (origin top left) that puts `picture`, drawn inside `area`,
- * exactly over `target`; and the clip that keeps only the picture showing
- * (in the area's own, untransformed coordinates).
+ * exactly over `target`.
  */
-export function flyTo(area: DOMRect, picture: DOMRect, target: DOMRect): { transform: string; clipPath: string } {
+export function flyTo(area: DOMRect, picture: DOMRect, target: DOMRect): string {
     const k = target.width / picture.width;
     const tx = target.left - area.left - (picture.left - area.left) * k;
     const ty = target.top - area.top - (picture.top - area.top) * k;
-    const clipPath = `inset(${picture.top - area.top}px ${area.right - picture.right}px ${area.bottom - picture.bottom}px ${picture.left - area.left}px)`;
-    return { transform: `translate(${tx}px, ${ty}px) scale(${k})`, clipPath };
+    return `translate(${tx}px, ${ty}px) scale(${k})`;
 }

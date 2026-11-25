@@ -103,6 +103,16 @@ Set up: Tag Manager, "kitten" → also tags as "cat".
 Open the file view from Compare (G on the focused side, or click a
 side's file name).
 
+>> First try 2026-11-25: pictures never came up (panel + dim only);
+   videos' black bars filled the whole media area; on the way back the
+   video showed twice (Compare's copy never hid). FIXED (untested): no
+   black behind the media in an inspection; Compare's copy hides while
+   the file view's is up. Pictures: not understood yet, may be fixed by
+   the same change; if not, check dev tools.
+[ ] No black box: around the picture you see dimmed Compare, both
+    going in and in the file view itself
+[ ] Only one copy on screen the whole time, going in and coming back
+
 [ ] An image: it grows from its spot in Compare to the file view spot
     (about a quarter second); the rest of Compare dims to near black in
     place; the buttons and tag panel fade in. Nothing snaps

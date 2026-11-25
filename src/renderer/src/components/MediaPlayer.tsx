@@ -53,6 +53,9 @@ interface MediaPlayerProps {
     /** A video picks up here (opened from another player that was showing
      *  it) instead of starting from the top. Read on mount only. */
     startAt?: PlayState | null;
+    /** No black behind the media: what's underneath shows around it (an
+     *  inspection, over the view it was opened from). */
+    seeThrough?: boolean;
 }
 
 export function MediaPlayer({
@@ -69,6 +72,7 @@ export function MediaPlayer({
     onReady,
     rotation = 0,
     startAt = null,
+    seeThrough = false,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -376,7 +380,7 @@ export function MediaPlayer({
 
     return (
         <div
-            className={`relative overflow-hidden bg-black cursor-pointer select-none ${className}`}
+            className={`relative overflow-hidden ${seeThrough ? "" : "bg-black"} cursor-pointer select-none ${className}`}
             onMouseMove={handleMouseMove}
             ref={containerRef}
             tabIndex={0}
@@ -442,7 +446,7 @@ export function MediaPlayer({
                 ]
             ) : (
                 <div
-                    className="absolute bg-black"
+                    className={`absolute ${seeThrough ? "" : "bg-black"}`}
                     style={turnStyle(rotation, animateTurn)}
                     onClick={guardClick(() => handleClick())}
                     {...dragOutProps}

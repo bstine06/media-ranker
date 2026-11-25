@@ -42,6 +42,9 @@ export interface InspectProps {
     closing: { to: DOMRect | null } | null;
     /** Done closing, with the video's play state at that moment. */
     onClosed: (state: PlayState | null) => void;
+    /** It's showing (starting to grow in): the view underneath can hide
+     *  its own copy now, so there's only ever one on screen. */
+    onShown?: () => void;
 }
 
 export default function ScrollView({
@@ -131,28 +134,27 @@ export default function ScrollView({
 
     // ── Inspection: grow in, go back ──
     // The media area itself moves: a transform puts the picture over where
-    // it came from, a clip hides the bars around it, and both ease to
-    // nothing. The buttons and panel fade in alongside. Done straight on the
+    // it came from and eases to nothing. The media has no black behind it
+    // here (see-through), so only the picture shows over the dimmed view.
+    // The buttons and panel fade in alongside. Done straight on the
     // element, so React's renders never get in the way mid-move.
     const areaRef = useRef<HTMLDivElement>(null);
     const [chromeShown, setChromeShown] = useState(!inspect);
     const inspectRef = useRef(inspect);
     inspectRef.current = inspect;
     const flewIn = useRef(false);
-    const moveArea = (from: { transform: string; clipPath: string }, to: { transform: string; clipPath: string }) => {
+    const moveArea = (from: string, to: string) => {
         const area = areaRef.current;
         if (!area) return;
         area.style.transformOrigin = "0 0";
         area.style.transition = "none";
-        area.style.transform = from.transform;
-        area.style.clipPath = from.clipPath;
+        area.style.transform = from;
         area.style.opacity = "1";
         void area.offsetWidth; // start from there
-        area.style.transition = `transform ${INSPECT_MS}ms ${INSPECT_EASE}, clip-path ${INSPECT_MS}ms ${INSPECT_EASE}`;
-        area.style.transform = to.transform;
-        area.style.clipPath = to.clipPath;
+        area.style.transition = `transform ${INSPECT_MS}ms ${INSPECT_EASE}`;
+        area.style.transform = to;
     };
-    const SETTLED = { transform: "none", clipPath: "inset(0px 0px 0px 0px)" };
+    const SETTLED = "none";
     // Hidden until there's a picture to measure (it starts where it was).
     useLayoutEffect(() => {
         if (inspect?.from && areaRef.current) areaRef.current.style.opacity = "0";
@@ -163,6 +165,7 @@ export default function ScrollView({
         if (flewIn.current || !insp) return;
         flewIn.current = true;
         setChromeShown(true);
+        insp.onShown?.();
         const area = areaRef.current;
         const pic = pictureRect(area);
         if (!area || !insp.from || !pic) {
@@ -174,7 +177,6 @@ export default function ScrollView({
             if (inspectRef.current?.closing) return;
             area.style.transition = "";
             area.style.transform = "";
-            area.style.clipPath = "";
         }, INSPECT_MS + 50);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -351,6 +353,7 @@ export default function ScrollView({
                                     ref={videoRefs[slot]}
                                     disabled={!active || slot !== frontSlot}
                                     rotation={rotationOf(slotFiles[slot]!.id)}
+                                    seeThrough={!!inspect}
                                     {...(inspect &&
                                     slot === frontSlot &&
                                     slotFiles[slot]!.id === initialFile?.id
