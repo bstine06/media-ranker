@@ -107,8 +107,9 @@ side's file name).
    videos' black bars filled the whole media area; on the way back the
    video showed twice (Compare's copy never hid). FIXED (untested): no
    black behind the media in an inspection; Compare's copy hides while
-   the file view's is up. Pictures: not understood yet, may be fixed by
-   the same change; if not, check dev tools.
+   the file view's is up. Pictures: found with dev tools — the media
+   area was left at opacity 0 (React's second mount run hid it again
+   after a picture had already grown in). FIXED (untested).
 [ ] No black box: around the picture you see dimmed Compare, both
     going in and in the file view itself
 [ ] Only one copy on screen the whole time, going in and coming back

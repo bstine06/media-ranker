@@ -156,8 +156,10 @@ export default function ScrollView({
     };
     const SETTLED = "none";
     // Hidden until there's a picture to measure (it starts where it was).
+    // Not once it's grown in: a picture can be ready before this runs a
+    // second time (React re-runs effects on mount in development).
     useLayoutEffect(() => {
-        if (inspect?.from && areaRef.current) areaRef.current.style.opacity = "0";
+        if (inspect?.from && areaRef.current && !flewIn.current) areaRef.current.style.opacity = "0";
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     const growIn = useCallback(() => {
