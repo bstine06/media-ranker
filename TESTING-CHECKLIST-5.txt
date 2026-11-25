@@ -113,6 +113,9 @@ side's file name).
 [ ] No black box: around the picture you see dimmed Compare, both
     going in and in the file view itself
 [ ] Only one copy on screen the whole time, going in and coming back
+[ ] The tag panel slides in from the right edge as the picture grows,
+    and slides back out as it goes back, moving like the picture (same
+    speed and easing). Dragging the panel's edge still resizes it
 
 [ ] An image: it grows from its spot in Compare to the file view spot
     (about a quarter second); the rest of Compare dims to near black in

@@ -212,6 +212,14 @@ export default function ScrollView({
     const chromeStyle: React.CSSProperties | undefined = inspect
         ? { opacity: chromeShown ? 1 : 0, transition: `opacity ${INSPECT_MS}ms ease-out` }
         : undefined;
+    // The tag panel (and its divider) slides in from the right edge and out
+    // again, on the media's curve.
+    const panelStyle: React.CSSProperties | undefined = inspect
+        ? {
+              transform: chromeShown ? "none" : `translateX(${sidebarWidth + 4}px)`,
+              transition: `transform ${INSPECT_MS}ms ${INSPECT_EASE}`,
+          }
+        : undefined;
 
     useEffect(() => {
         if (currentFile) onFileChange?.(currentFile);
@@ -396,7 +404,7 @@ export default function ScrollView({
             {/* Draggable divider */}
             <div
                 className="relative w-1 bg-neutral-800 hover:bg-neutral-600 cursor-ew-resize group z-30"
-                style={chromeStyle}
+                style={panelStyle}
                 onMouseDown={panelResize.onMouseDown}
             >
                 <div className="absolute inset-y-0 -left-1 -right-1" />
@@ -404,7 +412,7 @@ export default function ScrollView({
 
             <div
                 className="flex flex-col h-full overflow-hidden"
-                style={{ width: `${sidebarWidth}px`, ...chromeStyle }}
+                style={{ width: `${sidebarWidth}px`, ...panelStyle }}
             >
                 <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
                     <div
