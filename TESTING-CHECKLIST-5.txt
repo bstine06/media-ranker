@@ -116,6 +116,7 @@ side's file name).
 [ ] The tag panel slides in from the right edge as the picture grows,
     and slides back out as it goes back, moving like the picture (same
     speed and easing). Dragging the panel's edge still resizes it
+[ ] ← Back: the ▲ ▼ buttons vanish at once (no fade)
 
 [ ] An image: it grows from its spot in Compare to the file view spot
     (about a quarter second); the rest of Compare dims to near black in

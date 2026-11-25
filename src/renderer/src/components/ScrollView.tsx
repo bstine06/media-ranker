@@ -376,7 +376,9 @@ export default function ScrollView({
                 </div>
 
                 <div
-                    style={chromeStyle}
+                    // Up / down mean nothing here; on closing they just go
+                    // (no fade), so they don't hang over the picture.
+                    style={closing ? { opacity: 0, transition: "none" } : chromeStyle}
                     className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group"
                     onKeyDown={(e) => {
                         if (e.key === " ") {
