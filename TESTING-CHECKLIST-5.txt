@@ -49,17 +49,17 @@ Tick each box as you go. Note anything odd next to the item.
     files around the pointer, nothing reordered
     >> Works. But ⌘Z on that delete doesn't put the file back in the
        lane (open, 2026-11-25)
-    >> BUILT (untested): an undone delete goes back to its old spot.
-[ ] Sweep → G → delete → back to Sweep → ⌘Z: the file is back between
+    >> BUILT ed1988c, passed 2026-11-25: an undone delete goes back to its old spot.
+[y] Sweep → G → delete → back to Sweep → ⌘Z: the file is back between
     the same two files. If that spot is left of the pointer, only the
     files left of it move left; otherwise only the files right of it move
     right. Nothing under the pointer jumps unless that's where it goes
-[ ] Delete one, let the lane run on a long way (or rewind far), ⌘Z: it
+[y] Delete one, let the lane run on a long way (or rewind far), ⌘Z: it
     does NOT turn up anywhere (its spot has left the lane)
-[ ] Delete several side by side (one at a time, then ⌘Z each; and a
+[y] Delete several side by side (one at a time, then ⌘Z each; and a
     batch delete elsewhere of files that are in the lane, then ⌘Z): they
     all come back in their old order
-[ ] ⇧⌘Z after that: it leaves the lane again, like any delete
+[y] ⇧⌘Z after that: it leaves the lane again, like any delete
 [y] Same without deleting: G, look, Esc: right back where you were
 [y] Click the library name top left: it shows the library in Finder
 [y] Press the real ⌘Z / ⇧⌘Z keys a few times anywhere (Claude sent the
