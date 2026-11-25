@@ -1,0 +1,73 @@
+MEDIA RANKER — TEST CHECKLIST 5
+Branch feature/untested
+
+What's still untested from checklist 4 (2026-11-25). Everything else
+there (sections 4-13) was checked in Claude's scratch run on 2026-11-24.
+Sections keep their checklist 4 numbers.
+
+Tick each box as you go. Note anything odd next to the item.
+
+
+======================================================================
+1. REAL DRAGS (Claude ran the drop code directly, not a macOS drag)
+======================================================================
+
+[ ] Drag a file whose own tag "cat" clashes onto a sidebar collection
+    with a no for "cat": the "Some files clash with …" box appears
+[ ] Same by dropping files on the folder search (filing), then picking
+    the collection: the same box appears
+[ ] Same by dropping files from Finder into Browse with that collection
+    open: the same box appears
+[ ] A drag that doesn't clash just moves, no box
+
+
+======================================================================
+2. VIDEO
+======================================================================
+
+[ ] Browse file view on a VIDEO: delete it, ⌘Z, then ⇧⌘Z while it's on
+    screen: it goes, the next file slides in, and no sound or video
+    keeps playing
+
+
+======================================================================
+3. LOOK AND FEEL
+======================================================================
+
+[ ] Browse with NO tag filter: tag and untag files (file view, batch,
+    folder panel): the grid doesn't flicker or jump
+[ ] Sweep, lanes MOVING (not stopped): delete a file that's left of the
+    pointer (in Finder): nothing on screen jumps
+[ ] Click the library name top left: it shows the library in Finder
+[ ] Press the real ⌘Z / ⇧⌘Z keys a few times anywhere (Claude sent the
+    menu's signal directly): same toasts as usual
+
+
+
+======================================================================
+14. A NO CARRIES UP THROUGH LINKS (kitten means cat)
+======================================================================
+
+Set up: Tag Manager, "kitten" → also tags as "cat".
+
+[ ] A file marked no for "cat" (hard no): file view's Not section also
+    shows "kitten", greyed, no ×. Hover: From its no for "cat":
+    "kitten" means "cat"
+[ ] Same with a PASS no for "cat" (3 in a pass on cat)
+[ ] Chain: "cat" → "animal" too; a no for "animal" makes cat AND kitten
+    greyed noes
+[ ] × on the "cat" no: "kitten" goes too (no answer for either)
+[ ] Coverage for "kitten" counts that file (checked); a pass on "kitten"
+    skips it; Sweep with "Skipping answered" doesn't show it for kitten
+[ ] The file had its OWN no for "kitten" as well: after linking (or on
+    opening the library), only the greyed kitten no shows (own one
+    replaced, same rule as folder noes)
+[ ] Tag the file "kitten" (file view, Space, batch Yes): the file's no
+    for "cat" is cleared (it now has kitten AND cat), no conflict left
+[ ] ⌘Z that: kitten off, the no for "cat" back
+[ ] Batch No on "kitten" for files already no for "cat": counts them as
+    unchanged, nothing written
+[ ] A file tagged "cat" with an old no for "cat" left over, or tagged
+    "kitten" with an old no for "cat": after opening the library the
+    stale no is gone. (A file whose FOLDER gives "cat" but marked no for
+    it is still listed in Coverage → conflicts, as before)

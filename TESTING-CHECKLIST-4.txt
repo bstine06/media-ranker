@@ -1,6 +1,8 @@
 MEDIA RANKER — TEST CHECKLIST 4
 Branch feature/untested
 
+>>> OPEN ITEMS MOVED TO TESTING-CHECKLIST-5.txt (2026-11-25) <<<
+
 The few things from checklist 3 that Claude couldn't check by driving the
 app (2026-11-24): real macOS drags, video playback, and what things look
 like. Everything else in checklist 3 was checked and is marked there.
