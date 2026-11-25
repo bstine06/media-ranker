@@ -186,17 +186,20 @@ export default function BrowseView({
     }, [activeFolder, activeFilter, showUnsorted]);
 
     // G: the tile (or row) under the mouse in the file view, as in Sweep,
-    // Pass and Compare; G again closes it. Not while picking a folder picture.
+    // Pass and Compare; G again, or Esc, closes it. Not while picking a
+    // folder picture. (An open tag picker keeps Esc for itself.)
     useEffect(() => {
         if (!active || editingMetadata) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.code !== "KeyG" || e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
+            if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
             if (document.querySelector("[data-modal]")) return;
             if (browseScrollIndex !== null) {
+                if (e.code !== "KeyG" && e.code !== "Escape") return;
                 e.preventDefault();
                 setBrowseScrollIndex(null);
                 return;
             }
+            if (e.code !== "KeyG") return;
             const el = document.querySelector<HTMLElement>("[data-browse-index]:hover");
             if (!el) return;
             e.preventDefault();

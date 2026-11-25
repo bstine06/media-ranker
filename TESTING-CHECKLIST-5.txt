@@ -137,9 +137,16 @@ side's file name).
 
 
 ======================================================================
-16. G CLOSES THE FILE VIEW TOO (UNTESTED)
+16. G AND ESC CLOSE THE FILE VIEW (UNTESTED)
 ======================================================================
 
 [ ] In Browse, Compare, Sweep and Pass: G opens the file view, G again
     closes it (Compare: flies back onto its side). Not while typing in
     the tag panel or with a confirm box open
+[ ] Esc closes the file view in Browse and Compare (Compare flies back),
+    as it already did in Sweep and Pass
+[ ] Esc closes a file opened from the side panel's list: straight back
+    to the view you were on, side panel still there
+[ ] Esc with the tag picker open closes only the picker; with a confirm
+    box open, only the box; in the tag panel's text field, the file view
+    stays open

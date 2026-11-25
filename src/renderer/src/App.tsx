@@ -18,6 +18,7 @@ import { HistoryDrawer, UndoToast } from "./components/History";
 import { PendingDock } from "./components/PendingDock";
 import SingleFileView from "./components/SingleFileView";
 import { usePendingChange } from "./contexts/PendingChangeContext";
+import { isTyping } from "./lib/keys";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -51,6 +52,20 @@ export default function App(): JSX.Element {
     // A file opened from the pending-change dock shows in place of the view.
     const { docked, openFile, setOpenFile } = usePendingChange();
     const shown: View | null = openFile ? null : view;
+    // Esc closes it, back to the view (like ← Back). Not while typing or
+    // with a confirm box up; an open tag picker keeps Esc for itself.
+    const fileOpen = !!openFile;
+    useEffect(() => {
+        if (!fileOpen) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.code !== "Escape" || e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
+            if (document.querySelector("[data-modal]")) return;
+            e.preventDefault();
+            setOpenFile(null);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [fileOpen, setOpenFile]);
 
     useEffect(() => {
         window.api.onLibraryInvalid(() => {
