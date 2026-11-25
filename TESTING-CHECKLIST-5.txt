@@ -41,13 +41,26 @@ Tick each box as you go. Note anything odd next to the item.
     >> First run deleted in the app (via file view) instead: lanes came
        back scrambled. Retested in Finder: works. The scramble is coming
        BACK FROM FILE VIEW (G), not the delete — see BUG below.
-[N] BUG (2026-11-25): Sweep → G (file view) → delete there → back to
+[y] BUG (2026-11-25, fixed d9adc05): Sweep → G (file view) → delete there → back to
     Sweep: lanes reordered past recognition, maybe a fresh Sweep.
     >> FIX BUILT (untested): hiding Sweep under file view measured 0 × 0
        and reset the row to its far left. Retest:
-[ ] Sweep moving → G on a file → delete it there → back to Sweep: same
+[y] Sweep moving → G on a file → delete it there → back to Sweep: same
     files around the pointer, nothing reordered
-[ ] Same without deleting: G, look, Esc: right back where you were
+    >> Works. But ⌘Z on that delete doesn't put the file back in the
+       lane (open, 2026-11-25)
+    >> BUILT (untested): an undone delete goes back to its old spot.
+[ ] Sweep → G → delete → back to Sweep → ⌘Z: the file is back between
+    the same two files. If that spot is left of the pointer, only the
+    files left of it move left; otherwise only the files right of it move
+    right. Nothing under the pointer jumps unless that's where it goes
+[ ] Delete one, let the lane run on a long way (or rewind far), ⌘Z: it
+    does NOT turn up anywhere (its spot has left the lane)
+[ ] Delete several side by side (one at a time, then ⌘Z each; and a
+    batch delete elsewhere of files that are in the lane, then ⌘Z): they
+    all come back in their old order
+[ ] ⇧⌘Z after that: it leaves the lane again, like any delete
+[y] Same without deleting: G, look, Esc: right back where you were
 [y] Click the library name top left: it shows the library in Finder
 [y] Press the real ⌘Z / ⇧⌘Z keys a few times anywhere (Claude sent the
     menu's signal directly): same toasts as usual

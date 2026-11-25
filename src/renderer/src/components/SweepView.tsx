@@ -296,6 +296,9 @@ interface LaneHandle {
     /** A file was renamed or moved (Finder, the app, an undo): its tile
      *  follows, so a later delete still finds it. */
     renameItemPath: (oldRelativePath: string, relativePath: string) => void;
+    /** A file came back (undoing its delete): back in its old spot, if
+     *  that spot is still in the lane. */
+    restoreItemPath: (relativePath: string, hash: string) => void;
 }
 
 function SweepStrip({
@@ -638,6 +641,14 @@ function SweepStrip({
         () =>
             window.api.onMediaRemoved(({ relativePath }) => {
                 for (const h of laneHandles.current) h?.removeItemPath(relativePath);
+            }),
+        [],
+    );
+    // Back again (its delete undone): the lane it left puts it back.
+    useEffect(
+        () =>
+            window.api.onMediaAdded(({ relativePath, hash }) => {
+                for (const h of laneHandles.current) h?.restoreItemPath(relativePath, hash);
             }),
         [],
     );
@@ -1158,6 +1169,10 @@ function StripLane({
     const activeItemRef = useRef<StripItem | undefined>(undefined);
 
     const widthOf = useCallback((item: StripItem) => item.aspect * height, [height]);
+    // Deleted files' spots, by path, for an undo to put them back.
+    const removedSpots = useRef(
+        new Map<string, { item: StripItem; prevKey: number | null; nextKey: number | null }>(),
+    );
 
     const replaceItemFile = useCallback((file: DbFile, turns = 0) => {
         if (!itemsRef.current.some((it) => it.file.id === file.id)) return;
@@ -1178,6 +1193,17 @@ function StripLane({
             const left = offset.current + list.slice(0, at).reduce((w, it) => w + widthOf(it), 0);
             const pointer = mouseX.current ?? width * POINTER_AT;
             if (left + widthOf(list[at]) <= pointer) pendingShift.current += widthOf(list[at]);
+            // Remember its spot (the tile before it; the one after, if it
+            // was first) in case an undo brings it back.
+            removedSpots.current.set(relativePath, {
+                item: list[at],
+                prevKey: at > 0 ? list[at - 1].key : null,
+                nextKey: at < list.length - 1 ? list[at + 1].key : null,
+            });
+            // Only the latest few hundred are kept (the rest are long gone).
+            while (removedSpots.current.size > 300) {
+                removedSpots.current.delete(removedSpots.current.keys().next().value!);
+            }
             const next = list.filter((_, i) => i !== at);
             itemsRef.current = next;
             setItems(next);
@@ -1193,10 +1219,79 @@ function StripLane({
         itemsRef.current = next;
         setItems(next);
     }, []);
+    // A deleted file coming back (undo) goes back between the same
+    // neighbours, with the same rule as a delete: a spot fully left of the
+    // pointer pushes the tiles left of it further left; otherwise the ones
+    // right of it move right. If its spot has left the lane (the tile
+    // before it was dropped off the left end, or the row's start moved on),
+    // it isn't put back anywhere.
+    // Several files deleted together come back together, maybe in any
+    // order: one whose neighbour is also on its way back waits for it (it
+    // keeps its old key, so the files next to it still find it).
+    const waitingRestores = useRef(new Set<string>());
+    const restoreItemPath = useCallback(
+        (relativePath: string, hash: string) => {
+            const spot = removedSpots.current.get(relativePath);
+            if (!spot || spot.item.file.content_hash !== hash) return;
+            waitingRestores.current.add(relativePath);
+            // Try every waiting file until none can go in.
+            let list = itemsRef.current;
+            let changed = false;
+            let progress = true;
+            while (progress) {
+                progress = false;
+                for (const path of [...waitingRestores.current]) {
+                    const s = removedSpots.current.get(path)!;
+                    const done = () => {
+                        waitingRestores.current.delete(path);
+                        removedSpots.current.delete(path);
+                    };
+                    if (list.some((it) => it.file.id === s.item.file.id)) {
+                        done();
+                        continue;
+                    }
+                    let at = -1;
+                    if (s.prevKey !== null) {
+                        at = list.findIndex((it) => it.key === s.prevKey);
+                        if (at >= 0) at += 1;
+                    } else if (s.nextKey !== null && list[0]?.key === s.nextKey) {
+                        // It was first in the row: only if the row still
+                        // starts with the tile that followed it.
+                        at = 0;
+                    }
+                    if (at < 0) {
+                        // Its neighbour is coming back too: wait for it.
+                        // Otherwise its spot has left the lane.
+                        const anchor = s.prevKey ?? s.nextKey;
+                        const waitFor = [...removedSpots.current.entries()].some(
+                            ([p, o]) => p !== path && o.item.key === anchor,
+                        );
+                        if (!waitFor) done();
+                        continue;
+                    }
+                    // (Plus any shift not painted yet: earlier ones in this batch.)
+                    const left =
+                        offset.current +
+                        pendingShift.current +
+                        list.slice(0, at).reduce((w, it) => w + widthOf(it), 0);
+                    const pointer = mouseX.current ?? width * POINTER_AT;
+                    if (left + widthOf(s.item) <= pointer) pendingShift.current -= widthOf(s.item);
+                    list = [...list.slice(0, at), s.item, ...list.slice(at)];
+                    done();
+                    changed = true;
+                    progress = true;
+                }
+            }
+            if (!changed) return;
+            itemsRef.current = list;
+            setItems(list);
+        },
+        [widthOf, width, mouseX],
+    );
     useEffect(() => {
-        register(index, { replaceItemFile, removeItemPath, renameItemPath });
+        register(index, { replaceItemFile, removeItemPath, renameItemPath, restoreItemPath });
         return () => register(index, null);
-    }, [register, index, replaceItemFile, removeItemPath, renameItemPath]);
+    }, [register, index, replaceItemFile, removeItemPath, renameItemPath, restoreItemPath]);
 
     // A tile's real shape once loaded, if the thumbnail's was off (or the
     // file changed since). Not while a rotation is being previewed.
