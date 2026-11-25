@@ -134,3 +134,12 @@ side's file name).
 [ ] Rotate a file in the file view, ← Back: Compare shows it rotated
 [ ] Opening the file view from Sweep, Pass, Browse, Coverage, the side
     panel: works exactly as before (no animation yet)
+
+
+======================================================================
+16. G CLOSES THE FILE VIEW TOO (UNTESTED)
+======================================================================
+
+[ ] In Browse, Compare, Sweep and Pass: G opens the file view, G again
+    closes it (Compare: flies back onto its side). Not while typing in
+    the tag panel or with a confirm box open

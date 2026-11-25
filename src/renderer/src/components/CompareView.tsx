@@ -163,6 +163,19 @@ export default function CompareView({
         setInspect(next);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    // G again closes the file view (back to its side, like ← Back).
+    const inspecting = !!inspect && !inspect.closing;
+    useEffect(() => {
+        if (!active || !inspecting) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.code !== "KeyG" || e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
+            if (document.querySelector("[data-modal]")) return;
+            e.preventDefault();
+            closeInspect(true);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [active, inspecting, closeInspect]);
     const onInspectShown = useCallback(() => {
         setInspect((i) => (i && !i.shown ? { ...i, shown: true } : i));
     }, []);

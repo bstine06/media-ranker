@@ -188,7 +188,18 @@ export function useLaneFullscreen({
         const onKey = (e: KeyboardEvent) => {
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             if (inspected) {
+                // Esc, or G again (it opened it), closes the file view.
                 if (e.code === "Escape") closeInspected();
+                else if (
+                    e.code === "KeyG" &&
+                    !e.repeat &&
+                    !pickingRef.current &&
+                    !isTyping() &&
+                    !document.querySelector("[data-modal]")
+                ) {
+                    e.preventDefault();
+                    closeInspected();
+                }
                 return;
             }
             if (pickingRef.current || isTyping()) return;
