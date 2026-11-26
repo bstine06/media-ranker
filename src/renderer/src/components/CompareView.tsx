@@ -1,4 +1,5 @@
 import {
+    Fragment,
     useEffect,
     useState,
     useCallback,
@@ -1309,6 +1310,7 @@ export default function CompareView({
                         focused={focus === "a"}
                         audible={(compareBothAudio || focus === "a") && !inspect}
                         hideMedia={hiddenSide("a", a)}
+                        hudLifted={!!inspect}
                         controlsRef={controlsA}
                         rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
@@ -1338,6 +1340,7 @@ export default function CompareView({
                         focused={focus === "b"}
                         audible={(compareBothAudio || focus === "b") && !inspect}
                         hideMedia={hiddenSide("b", b)}
+                        hudLifted={!!inspect}
                         controlsRef={controlsB}
                         rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
@@ -1377,8 +1380,49 @@ export default function CompareView({
                     />
                 </div>
             )}
+            {/* The cards' always-on top pieces (focus line, rank, placing,
+                crown), above the flight so it never covers them: they fade
+                out as Compare dims and back in as the file view goes back,
+                then the cards' own take over in the same spot. Laid out
+                like the cards (two equal halves and the divider). */}
+            {inspect && (
+                <div
+                    className="pointer-events-none absolute inset-0 z-[60] flex"
+                    style={{
+                        opacity: inspect.shown && !inspect.closing ? 0 : 1,
+                        transition: `opacity ${INSPECT_MS}ms ease-out`,
+                    }}
+                >
+                    {([a, b] as const).map((f, i) => (
+                        <Fragment key={i === 0 ? "a" : "b"}>
+                            {i === 1 && <div className="w-px shrink-0" />}
+                            <div className="relative min-w-0 flex-1">
+                                <CardTopGhost
+                                    file={f}
+                                    focused={active && focus === (i === 0 ? "a" : "b")}
+                                    placingLabel={placingLabel(f)}
+                                    isKing={king?.file.id === f.id}
+                                    streak={king?.streak ?? 0}
+                                />
+                            </div>
+                        </Fragment>
+                    ))}
+                </div>
+            )}
         </div>
     );
+}
+
+/** A card's always-on top pieces, drawn above a file view flight. */
+function CardTopGhost(props: {
+    file: DbFile;
+    focused: boolean;
+    placingLabel?: string;
+    isKing: boolean;
+    streak: number;
+}): JSX.Element {
+    const libraryRank = useLibraryRank(props.file.id);
+    return <CardTop {...props} showBar={false} libraryRank={libraryRank} ghost />;
 }
 
 function CompareCard({
@@ -1406,10 +1450,14 @@ function CompareCard({
     onUncrown,
     onReplaceFile,
     hideMedia,
+    hudLifted,
 }: {
     /** Open in the file view, whose copy is on screen: this one is hidden
      *  (still playing) so there aren't two. */
     hideMedia: boolean;
+    /** A file view is up: the always-on top pieces show in the copy above
+     *  it (CardTop ghost), so the card's own are hidden. */
+    hudLifted: boolean;
     file: DbFile;
     side: Side;
     /** Tag pointer: hides the cursor while the pointer shows over it. */
@@ -1478,12 +1526,6 @@ function CompareCard({
 
     const [showBar, setShowBar] = useState(false);
 
-    // Bar pieces fade together; only shown pieces catch the mouse, and the
-    // bar itself lets clicks through so they still pick.
-    const fade = showBar
-        ? "opacity-100 pointer-events-auto"
-        : "opacity-0 pointer-events-none";
-
     return (
         <div
             data-side={side}
@@ -1545,15 +1587,86 @@ function CompareCard({
                 })}
             </div>
 
+            <CardTop
+                file={file}
+                focused={focused && !disabled}
+                showBar={showBar}
+                libraryRank={libraryRank}
+                placingLabel={placingLabel}
+                isKing={isKing}
+                streak={streak}
+                lifted={hudLifted}
+                onInspectFile={onInspectFile}
+                onCrown={onCrown}
+                onUncrown={onUncrown}
+                rotateLeft={rotateLeft}
+                onGoToFolder={onGoToFolder}
+            />
+        </div>
+    );
+}
+
+/**
+ * The top of a Compare card: the focus line, and the info row (name and
+ * scores, rank, placing, crown, rotate, folder). The rank, placing label,
+ * the king's crown and the focus line are always on; the rest shows on
+ * hover. `ghost`: a copy of just the always-on pieces in the same places,
+ * drawn above a file view flight (see CompareView), not interactive.
+ * `lifted`: the card's own always-on pieces are hidden (the ghost shows
+ * them meanwhile).
+ */
+function CardTop({
+    file,
+    focused,
+    showBar,
+    libraryRank,
+    placingLabel,
+    isKing,
+    streak,
+    ghost = false,
+    lifted = false,
+    onInspectFile,
+    onCrown,
+    onUncrown,
+    rotateLeft,
+    onGoToFolder,
+}: {
+    file: DbFile;
+    focused: boolean;
+    showBar: boolean;
+    libraryRank: string | null | undefined;
+    placingLabel?: string;
+    isKing: boolean;
+    streak: number;
+    ghost?: boolean;
+    lifted?: boolean;
+    onInspectFile?: (file: DbFile) => void;
+    onCrown?: () => void;
+    onUncrown?: () => void;
+    rotateLeft?: () => void;
+    onGoToFolder?: (folderPath: string) => void;
+}): JSX.Element {
+    // Hover pieces: never in the ghost.
+    const fade =
+        showBar && !ghost ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none";
+    // Always-on pieces: hidden on the card while the ghost has them. By
+    // visibility, which switches at once (their opacity fades would make
+    // them blink in after the ghost has gone).
+    const keep = lifted ? "invisible" : "";
+    const live = ghost ? "" : "pointer-events-auto";
+    return (
+        <>
             {/* Focus marker: a thin line across the top of the focused side. */}
             <div
-                className={`pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-white/80 transition-opacity duration-100 ${focused && !disabled ? "opacity-100" : "opacity-0"}`}
+                className={`pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-white/80 transition-opacity duration-100 ${focused ? "opacity-100" : "opacity-0"} ${keep}`}
             />
 
             {/* Info bar: overlays the top of the media while hovered. */}
-            <div
-                className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-150 ${showBar ? "opacity-100" : "opacity-0"}`}
-            />
+            {!ghost && (
+                <div
+                    className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-150 ${showBar ? "opacity-100" : "opacity-0"}`}
+                />
+            )}
             <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-2 px-3 pt-2.5">
                 <div
                     className={`min-w-0 flex-1 transition-opacity duration-150 ${fade}`}
@@ -1562,7 +1675,7 @@ function CompareCard({
                         className="cursor-pointer truncate text-sm font-medium text-white/90 drop-shadow hover:text-white transition-colors"
                         onClick={(e) => {
                             e.stopPropagation();
-                            onInspectFile(file);
+                            onInspectFile?.(file);
                         }}
                     >
                         {file.filename}
@@ -1577,7 +1690,7 @@ function CompareCard({
                     {/* Library rank stays visible, like the king's crown. */}
                     {libraryRank && (
                         <span
-                            className="mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/80 drop-shadow"
+                            className={`mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/80 drop-shadow ${keep}`}
                             title="Place in the whole library"
                         >
                             {libraryRank}
@@ -1585,7 +1698,7 @@ function CompareCard({
                     )}
                     {placingLabel && (
                         <span
-                            className="pointer-events-auto mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white/80 drop-shadow"
+                            className={`${live} mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white/80 drop-shadow ${keep}`}
                             title="New file: kept on screen until it has had its placement matches"
                         >
                             {placingLabel}
@@ -1595,14 +1708,14 @@ function CompareCard({
                     <button
                         className={`rounded-md p-1.5 drop-shadow transition-all duration-150 ${
                             isKing
-                                ? "pointer-events-auto opacity-100 text-amber-300 hover:text-amber-200"
+                                ? `${live} opacity-100 text-amber-300 hover:text-amber-200 ${keep}`
                                 : `${fade} text-white/60 hover:text-white`
                         }`}
                         title={isKing ? "Stop keeping on screen (K)" : "Keep on screen (K)"}
                         onClick={(e) => {
                             e.stopPropagation();
-                            if (isKing) onUncrown();
-                            else onCrown();
+                            if (isKing) onUncrown?.();
+                            else onCrown?.();
                         }}
                     >
                         <CrownIcon className="h-4 w-4" />
@@ -1612,7 +1725,7 @@ function CompareCard({
                         title="Rotate left (R)"
                         onClick={(e) => {
                             e.stopPropagation();
-                            rotateLeft();
+                            rotateLeft?.();
                         }}
                     >
                         <RotateIcon className="h-4 w-4" />
@@ -1622,13 +1735,13 @@ function CompareCard({
                         title="Go to folder"
                         onClick={(e) => {
                             e.stopPropagation();
-                            onGoToFolder(file.path.split("/")[0]);
+                            onGoToFolder?.(file.path.split("/")[0]);
                         }}
                     >
                         <FolderIcon className="h-4 w-4" />
                     </button>
                 </div>
             </div>
-        </div>
+        </>
     );
 }
