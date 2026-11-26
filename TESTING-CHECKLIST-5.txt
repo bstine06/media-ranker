@@ -337,3 +337,18 @@ swap at the end.
     updates those pictures right away
 [ ] The pending-changes list (Manage): turned thumbnails
 [ ] Unturned files everywhere look exactly as before
+
+── 23. Rotation as a setting, step 4 (UNTESTED) ──────────────────────────
+   Sweep and Pass: R turns the file's setting (one undo entry at the
+   press); tiles drawn turned and shaped for the turn; their own save
+   timers are gone.
+[ ] Sweep, R on a wide file: turns at once; the lane eases to a stop and
+    the tile keeps its width while pressing (R R R without moving the
+    mouse); ~1 s after the last press (or moving to another file) the tile
+    takes its new shape, left edge staying, the files to the right moving
+[ ] Sweep: a file turned in the file view / Compare shows turned in the
+    lanes, tile in the turned shape; ⌘Z of a turn re-shapes it
+[ ] Pass, R: turns at once, the tile takes the turned shape; ⌘Z turns it
+    back
+[ ] Pass: a turned video still plays, scrubs (Q / E), and is heard
+[ ] Sweep / Pass with nothing turned: tiles exactly as before

@@ -576,7 +576,7 @@ export function PassProvider({ children }: { children: React.ReactNode }): JSX.E
     const replaceFile = useCallback(
         (file: DbFile) => {
             const r = runRef.current;
-            if (!r) return;
+            if (!r || !r.tags.some((x) => x.files?.some((f) => f.id === file.id))) return;
             setRun({
                 ...r,
                 tags: r.tags.map((x) =>

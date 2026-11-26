@@ -4,13 +4,15 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 import { isTyping } from "@renderer/lib/keys";
 import { toMediaUrl, toThumbnailUrl, volumeLevel } from "@renderer/lib/media";
 import { attach, detach, setAudible, setMasterVolume } from "@renderer/lib/audioMix";
+import { TURN_BOX, turnedFill } from "@renderer/lib/turn";
 
 // Pieces shared by Sweep's moving lanes and a pass's stepped lane, so the
 // two look and behave the same: a file's shape before it loads, the media
 // in a tile, and F / Esc full screen.
 
-/** A file's shape (width / height) from its thumbnail, before the media
- *  itself loads. */
+/** A file's own shape (width / height, unturned) from its thumbnail,
+ *  before the media itself loads. Tiles take the turned shape from it
+ *  (lib/turn: turnedAspect). */
 export async function measureAspect(file: DbFile): Promise<number> {
     const fallback = file.media_type === "video" ? 16 / 9 : 1;
     const path = await window.api.getThumbnailPath(file.content_hash);
@@ -24,7 +26,10 @@ export async function measureAspect(file: DbFile): Promise<number> {
     });
 }
 
-/** A file's media filling its tile (cropped to fit, no black bars).
+/** A file's media filling its tile (cropped to fit, no black bars), drawn
+ *  turned by its rotation setting (the tile may be shaped for another turn
+ *  for a moment: Sweep holds a tile's width while R is pressed).
+ *  `onShape` reports the media's own shape, unturned.
  *  Videos loop, playing while `play`, heard while `audible`. Their sound
  *  goes through the lanes' mixer (lib/audioMix), so several can be heard
  *  at once without clipping. */
@@ -33,7 +38,6 @@ export function LaneMedia({
     rootPath,
     audible,
     play,
-    style,
     onShape,
     onVideo,
 }: {
@@ -41,8 +45,6 @@ export function LaneMedia({
     rootPath: string;
     audible: boolean;
     play: boolean;
-    /** Replaces the default fill (Sweep turns the media for a rotate preview). */
-    style?: React.CSSProperties;
     /** The media's real shape (width / height), once loaded. */
     onShape: (aspect: number) => void;
     /** Hands over its <video> (null when it goes), for scrubbing. */
@@ -51,7 +53,13 @@ export function LaneMedia({
     const { volume } = useSettings();
     const videoRef = useRef<HTMLVideoElement>(null);
     const url = toMediaUrl(rootPath, file.path, file.content_hash);
-    const fill: React.CSSProperties = style ?? { position: "absolute", inset: 0, width: "100%", height: "100%" };
+    const rotation = file.rotation ?? 0;
+    const fill: React.CSSProperties = rotation
+        ? turnedFill(rotation, "cover")
+        : { position: "absolute", inset: 0, width: "100%", height: "100%" };
+    // Turned: inside a box the size of the tile (the turn is sized from it).
+    const box = (media: JSX.Element): JSX.Element =>
+        rotation ? <div style={{ ...TURN_BOX, position: "absolute", inset: 0 }}>{media}</div> : media;
 
     useEffect(() => {
         const v = videoRef.current;
@@ -99,7 +107,7 @@ export function LaneMedia({
     }, [url, !!onVideo]);
 
     if (file.media_type === "video") {
-        return (
+        return box(
             <video
                 ref={videoRef}
                 // Before src, or Web Audio hears silence (media:// sends the
@@ -117,10 +125,10 @@ export function LaneMedia({
                 loop
                 playsInline
                 preload="metadata"
-            />
+            />,
         );
     }
-    return (
+    return box(
         <img
             src={url}
             className="object-cover"
@@ -130,7 +138,7 @@ export function LaneMedia({
                 const img = e.currentTarget;
                 if (img.naturalWidth && img.naturalHeight) onShape(img.naturalWidth / img.naturalHeight);
             }}
-        />
+        />,
     );
 }
 

@@ -13,8 +13,8 @@ import {
     type PointerTarget,
 } from "@renderer/contexts/TagPointerContext";
 import { PointerLabel } from "./TagPointer";
-import { preloadImage } from "@renderer/lib/imageCache";
-import { stepVideo, toMediaUrl } from "@renderer/lib/media";
+import { stepVideo } from "@renderer/lib/media";
+import { isSideways } from "@renderer/lib/turn";
 import { LaneMedia, measureAspect, useLaneFullscreen } from "./lane";
 import { MediaFlash } from "./TagPointer";
 import SingleFileView from "./SingleFileView";
@@ -290,7 +290,7 @@ const CRUISE: LaneMotion = { dir: 1, boost: false };
 
 /** What a lane hands the strip so it can update the lane's files. */
 interface LaneHandle {
-    replaceItemFile: (file: DbFile, turns?: number) => void;
+    replaceItemFile: (file: DbFile) => void;
     /** A file was deleted or moved away (anywhere): its tile goes. */
     removeItemPath: (relativePath: string) => void;
     /** A file was renamed or moved (Finder, the app, an undo): its tile
@@ -607,33 +607,28 @@ function SweepStrip({
     }, [tagId]);
 
     // ── Rotation (R) ─────────────────────────────────────────────────────
-    // Quarter turns left being previewed per file. The tile keeps its width
-    // meanwhile, the turned media zoomed to fill it, so pressing R again
-    // (90, 180, 270) never needs the mouse moved. Its lane eases to a stop
-    // while rotating. The file is saved once pressing stops (or the pointer
-    // moves to another file); the new version is loaded out of sight, then
-    // swaps in at once and only then does the tile take its new width: its
-    // left edge stays, the files to its right move. Only that refit animates.
-    // The pending turns live in the ref (updated at once, so a save that
-    // finishes can tell straight away whether more presses came in); the
-    // state is a copy for drawing.
-    const rotTurnsRef = useRef<Record<number, number>>({});
-    const [rotTurns, setRotTurnsState] = useState<Record<number, number>>({});
-    const setRotTurns = (update: (p: Record<number, number>) => Record<number, number>) => {
-        rotTurnsRef.current = update(rotTurnsRef.current);
-        setRotTurnsState(rotTurnsRef.current);
+    // R adds a turn to the file's rotation setting at once (one undo entry;
+    // the file itself is untouched) and the media shows turned straight
+    // away. While pressing, the tile keeps the width it had, the turned media
+    // zoomed to fill it, and its lane eases to a stop, so pressing R again
+    // (90, 180, 270) never needs the mouse moved. Once pressing stops (or the
+    // pointer moves to another file, or the view is left) the tile takes its
+    // new shape: its left edge stays, the files to its right move.
+    // `heldShape`: per file, the rotation its tile's width is held at.
+    const heldShapeRef = useRef<Record<number, number>>({});
+    const [heldShape, setHeldShapeState] = useState<Record<number, number>>({});
+    const setHeldShape = (update: (p: Record<number, number>) => Record<number, number>) => {
+        heldShapeRef.current = update(heldShapeRef.current);
+        setHeldShapeState(heldShapeRef.current);
     };
     // The lane whose file is being turned (it holds still), or null.
     const [rotatingLane, setRotatingLane] = useState<number | null>(null);
-    const rotFiles = useRef(new Map<number, DbFile>()); // file to save, per id
     const rotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const rotSaving = useRef(new Set<number>());
 
-    // A file's record changed (rotated here or elsewhere: new content, new
-    // hash): every lane showing it updates. `turns`: quarter turns it was
-    // turned, to swap its shape.
-    const replaceItemFile = useCallback((file: DbFile, turns = 0) => {
-        for (const h of laneHandles.current) h?.replaceItemFile(file, turns);
+    // A file's record changed (turned here or elsewhere, an undo, new
+    // content): every lane showing it updates.
+    const replaceItemFile = useCallback((file: DbFile) => {
+        for (const h of laneHandles.current) h?.replaceItemFile(file);
     }, []);
 
     // Deleted (here, by a redo, in Finder): its tile leaves every lane.
@@ -661,102 +656,56 @@ function SweepStrip({
         [],
     );
 
-    // Rotated somewhere else: show the new version (its shape is checked
-    // when it loads). Our own rotation swaps in itself once loaded.
     useEffect(() => {
         return window.api.onMediaUpdated(({ file }) => {
-            if (!file) return;
-            if (rotSaving.current.has(file.id) || rotTurnsRef.current[file.id]) return;
-            replaceItemFile(file);
+            if (file) replaceItemFile(file);
         });
     }, [replaceItemFile]);
 
-    const turnsOf = useCallback((fileId: number) => rotTurns[fileId] ?? 0, [rotTurns]);
-    const isTurning = useCallback((fileId: number) => !!rotTurnsRef.current[fileId], []);
-
-    const saveRotation = useCallback(
-        async (id: number) => {
-            const file = rotFiles.current.get(id);
-            const turns = rotTurnsRef.current[id] ?? 0;
-            if (!file || rotSaving.current.has(id)) return;
-            const clear = (saved: number) =>
-                setRotTurns((p) => {
-                    const n = { ...p };
-                    const left = (n[id] ?? 0) - saved;
-                    if (left > 0) n[id] = left;
-                    else delete n[id];
-                    return n;
-                });
-            if (turns % 4 === 0) {
-                rotFiles.current.delete(id);
-                clear(turns); // full circle: nothing to save
-                return;
-            }
-            rotSaving.current.add(id);
-            try {
-                const updated = await window.api.rotateFile(file.path, turns);
-                const url = toMediaUrl(rootPath, updated.path, updated.content_hash);
-                // Loaded before it's shown, so the swap is seamless.
-                await Promise.race([
-                    updated.media_type === "video"
-                        ? new Promise<void>((resolve) => {
-                              const v = document.createElement("video");
-                              v.muted = true;
-                              v.preload = "auto";
-                              v.onloadeddata = () => resolve();
-                              v.onerror = () => resolve();
-                              v.src = url;
-                          })
-                        : preloadImage(url),
-                    new Promise((resolve) => setTimeout(resolve, 1500)),
-                ]);
-                rotFiles.current.set(id, updated);
-                // One render: new version, new shape, preview dropped.
-                replaceItemFile(updated, turns);
-                clear(turns);
-            } catch (err) {
-                console.error("Rotate failed:", err);
-                clear(turns);
-            } finally {
-                rotSaving.current.delete(id);
-            }
-            // Pressed again while saving: save those too.
-            if (rotTurnsRef.current[id]) saveRotation(id);
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [rootPath, replaceItemFile],
+    /** The rotation a file's tile is shaped for (held while turning). */
+    const shapeRotation = useCallback(
+        (file: DbFile) => heldShape[file.id] ?? file.rotation,
+        [heldShape],
     );
+
+    const releaseShape = useCallback((keep?: number) => {
+        if (Object.keys(heldShapeRef.current).every((id) => Number(id) === keep)) return;
+        setHeldShape((p) => (keep != null && p[keep] != null ? { [keep]: p[keep] } : {}));
+    }, []);
 
     const rotateLeft = useCallback(() => {
         const item = activeItem;
         if (!item) return;
         const id = item.file.id;
-        if (!rotFiles.current.has(id)) rotFiles.current.set(id, item.file);
-        setRotTurns((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
+        if (heldShapeRef.current[id] == null) {
+            const r = item.file.rotation;
+            setHeldShape((p) => ({ ...p, [id]: r }));
+        }
         setRotatingLane(pointerLaneRef.current);
+        window.api.turnFile(id).catch((err: unknown) => console.error("Rotate failed:", err));
         if (rotTimer.current) clearTimeout(rotTimer.current);
-        rotTimer.current = setTimeout(() => saveRotation(id), 900);
+        rotTimer.current = setTimeout(() => releaseShape(), 900);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeItem, saveRotation]);
+    }, [activeItem, releaseShape]);
 
-    // The pointer moved to another file: save what was being turned now.
+    // The pointer moved to another file: the turned one takes its shape now.
     const rotActiveId = activeItem?.file.id;
     useEffect(() => {
-        for (const id of Object.keys(rotTurnsRef.current).map(Number)) {
-            if (id !== rotActiveId) saveRotation(id);
-        }
-    }, [rotActiveId, saveRotation]);
+        releaseShape(rotActiveId);
+    }, [rotActiveId, releaseShape]);
 
-    // Nothing left to turn or save: its lane carries on.
+    // Nothing held: its lane carries on.
     useEffect(() => {
-        if (rotatingLane != null && Object.keys(rotTurns).length === 0) setRotatingLane(null);
-    }, [rotatingLane, rotTurns]);
+        if (rotatingLane != null && Object.keys(heldShape).length === 0) setRotatingLane(null);
+    }, [rotatingLane, heldShape]);
 
-    // Leaving: save anything still pending.
+    // Leaving: everything takes its shape.
     useEffect(() => {
-        if (active) return;
-        for (const id of Object.keys(rotTurnsRef.current).map(Number)) saveRotation(id);
-    }, [active, saveRotation]);
+        if (!active) releaseShape();
+    }, [active, releaseShape]);
+    useEffect(() => () => {
+        if (rotTimer.current) clearTimeout(rotTimer.current);
+    }, []);
 
     const { tags } = useFileTags(activeItem?.file.id ?? null);
     const onFile = tag ? tags.find((t) => t.id === tag.id) : undefined;
@@ -1020,8 +969,7 @@ function SweepStrip({
                         mouseX={mouseX}
                         keyCounter={keyCounter}
                         flashes={flashes}
-                        turnsOf={turnsOf}
-                        isTurning={isTurning}
+                        shapeRotation={shapeRotation}
                         onTileClick={onTileClick}
                         onTileVideo={onTileVideo}
                         onActive={onLaneActive}
@@ -1088,8 +1036,7 @@ function StripLane({
     mouseX,
     keyCounter,
     flashes,
-    turnsOf,
-    isTurning,
+    shapeRotation,
     onTileClick,
     onTileVideo,
     onActive,
@@ -1125,8 +1072,8 @@ function StripLane({
     mouseX: React.MutableRefObject<number | null>;
     keyCounter: React.MutableRefObject<number>;
     flashes: Record<number, { kind: "on" | "already" | "denied"; n: number }>;
-    turnsOf: (fileId: number) => number;
-    isTurning: (fileId: number) => boolean;
+    /** The rotation a file's tile is shaped for (held while R is pressed). */
+    shapeRotation: (file: DbFile) => number;
     onTileClick: (item: StripItem) => void;
     onTileVideo: (key: number, el: HTMLVideoElement | null) => void;
     onActive: (lane: number, item: StripItem | undefined) => void;
@@ -1168,17 +1115,20 @@ function StripLane({
     // The item last reported as active (a replaced file is a new object).
     const activeItemRef = useRef<StripItem | undefined>(undefined);
 
-    const widthOf = useCallback((item: StripItem) => item.aspect * height, [height]);
+    // `aspect` is the media's own shape; the tile takes the turned one.
+    const widthOf = useCallback(
+        (item: StripItem) =>
+            (isSideways(shapeRotation(item.file)) ? 1 / item.aspect : item.aspect) * height,
+        [height, shapeRotation],
+    );
     // Deleted files' spots, by path, for an undo to put them back.
     const removedSpots = useRef(
         new Map<string, { item: StripItem; prevKey: number | null; nextKey: number | null }>(),
     );
 
-    const replaceItemFile = useCallback((file: DbFile, turns = 0) => {
+    const replaceItemFile = useCallback((file: DbFile) => {
         if (!itemsRef.current.some((it) => it.file.id === file.id)) return;
-        const next = itemsRef.current.map((it) =>
-            it.file.id === file.id ? { ...it, file, aspect: turns % 2 ? 1 / it.aspect : it.aspect } : it,
-        );
+        const next = itemsRef.current.map((it) => (it.file.id === file.id ? { ...it, file } : it));
         itemsRef.current = next;
         setItems(next);
     }, []);
@@ -1293,18 +1243,18 @@ function StripLane({
         return () => register(index, null);
     }, [register, index, replaceItemFile, removeItemPath, renameItemPath, restoreItemPath]);
 
-    // A tile's real shape once loaded, if the thumbnail's was off (or the
-    // file changed since). Not while a rotation is being previewed.
+    // A tile's real shape once loaded (the media's own, unturned), if the
+    // thumbnail's was off (or the file changed since).
     const onShape = useCallback(
         (key: number, aspect: number) => {
             const item = itemsRef.current.find((it) => it.key === key);
-            if (!item || isTurning(item.file.id)) return;
+            if (!item) return;
             if (Math.abs(aspect - item.aspect) / item.aspect < 0.02) return;
             const next = itemsRef.current.map((it) => (it.key === key ? { ...it, aspect } : it));
             itemsRef.current = next;
             setItems(next);
         },
-        [isTurning],
+        [],
     );
 
     const makeItem = useCallback(async (): Promise<StripItem | null> => {
@@ -1545,7 +1495,6 @@ function StripLane({
                         seen={active && i >= onScreen[0] && i <= onScreen[1]}
                         flash={flashes[it.key]}
                         height={height}
-                        turns={turnsOf(it.file.id)}
                         onShape={onShape}
                         onVideo={onTileVideo}
                         onClick={() => onTileClick(it)}
@@ -1634,7 +1583,6 @@ function StripTile({
     seen,
     flash,
     height,
-    turns,
     onShape,
     onVideo,
     onClick,
@@ -1642,9 +1590,6 @@ function StripTile({
     item: StripItem;
     width: number;
     height: number;
-    /** Quarter turns left being previewed (R), before the save lands; the
-     *  tile keeps its width meanwhile. */
-    turns: number;
     /** Reports the media's real shape (width / height) once loaded. */
     onShape: (key: number, aspect: number) => void;
     /** Hands over its <video> (null when it goes), for scrubbing. */
@@ -1665,10 +1610,6 @@ function StripTile({
     const { sweepAllAudio } = useSettings();
     const audible = isActive || (sweepAllAudio && seen);
 
-    // A preview turn: the tile keeps its width and the media is turned
-    // inside it, zoomed to fill it. It snaps (no animation).
-    const sideways = turns % 2 === 1;
-
     // The lane's height changed this render (see the width transition).
     // The ref only moves after commit, so a double render agrees.
     const lastHeight = useRef(height);
@@ -1676,20 +1617,11 @@ function StripTile({
     useLayoutEffect(() => {
         lastHeight.current = height;
     }, [height]);
-    const mediaStyle: React.CSSProperties = {
-        position: "absolute",
-        width: sideways ? height : "100%",
-        height: sideways ? width : "100%",
-        left: sideways ? (width - height) / 2 : 0,
-        top: sideways ? (height - width) / 2 : 0,
-        maxWidth: "none",
-        transform: turns ? `rotate(${-90 * turns}deg)` : undefined,
-    };
 
     return (
         <div
             className="relative h-full shrink-0 overflow-hidden"
-            // A new shape (after a rotation saves) eases in: the left edge
+            // A new shape (once R stops being pressed) eases in: the left edge
             // stays and the files to the right slide along. (The turn
             // itself snaps.) A lane resize (H, F, the window, + / −) snaps
             // too: the row's offset is rescaled at once, so easing the
@@ -1702,7 +1634,6 @@ function StripTile({
                 rootPath={rootPath}
                 audible={audible}
                 play={play}
-                style={mediaStyle}
                 onShape={(aspect) => onShape(item.key, aspect)}
                 onVideo={(el) => onVideo(item.key, el)}
             />

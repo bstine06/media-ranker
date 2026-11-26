@@ -28,6 +28,7 @@ import { isTyping } from "@renderer/lib/keys";
 import { stepVideo } from "@renderer/lib/media";
 import { PointerLabel, MediaFlash } from "./TagPointer";
 import { LaneMedia, measureAspect } from "./lane";
+import { turnedAspect } from "@renderer/lib/turn";
 import { TagPill } from "./TagPill";
 
 // A Sweep pass, running: one lane that only moves when you step. The
@@ -134,8 +135,11 @@ export default function PassRun({
     const onShape = useCallback((id: number, aspect: number) => {
         setAspects((a) => (Math.abs((a[id] ?? 0) - aspect) < 0.01 ? a : { ...a, [id]: aspect }));
     }, []);
+    // The media's own shape; the tile takes the turned one.
     const aspectOf = (it: PassItem) =>
-        it.kind === "file" ? (aspects[it.file.id] ?? (it.file.media_type === "video" ? 16 / 9 : 1)) : 1;
+        it.kind === "file"
+            ? turnedAspect(it.file, aspects[it.file.id] ?? (it.file.media_type === "video" ? 16 / 9 : 1))
+            : 1;
 
     // ── The tag being passed on, and the pointer ──
     const tagId = run && run.t < run.tags.length ? run.tags[run.t].tagId : null;
@@ -453,7 +457,8 @@ export default function PassRun({
     // ── Keys ──
     const state = useRef({ current, tagId, tagged: !!onFile, upperTag, upperTagged: !!onFileUpper, currentKey });
     state.current = { current, tagId, tagged: !!onFile, upperTag, upperTagged: !!onFileUpper, currentKey };
-    const rotating = useRef(false);
+    // Turned here or elsewhere (or a turn undone): the run shows the fresh record.
+    useEffect(() => window.api.onMediaUpdated(({ file }) => file && replaceFile(file)), [replaceFile]);
     useEffect(() => {
         if (!active) return;
         const onKey = (e: KeyboardEvent) => {
@@ -541,23 +546,12 @@ export default function PassRun({
                     }
                     break;
                 case "KeyR":
+                    // A turn on the file's rotation setting (one undo entry,
+                    // the file untouched); the fresh record comes back
+                    // through media:updated, like a turn made elsewhere.
                     e.preventDefault();
-                    if (e.repeat || !file || rotating.current) return;
-                    rotating.current = true;
-                    window.api
-                        .rotateFile(file.path, 1)
-                        .then((updated) => {
-                            setAspects((a) => {
-                                const n = { ...a };
-                                delete n[updated.id];
-                                return n;
-                            });
-                            replaceFile(updated);
-                        })
-                        .catch((err) => console.error("Rotate failed:", err))
-                        .finally(() => {
-                            rotating.current = false;
-                        });
+                    if (e.repeat || !file) return;
+                    window.api.turnFile(file.id).catch((err: unknown) => console.error("Rotate failed:", err));
                     break;
                 case "KeyG":
                     e.preventDefault();
