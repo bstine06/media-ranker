@@ -156,11 +156,12 @@ side's file name).
     glides to the file view's bar (full media area width), on the same
     motion as the video. Try a
     wide video in a thin window (bars above and below)
-[ ] Compare's focus line, rank bubble (and placing label / king's crown):
+[y] Compare's focus line, rank bubble (and placing label / king's crown):
     they stay on top of the flying picture, fading out as Compare dims
     and back in as it flies back; no blip at the swap. They don't move
     with the picture (judge whether that looks off)
-[ ] Hover a side (name bar showing), open with a click on the name:
+    >> User: passable, a success; revisit only if it bothers later
+[y] Hover a side (name bar showing), open with a click on the name:
     nothing odd at the top
 [ ] Opening the file view from Sweep, Pass, Browse, Coverage, the side
     panel: works exactly as before (no animation yet)
