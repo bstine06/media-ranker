@@ -178,10 +178,16 @@ export default function CompareView({
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, [active, inspecting, closeInspect]);
-    // Nothing moves behind the file view: both sides' videos pause as Compare
-    // dims, and the other side picks up again on closing if it was playing
-    // (the inspected side carries on from the file view's video instead).
+    // Nothing moves behind the file view: the other side's video pauses as
+    // Compare dims, and picks up again on closing if it was playing.
+    // The opened side's own copy (hidden, muted) keeps rolling in step with
+    // the file view's video instead, so on closing the two are on the same
+    // frame and can simply swap. It follows on events only: once now (the
+    // file view's copy has just jumped to its moment, a guess that can be a
+    // few frames off) and on every scrub, pause and play.
     const resumeOtherSide = useRef<Side | null>(null);
+    const overlayRef = useRef<HTMLDivElement>(null);
+    const stopFollowing = useRef<(() => void) | null>(null);
     const onInspectShown = useCallback(() => {
         const i = inspectRef.current;
         if (i && !i.shown) {
@@ -189,24 +195,49 @@ export default function CompareView({
             const otherVideo = shownVideo(sideRoot(other));
             resumeOtherSide.current = otherVideo && !otherVideo.paused ? other : null;
             otherVideo?.pause();
-            shownVideo(sideRoot(i.side))?.pause();
+            const mine = shownVideo(sideRoot(i.side));
+            const theirs = shownVideo(overlayRef.current);
+            if (mine && theirs) {
+                const follow = () => {
+                    if (Math.abs(mine.currentTime - theirs.currentTime) > 0.04) {
+                        mine.currentTime = theirs.currentTime;
+                    }
+                    if (theirs.paused && !mine.paused) mine.pause();
+                    else if (!theirs.paused && mine.paused) mine.play().catch(() => {});
+                };
+                const events = ["seeked", "play", "pause", "playing"] as const;
+                for (const ev of events) theirs.addEventListener(ev, follow);
+                stopFollowing.current?.();
+                stopFollowing.current = () => {
+                    for (const ev of events) theirs.removeEventListener(ev, follow);
+                };
+                follow();
+            }
         }
         setInspect((i) => (i && !i.shown ? { ...i, shown: true } : i));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    // However the file view went (closed, or a session took over): stop.
+    useEffect(() => {
+        if (inspect) return;
+        stopFollowing.current?.();
+        stopFollowing.current = null;
+    }, [inspect]);
     // This side's own copy is hidden while the file view's is up.
     const hiddenSide = (side: Side, file: DbFile): boolean =>
         !!inspect?.shown && inspect.side === side && inspect.file.id === file.id;
-    // Gone back: the side carries on from where the file view's video got to.
-    // A video doesn't swap back until this side's copy has jumped to the
-    // file view's moment and shown that frame: otherwise it shows, for a
-    // frame or two, where it was paused when the file view opened. The file
-    // view's copy holds still at the landing spot meanwhile (capped).
-    const overlayRef = useRef<HTMLDivElement>(null);
+    // Gone back. A video's two copies are normally on the same frame by now
+    // (see above): swap at once. Only if they're apart (one stuttered) does
+    // this side's copy jump to the file view's moment first, with the swap
+    // waiting until that frame is on screen (the file view's copy holds
+    // still at the landing spot meanwhile, capped) so it never shows a
+    // stray frame.
     const onInspectClosed = useCallback((state: PlayState | null) => {
         const i = inspectRef.current;
         const p = pairRef.current;
         const finish = () => {
+            stopFollowing.current?.();
+            stopFollowing.current = null;
             if (resumeOtherSide.current) {
                 shownVideo(sideRoot(resumeOtherSide.current))?.play().catch(() => {});
                 resumeOtherSide.current = null;
@@ -219,6 +250,15 @@ export default function CompareView({
         const theirs = shownVideo(overlayRef.current);
         if (!mine || !state) {
             if (same) applyPlayState(sideRoot(i!.side), state);
+            finish();
+            return;
+        }
+        // In step (within a frame, same playing / paused): just swap.
+        if (
+            theirs &&
+            Math.abs(mine.currentTime - theirs.currentTime) < 0.05 &&
+            mine.paused === theirs.paused
+        ) {
             finish();
             return;
         }
