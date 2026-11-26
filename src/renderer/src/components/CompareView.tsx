@@ -46,6 +46,7 @@ import {
     applyPlayState,
     pictureRect,
     playStateIn,
+    shownVideo,
 } from "@renderer/lib/inspect";
 
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
@@ -177,8 +178,21 @@ export default function CompareView({
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, [active, inspecting, closeInspect]);
+    // Nothing moves behind the file view: both sides' videos pause as Compare
+    // dims, and the other side picks up again on closing if it was playing
+    // (the inspected side carries on from the file view's video instead).
+    const resumeOtherSide = useRef<Side | null>(null);
     const onInspectShown = useCallback(() => {
+        const i = inspectRef.current;
+        if (i && !i.shown) {
+            const other: Side = i.side === "a" ? "b" : "a";
+            const otherVideo = shownVideo(sideRoot(other));
+            resumeOtherSide.current = otherVideo && !otherVideo.paused ? other : null;
+            otherVideo?.pause();
+            shownVideo(sideRoot(i.side))?.pause();
+        }
         setInspect((i) => (i && !i.shown ? { ...i, shown: true } : i));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     // This side's own copy is hidden while the file view's is up.
     const hiddenSide = (side: Side, file: DbFile): boolean =>
@@ -189,6 +203,10 @@ export default function CompareView({
         const p = pairRef.current;
         if (i && p && (i.side === "a" ? p[0] : p[1]).id === i.file.id) {
             applyPlayState(sideRoot(i.side), state);
+        }
+        if (resumeOtherSide.current) {
+            shownVideo(sideRoot(resumeOtherSide.current))?.play().catch(() => {});
+            resumeOtherSide.current = null;
         }
         inspectRef.current = null;
         setInspect(null);

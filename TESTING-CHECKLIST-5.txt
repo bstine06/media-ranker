@@ -130,8 +130,10 @@ side's file name).
     moment (no restart). Scrub somewhere else, ← Back: Compare's side
     carries on from there
 [ ] A paused video stays paused going in and coming back
-[ ] The other side's video keeps playing, silent, while you're in the
-    file view; sound comes back as before after closing
+[ ] Nothing moves behind the file view: both of Compare's videos pause
+    as it dims. Closing: the other side picks up again (if it was
+    playing), the opened side carries on from the file view's moment;
+    sound as before
 [ ] Delete the file from the file view: it fades away (no flying back
     to a file that's gone); Compare refills that side
 [ ] Rotate a file in the file view, ← Back: Compare shows it rotated
