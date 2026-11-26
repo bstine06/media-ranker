@@ -352,3 +352,13 @@ swap at the end.
     back
 [ ] Pass: a turned video still plays, scrubs (Q / E), and is heard
 [ ] Sweep / Pass with nothing turned: tiles exactly as before
+
+── 24. Edits bar, step 5 (UNTESTED) ───────────────────────────────────────
+   The tag panel's Copy / Paste row is gone; an "Edits" row takes its place
+   (rotate, Bake). Bake does nothing yet (step 6).
+[ ] File view (from Browse, Compare, the side panel…): the Edits row at the
+    top of the tag panel; the rotate button turns the file like R
+[ ] Bake is greyed out on an unturned file and stands out (amber) on a
+    turned one; turning back to upright (4 presses or ⌘Z) greys it again
+[ ] No rotate button floats over the media any more
+[ ] The "Tags" heading is still there under the Edits row

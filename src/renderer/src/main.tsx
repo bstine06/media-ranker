@@ -7,7 +7,6 @@ import { StatusProvider } from "./contexts/StatusContext";
 import { FolderProvider } from "./contexts/FolderContext";
 import { TagsProvider } from "./contexts/TagsContext";
 import { DragProvider } from "./contexts/DragContext";
-import { ClipboardProvider } from "./contexts/ClipboardContext";
 import { KingOfHillProvider } from "./contexts/KingOfHillContext";
 import { PlacementProvider } from "./contexts/PlacementContext";
 import { RankProvider } from "./contexts/RankContext";
@@ -23,7 +22,6 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <SettingsProvider>
                     <StatusProvider>
                         <DragProvider>
-                            <ClipboardProvider>
                                 <KingOfHillProvider>
                                     <PlacementProvider>
                                         <RankProvider>
@@ -39,7 +37,6 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                                         </RankProvider>
                                     </PlacementProvider>
                                 </KingOfHillProvider>
-                            </ClipboardProvider>
                         </DragProvider>
                     </StatusProvider>
                 </SettingsProvider>

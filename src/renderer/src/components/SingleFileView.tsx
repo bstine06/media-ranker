@@ -95,7 +95,6 @@ export default function SingleFileView({
                 startSession({ kind: "file", file, returnTo: "compare" });
                 setView("compare");
             }}
-            allowRotate
             inspect={inspect}
         />
     );

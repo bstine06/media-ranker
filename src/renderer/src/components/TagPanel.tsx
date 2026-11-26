@@ -4,13 +4,12 @@ import {
     DbTag,
     DbTagWithCategory,
     FileNo,
-    isDbTagArray,
 } from "@renderer/shared/types/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryGroup from "./CategoryGroup";
 import { plainText, RichText } from "./InlineRefs";
 import { TagPill } from "./TagPill";
-import { useClipboard } from "@renderer/contexts/ClipboardContext";
+import { RotateIcon } from "./icons/RotateIcon";
 import { useFileTags } from "@renderer/hooks/useFileTags";
 import { TagInput } from "./TagInput";
 import { groupTagsByCategory } from "@renderer/lib/tagGroups";
@@ -37,7 +36,14 @@ function noSource(n: FileNo): string {
     return lines.join("\n");
 }
 
-export function TagPanel({ file }: { file: DbFile }): JSX.Element {
+export function TagPanel({
+    file,
+    onRotate,
+}: {
+    file: DbFile;
+    /** Adds a turn to the file's rotation setting (same as R). */
+    onRotate: () => void;
+}): JSX.Element {
     const { tags, setTags } = useFileTags(file.id);
     const { tagMap } = useTags();
     // Firm noes (own and from the folder); reread whenever the tags change,
@@ -84,7 +90,6 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
     }>({ folder: [], global: [] });
 
     const { refreshTags, getTagsWithCategory } = useTags();
-    const { copyTags, clipboard } = useClipboard();
 
     const tagsWithCategory = useMemo(
         () => getTagsWithCategory(tags),
@@ -145,13 +150,6 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
         [file.id, setTags],
     );
 
-    const handlePasteTags = () => {
-        if (!isDbTagArray(clipboard)) return;
-        clipboard.forEach((tag) => {
-            addTag(tag.name);
-        });
-    };
-
     const visiblePopularTags =
         suggestionMode === "folder" ? popularTags.folder : popularTags.global;
 
@@ -160,26 +158,13 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
             className="flex flex-col w-full h-full bg-neutral-900 border-neutral-800 overflow-y-auto"
             style={{ scrollbarGutter: "stable" }}
         >
+            <EditsBar file={file} onRotate={onRotate} />
+
             {/* Header */}
             <div className="px-4 py-3 border-b border-neutral-800 flex items-center">
                 <p className="text-[11px] uppercase tracking-wider text-neutral-400 font-medium">
                     Tags
                 </p>
-
-                <div className="ml-auto flex gap-2">
-                    <button
-                        onClick={() => copyTags(tags)}
-                        className="px-2 py-1 text-xs rounded-full bg-neutral-700 text-neutral-300 hover:bg-neutral-600 transition"
-                    >
-                        Copy
-                    </button>
-                    <button
-                        onClick={handlePasteTags}
-                        className="px-2 py-1 text-xs rounded-full bg-neutral-700 text-neutral-300 hover:bg-neutral-600 transition"
-                    >
-                        Paste
-                    </button>
-                </div>
             </div>
 
             {/* Applied tags */}
@@ -303,6 +288,40 @@ export function TagPanel({ file }: { file: DbFile }): JSX.Element {
                     )}
                 </div>
             )}
+        </div>
+    );
+}
+
+
+/**
+ * Edits to the file: shown in the app at once, kept in the library; the file
+ * on disk changes only when they're baked. Bake is the only sign of edits
+ * not yet in the file: it stands out while there are some, and is off when
+ * there are none.
+ */
+function EditsBar({ file, onRotate }: { file: DbFile; onRotate: () => void }): JSX.Element {
+    const unbaked = file.rotation !== 0;
+    return (
+        <div className="px-4 py-2 border-b border-neutral-800 flex items-center gap-2">
+            <p className="text-[11px] uppercase tracking-wider text-neutral-400 font-medium">Edits</p>
+            <button
+                onClick={onRotate}
+                title="Rotate left (R)"
+                className="rounded-md p-1.5 text-neutral-300 hover:bg-neutral-700 hover:text-white transition"
+            >
+                <RotateIcon className="h-4 w-4" />
+            </button>
+            <button
+                disabled={!unbaked}
+                title={unbaked ? "Bake: write the edits into the file" : "No edits to bake"}
+                className={`ml-auto px-2.5 py-1 text-xs rounded-full transition ${
+                    unbaked
+                        ? "bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/60 hover:bg-amber-500/30"
+                        : "bg-neutral-800 text-neutral-600 cursor-default"
+                }`}
+            >
+                Bake
+            </button>
         </div>
     );
 }

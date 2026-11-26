@@ -871,7 +871,6 @@ export default function BrowseView({
                     startSession({ kind: "file", file, returnTo: "browse" });
                     setView("compare");
                 }}
-                allowRotate
                 progress={{
                     index: browseScrollIndex + 1,
                     total: sortedFiles.length,

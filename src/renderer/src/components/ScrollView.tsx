@@ -27,7 +27,6 @@ import { MediaSpot } from "@renderer/media/MediaLayer";
 import ConfirmDialog from "./ConfirmDialog";
 import { CrownIcon } from "./icons/CrownIcon";
 import { TrashIcon } from "./icons/TrashIcon";
-import { RotateIcon } from "./icons/RotateIcon";
 import { useRotation } from "@renderer/hooks/useRotation";
 import { PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
 import { useLibraryRank, useRankedTotal } from "@renderer/contexts/RankContext";
@@ -35,9 +34,6 @@ import { usePointerTarget, useTagPointerSurface } from "@renderer/contexts/TagPo
 import { MediaFlash } from "./TagPointer";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useEdgeResize } from "@renderer/hooks/useEdgeResize";
-
-/** How close to the top of the media the mouse must be to show Rotate. */
-const NEAR_TOP_PX = 96;
 
 /** Opened as an inspection: the picture grows from where it was on screen
  *  and, on closing, goes back there (see lib/inspect.ts). */
@@ -76,7 +72,6 @@ export default function ScrollView({
     onFileChange,
     onCrown,
     onPlace,
-    allowRotate = false,
     jumpTo = null,
     inspect,
 }: {
@@ -97,8 +92,6 @@ export default function ScrollView({
     onCrown?: (file: DbFile) => void;
     /** Give the current file its placement matches in Compare. */
     onPlace?: (file: DbFile) => void;
-    /** Show the rotate-left button (single file view). */
-    allowRotate?: boolean;
     /** Slide this file in (each new `n` once), e.g. a file an undo just
      *  brought back. */
     jumpTo?: { file: DbFile; dir: "up" | "down"; n: number } | null;
@@ -124,10 +117,6 @@ export default function ScrollView({
 
     const libraryRank = useLibraryRank(currentFile?.id ?? -1);
     const rankedTotal = useRankedTotal();
-
-    // The rotate button shows only while the mouse is near the top of the
-    // media, so it stays out of the way of the picture.
-    const [nearTop, setNearTop] = useState(false);
 
     const videoRefs = [videoRef0, videoRef1];
 
@@ -366,18 +355,6 @@ export default function ScrollView({
             )}
         </div>
     );
-    const rotateButton = allowRotate && (
-        <button
-            onClick={rotateLeft}
-            title="Rotate left (R)"
-            tabIndex={nearTop ? 0 : -1}
-            className={`absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 p-2 text-neutral-300 hover:bg-black/70 hover:text-white transition-opacity duration-200 ${
-                nearTop ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
-        >
-            <RotateIcon className="h-4 w-4" />
-        </button>
-    );
     const arrows = (
         <div
             // Up / down mean nothing here; on closing they just go
@@ -412,18 +389,7 @@ export default function ScrollView({
             {!asSpot && backBar}
             <div
                 className="relative flex min-h-0 flex-1 flex-col"
-                onMouseMove={
-                    allowRotate
-                        ? (e) => {
-                              const top = e.currentTarget.getBoundingClientRect().top;
-                              const near = e.clientY - top < NEAR_TOP_PX;
-                              if (near !== nearTop) setNearTop(near);
-                          }
-                        : undefined
-                }
-                onMouseLeave={() => setNearTop(false)}
             >
-                {!asSpot && rotateButton}
                 <div
                     ref={areaRef}
                     className={`relative min-h-0 flex-1 overflow-hidden ${pointer.cursorClass}`}
@@ -457,24 +423,13 @@ export default function ScrollView({
                                             rotation: slotFiles[slot]!.rotation,
                                             className: pointer.cursorClass,
                                             onMouseEnter: pointer.handlers.onMouseEnter,
-                                            onMouseLeave: () => {
-                                                pointer.handlers.onMouseLeave();
-                                                setNearTop(false);
-                                            },
-                                            onMouseMove: allowRotate
-                                                ? (e) => {
-                                                      const top = e.currentTarget.getBoundingClientRect().top;
-                                                      const near = e.clientY - top < NEAR_TOP_PX;
-                                                      if (near !== nearTop) setNearTop(near);
-                                                  }
-                                                : undefined,
+                                            onMouseLeave: pointer.handlers.onMouseLeave,
                                             onContextMenu: pointer.handlers.onContextMenu,
                                         }}
                                         // On the media, above the player.
                                         overlay={
                                             <>
                                                 {backBar}
-                                                {rotateButton}
                                                 <MediaFlash flash={pointer.flash} />
                                                 {arrows}
                                             </>
@@ -637,7 +592,7 @@ export default function ScrollView({
                         </div>
                     </div>
                 </div>
-                <TagPanel file={currentFile} />
+                <TagPanel file={currentFile} onRotate={rotateLeft} />
             </div>
 
             {showConfirm && (
