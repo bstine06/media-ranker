@@ -158,6 +158,15 @@ side's file name).
     no flicker, it lands turned
 [ ] Compare → R → G straight away: the file view's copy starts turned
 [ ] After the save in either case: the new version, not turned twice
+    >> 2026-11-25: still a black flash on saves (worst on images, with the
+       blur), and on a VIDEO after many rotations the flying copy was out
+       of step. FIX BUILT (untested): an image's old version stays up until
+       the new one has loaded (no black/blur on a rotation); the two video
+       copies are kept in step through the new element each save creates.
+[ ] Rotate an IMAGE a few times (with pauses so it saves): no black flash,
+    no blur, in Compare and in the file view
+[ ] Rotate a VIDEO many times in the file view (some saves in between),
+    scrub, close: lands turned right, same moment, no flash
 [y] Flying in and out (a video): the bar never jumps. It starts where
     Compare draws it (card width, window bottom), stays 4 px thick and
     glides to the file view's bar (full media area width), on the same

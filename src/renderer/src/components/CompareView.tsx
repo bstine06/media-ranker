@@ -207,7 +207,8 @@ export default function CompareView({
     const stopFollowing = useRef<(() => void) | null>(null);
     // While paused: the exact time the hidden copy last jumped to (null:
     // it hasn't, or it's playing).
-    const mineJumpedTo = useRef<number | null>(null);
+    const mineJumpedTo = useRef<{ el: HTMLVideoElement; t: number } | null>(null);
+    const jumpedTo = (el: HTMLVideoElement, t: number): boolean => mineJumpedTo.current?.el === el && mineJumpedTo.current.t === t;
     const onInspectShown = useCallback(() => {
         const i = inspectRef.current;
         if (i && !i.shown) {
@@ -215,17 +216,25 @@ export default function CompareView({
             const otherVideo = shownVideo(sideRoot(other));
             resumeOtherSide.current = otherVideo && !otherVideo.paused ? other : null;
             otherVideo?.pause();
-            const mine = shownVideo(sideRoot(i.side));
-            const theirs = shownVideo(overlayRef.current);
-            if (mine && theirs) {
+            // The elements are looked up fresh every time: a saved rotation
+            // gives each copy a new <video> for the new version (the old one
+            // briefly covers, then goes), and holding on to the first ones
+            // would leave the copies following elements that are gone.
+            const side = i.side;
+            const overlay = overlayRef.current;
+            const card = sideRoot(side)?.closest("[data-side]") ?? null;
+            if (overlay && card && shownVideo(sideRoot(side)) && shownVideo(overlay)) {
                 const follow = () => {
+                    const mine = shownVideo(sideRoot(side));
+                    const theirs = shownVideo(overlay);
+                    if (!mine || !theirs) return;
                     if (theirs.paused) {
                         // Paused, a still frame shows: same time isn't
                         // enough. Jump to exactly theirs, the way theirs got
                         // there, so both pick the same frame.
                         if (!mine.paused) mine.pause();
-                        if (mineJumpedTo.current !== theirs.currentTime) {
-                            mineJumpedTo.current = theirs.currentTime;
+                        if (!jumpedTo(mine, theirs.currentTime)) {
+                            mineJumpedTo.current = { el: mine, t: theirs.currentTime };
                             mine.currentTime = theirs.currentTime;
                         }
                         return;
@@ -236,11 +245,24 @@ export default function CompareView({
                     }
                     if (mine.paused) mine.play().catch(() => {});
                 };
-                const events = ["seeked", "play", "pause", "playing"] as const;
-                for (const ev of events) theirs.addEventListener(ev, follow);
+                // Media events don't bubble, but they do pass down through
+                // the capture phase: listening on the containers catches
+                // whichever <video> is current, new versions included. The
+                // file view's copy leads; this side's copy is re-synced too
+                // when a new version of it is ready. (A version's cover is
+                // ignored: it's on its way out.)
+                const lead = (e: Event) => {
+                    const v = e.target as HTMLElement;
+                    if (v.tagName === "VIDEO" && !v.classList.contains("pointer-events-none")) follow();
+                };
+                const leadEvents = ["seeked", "play", "pause", "playing", "loadeddata"] as const;
+                const mineEvents = ["loadeddata", "seeked"] as const;
+                for (const ev of leadEvents) overlay.addEventListener(ev, lead, true);
+                for (const ev of mineEvents) card.addEventListener(ev, lead, true);
                 stopFollowing.current?.();
                 stopFollowing.current = () => {
-                    for (const ev of events) theirs.removeEventListener(ev, follow);
+                    for (const ev of leadEvents) overlay.removeEventListener(ev, lead, true);
+                    for (const ev of mineEvents) card.removeEventListener(ev, lead, true);
                 };
                 follow();
             }
@@ -291,7 +313,7 @@ export default function CompareView({
             !!theirs &&
             mine.paused === theirs.paused &&
             (theirs.paused
-                ? mineJumpedTo.current === theirs.currentTime && !mine.seeking
+                ? jumpedTo(mine, theirs.currentTime) && !mine.seeking
                 : Math.abs(mine.currentTime - theirs.currentTime) < 0.05);
         // For checking in dev tools how the landing went (temporary).
         const report = {
@@ -327,13 +349,13 @@ export default function CompareView({
         const cap = setTimeout(swap, 300);
         // Paused: only an exact jump to that time counts (see follow).
         const there = state.paused
-            ? mineJumpedTo.current === time && !mine.seeking
+            ? jumpedTo(mine, time) && !mine.seeking
             : Math.abs(mine.currentTime - time) < 0.02;
         if (there) {
             swap();
         } else {
             mine.addEventListener("seeked", onSeeked);
-            mineJumpedTo.current = time;
+            mineJumpedTo.current = { el: mine, t: time };
             mine.currentTime = time;
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps

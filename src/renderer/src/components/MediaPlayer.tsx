@@ -166,6 +166,14 @@ export function MediaPlayer({
         turns: number;
     } | null>(null);
     const handoffElRef = useRef<HTMLVideoElement | null>(null);
+    // The same for an image: its old version, as it was turned, stays on top
+    // until the new one has loaded (no black, no blur, no fade).
+    const [imgCover, setImgCover] = useState<{ url: string; turns: number } | null>(null);
+    useEffect(() => {
+        if (!imgCover) return;
+        const t = setTimeout(() => setImgCover(null), 3000);
+        return () => clearTimeout(t);
+    }, [imgCover]);
     // Where the new version should pick up. Kept apart from `handoff` (the
     // visual cover), which gives up after a few seconds: a slow load must
     // still resume at the same moment rather than restart.
@@ -192,6 +200,12 @@ export function MediaPlayer({
         } else {
             resumeRef.current = null;
             if (handoff) setHandoff(null);
+            // An image's new version: the old one covers until it's loaded.
+            if (!isVideo && shownRef.current.id === file.id && !isImageReady(fullUrl)) {
+                setImgCover({ url: shownRef.current.url, turns: shownRef.current.turns });
+            } else if (imgCover) {
+                setImgCover(null);
+            }
         }
         shownRef.current = { id: file.id, url: fullUrl, turns: rotation };
         autoPlayRef.current = !resumeRef.current;
@@ -486,14 +500,16 @@ export function MediaPlayer({
                     />,
                 ]
             ) : (
+                <>
                 <div
                     className={`absolute ${seeThrough ? "" : "bg-black"}`}
                     style={turnStyle(rotation, animateTurn)}
                     onClick={guardClick(() => handleClick())}
                     {...dragOutProps}
                 >
-                    {/* Blurred thumbnail, while the full image loads */}
-                    {thumbUrl && !preloaded && (
+                    {/* Blurred thumbnail, while the full image loads (not
+                        under a new version's cover: the old image shows). */}
+                    {thumbUrl && !preloaded && !imgCover && (
                         <div
                             className="absolute inset-0 z-10 transition-opacity duration-200"
                             style={{
@@ -518,25 +534,39 @@ export function MediaPlayer({
                         ref={imgRef}
                         src={fullUrl}
                         alt={file.filename}
-                        className={`relative h-full w-full object-contain ${preloaded ? "" : "transition-opacity duration-200"}`}
+                        className={`relative h-full w-full object-contain ${preloaded || imgCover ? "" : "transition-opacity duration-200"}`}
                         style={{
                             opacity: fullLoaded ? 1 : 0,
                         }}
                         onLoad={() => {
                             setLoadedUrl(fullUrl);
+                            setImgCover(null);
                             reportReady();
                             // Keep it decoded in case it comes back (e.g. undo).
                             preloadImage(fullUrl);
                         }}
                         onError={() => {
                             setLoadedUrl(fullUrl);
+                            setImgCover(null);
                             reportReady();
                         }}
                         draggable={false}
                     />
 
-                    {showLoadingCover && <LoadingCover />}
+                    {showLoadingCover && !imgCover && <LoadingCover />}
                 </div>
+                {/* A new version of the same image (a rotation saved): the
+                    old one stays on top, as it was turned, until the new
+                    one has loaded; then they swap in one frame. */}
+                {imgCover && (
+                    <div
+                        className="pointer-events-none absolute z-[2]"
+                        style={turnStyle(imgCover.turns, false)}
+                    >
+                        <img src={imgCover.url} alt="" data-cover className="h-full w-full object-contain" draggable={false} />
+                    </div>
+                )}
+                </>
             )}
 
             {isGif && (
