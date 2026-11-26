@@ -397,7 +397,7 @@ export default function ScrollView({
                                     rootPath={rootPath}
                                     ref={videoRefs[slot]}
                                     disabled={!active || slot !== frontSlot}
-                                    rotation={rotationOf(slotFiles[slot]!.id)}
+                                    rotation={rotationOf(slotFiles[slot]!)}
                                     seeThrough={!!inspect}
                                     {...(inspect &&
                                     slot === frontSlot &&

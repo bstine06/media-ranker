@@ -1503,7 +1503,7 @@ function CompareCard({
                                     clickToPauseEnabled={false}
                                     keyboardEnabled={false}
                                     controlsRef={controlsRef}
-                                    rotation={rotationOf(f.id)}
+                                    rotation={rotationOf(f)}
                                 />
                             )}
                         </div>

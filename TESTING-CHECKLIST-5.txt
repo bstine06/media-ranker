@@ -151,6 +151,13 @@ side's file name).
     >> FAILED 2026-11-25: closing before the rotation is saved (the new
        version swapped in) gives the stray-frame flicker on return.
        User thinks the fix belongs in the rotate logic. Open, to discuss
+       FIX BUILT (untested): rotation previews are shared by every view, so
+       Compare's hidden copy turns with the file view's (and the other way
+       round); the flight math knows about a sideways preview turn.
+[ ] File view from Compare → R → close straight away (before it saves):
+    no flicker, it lands turned
+[ ] Compare → R → G straight away: the file view's copy starts turned
+[ ] After the save in either case: the new version, not turned twice
 [y] Flying in and out (a video): the bar never jumps. It starts where
     Compare draws it (card width, window bottom), stays 4 px thick and
     glides to the file view's bar (full media area width), on the same

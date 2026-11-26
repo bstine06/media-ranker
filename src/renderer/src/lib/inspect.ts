@@ -47,9 +47,13 @@ export function pictureRect(root: Element | null): DOMRect | null {
     if (!el) return null;
     const box = el.getBoundingClientRect();
     if (box.width === 0 || box.height === 0) return null;
-    const nw = v ? v.videoWidth : img!.naturalWidth;
-    const nh = v ? v.videoHeight : img!.naturalHeight;
+    let nw = v ? v.videoWidth : img!.naturalWidth;
+    let nh = v ? v.videoHeight : img!.naturalHeight;
     if (!nw || !nh) return box;
+    // A preview turned sideways (90° / 270°, not saved yet) shows the other
+    // way round: the box above is already the turned one, the shape isn't.
+    const turned = (v ?? img!.parentElement)?.style.transform.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/);
+    if (turned && Math.round(Number(turned[1]) / 90) % 2 !== 0) [nw, nh] = [nh, nw];
     const s = Math.min(box.width / nw, box.height / nh);
     const w = nw * s;
     const h = nh * s;
