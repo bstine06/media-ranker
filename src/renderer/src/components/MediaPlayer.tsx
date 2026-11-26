@@ -169,6 +169,11 @@ export function MediaPlayer({
         isVideo && startAt ? { ...startAt } : null,
     );
     const shownRef = useRef({ id: file.id, url: fullUrl, turns: rotation });
+    // Whether this element starts by itself, decided once when it's created:
+    // not when it picks up somewhere (it plays itself once there, or stays
+    // paused). Flipping it later would set a paused video playing as soon as
+    // it had loaded enough.
+    const autoPlayRef = useRef(!resumeRef.current);
     if (shownRef.current.url !== fullUrl) {
         const old = videoRef.current;
         if (isVideo && shownRef.current.id === file.id && old) {
@@ -183,6 +188,7 @@ export function MediaPlayer({
             if (handoff) setHandoff(null);
         }
         shownRef.current = { id: file.id, url: fullUrl, turns: rotation };
+        autoPlayRef.current = !resumeRef.current;
     } else {
         shownRef.current.turns = rotation;
     }
@@ -254,15 +260,18 @@ export function MediaPlayer({
         containerRef.current?.focus();
     }, []);
 
-    // Handed over paused (startAt): it doesn't start playing on arrival.
-    const arrivedPausedRef = useRef(isVideo && !!startAt?.paused);
+    // Play / pause when `disabled` really changes (React may run this twice
+    // on mount in development: the second run does nothing). Handed over
+    // paused (startAt): it doesn't start playing on arrival.
+    const lastDisabledRef = useRef<boolean | null>(null);
     useEffect(() => {
         if (!videoRef.current) return;
-        if (arrivedPausedRef.current) {
-            arrivedPausedRef.current = false;
-            return;
-        }
+        if (lastDisabledRef.current === disabled) return;
+        const arriving = lastDisabledRef.current === null;
+        lastDisabledRef.current = disabled;
+        if (arriving && isVideo && startAt?.paused) return;
         disabled ? videoRef.current.pause() : videoRef.current.play();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [disabled]);
 
     useEffect(() => {
@@ -424,7 +433,7 @@ export function MediaPlayer({
                         muted={muted}
                         loop
                         playsInline
-                        autoPlay={!disabled && !resumeRef.current}
+                        autoPlay={!disabled && autoPlayRef.current}
                         onLoadedMetadata={() => {
                             const v = videoRef.current;
                             const d = v?.duration;
