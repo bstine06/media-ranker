@@ -110,20 +110,20 @@ side's file name).
    the file view's is up. Pictures: found with dev tools — the media
    area was left at opacity 0 (React's second mount run hid it again
    after a picture had already grown in). FIXED (untested).
-[ ] No black box: around the picture you see dimmed Compare, both
+[y] No black box: around the picture you see dimmed Compare, both
     going in and in the file view itself
-[ ] Only one copy on screen the whole time, going in and coming back
+[y] Only one copy on screen the whole time, going in and coming back
 [ ] No flicker opening from Compare (video and picture): Compare dims at
     the same moment the moving copy appears, and a video starts moving
     already at the right moment (no glimpse of its first frame)
-[ ] The tag panel slides in from the right edge as the picture grows,
+[y] The tag panel slides in from the right edge as the picture grows,
     and slides back out as it goes back, moving like the picture (same
     speed and easing). Dragging the panel's edge still resizes it
 
-[ ] An image: it grows from its spot in Compare to the file view spot
+[y] An image: it grows from its spot in Compare to the file view spot
     (about a quarter second); the rest of Compare dims to near black in
     place; the buttons and tag panel fade in. Nothing snaps
-[ ] ← Back: it shrinks back onto its side and Compare brightens around
+[y] ← Back: it shrinks back onto its side and Compare brightens around
     it; it lands exactly on the picture, no jump at the end
 [ ] Both sides: left and right, tall and wide files
 [ ] A video playing part-way: the file view carries on from the same
@@ -132,7 +132,7 @@ side's file name).
 [ ] A paused video stays paused going in and coming back
 [ ] Nothing moves behind the file view: the other side's video pauses
     as Compare dims, and picks up again on closing (if it was playing)
-[ ] Closing a video: it lands and carries straight on, no stray frame
+[y] Closing a video: it lands and carries straight on, no stray frame
     and no pause at the landing. Also after scrubbing, pausing and
     playing in the file view; sound as before
 [ ] Delete the file from the file view: it fades away (no flying back
