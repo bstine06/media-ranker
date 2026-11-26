@@ -412,5 +412,7 @@ swap at the end.
     where it is while Compare brightens; that side already shows a new file
     (or its loading state); nothing flies back to the card
 [ ] A playing video deleted that way: its sound fades out, no cut-off pop
-[ ] A file on a Compare card deleted in Finder: it fades on its card
-[ ] After any of these: picks, G, rotation still work on both sides
+[x] A file on a Compare card deleted in Finder: it fades on its card
+    (Claude's scratch run 2026-11-26)
+[x] After any of these: picks, G, rotation still work on both sides
+    (Claude's scratch run 2026-11-26: R, G, Esc on each side, two picks)
