@@ -298,3 +298,10 @@ swap at the end.
    SAVED (~0.9 s after pressing R), so ⌘Z undoes things in the wrong order.
    Part of a rethink of how rotation works.
 
+
+── 20. Rotation as a setting, step 1 (UNTESTED) ──────────────────────────
+   Library side only: files get a rotation setting (quarter turns), "add a
+   turn" is one undo entry made at the press, replacing a file resets it.
+   Nothing in the app uses it yet (R still works the old way until step 2).
+[ ] An existing library opens normally (new column added on open)
+[ ] Replace file still works, and undo of it still works

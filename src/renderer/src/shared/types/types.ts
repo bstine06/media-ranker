@@ -14,6 +14,9 @@ export interface DbFile {
     status: "active" | "missing";
     missing_since: string | null;
     folder_id?: number | null;
+    /** Quarter turns counter-clockwise (0–3), a viewing setting: the app
+     *  draws the file turned; the file on disk is untouched until baked. */
+    rotation: number;
 }
 
 export interface DbTag {
@@ -286,6 +289,7 @@ export type HistoryMeta =
     | { kind: "pass-no"; fileId: number; tagId: number }
     | { kind: "file-tag"; fileId: number; tagId: number }
     | { kind: "delete"; fileIds: number[] }
+    | { kind: "turn"; fileId: number }
     | { kind: "filter"; before: FilterState; after: FilterState }
     | { kind: "selection"; before: string[]; after: string[] };
 

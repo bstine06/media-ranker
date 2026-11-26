@@ -169,6 +169,10 @@ const api = {
     fileReplace: (oldRelPath: string, newAbsPath: string): Promise<DbFile> =>
         ipcRenderer.invoke("file:replace", oldRelPath, newAbsPath),
 
+    /** One more quarter turn counter-clockwise on the file's rotation
+     *  setting (one undo entry). Resolves to the fresh record. */
+    turnFile: (fileId: number): Promise<DbFile> => ipcRenderer.invoke("file:turn", fileId),
+
     rotateFile: (relPath: string, quarterTurns: number): Promise<DbFile> =>
         ipcRenderer.invoke("file:rotate", relPath, quarterTurns),
 

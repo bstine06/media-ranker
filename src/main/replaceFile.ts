@@ -48,9 +48,10 @@ export async function replaceTrackedFile(
     generateSizedImage(oldAbsPath, join(thumbDir, `${newHash}.jpg`), 400, mediaType),
   ])
 
+  // New content brings its own orientation: the rotation setting resets.
   runDb(() => {
     getDb()
-      .prepare(`UPDATE files SET content_hash = ?, mtime = ?, size = ? WHERE id = ?`)
+      .prepare(`UPDATE files SET content_hash = ?, mtime = ?, size = ?, rotation = 0 WHERE id = ?`)
       .run(newHash, newStat.mtimeMs, newStat.size, existing.id)
   })
 }

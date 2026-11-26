@@ -58,6 +58,9 @@ export type EntryMeta =
     /** A tag put on or taken off one file (Space in Pass, file view…). */
     | { kind: "file-tag"; fileId: number; tagId: number }
     | { kind: "delete"; fileIds: number[] }
+    /** A file's rotation setting changed (database only): the file's fresh
+     *  record goes to every view on undo / redo. */
+    | { kind: "turn"; fileId: number }
     /** View state, not library data (no database or disk change): the
      *  renderer puts back `before` on undo and `after` on redo. */
     | { kind: "filter"; before: FilterState; after: FilterState }

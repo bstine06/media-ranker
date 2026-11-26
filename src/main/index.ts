@@ -56,6 +56,7 @@ import {
     upsertTagCategory,
     updateTagCategory,
     getFileById,
+    addFileTurn,
     markFileMissingById,
     markFileMissing,
     moveFileRecord,
@@ -360,6 +361,11 @@ function registerIpcHandlers(): void {
         const win = BrowserWindow.getAllWindows()[0];
         win?.webContents.send("history:applied", res);
         win?.webContents.send("ranks:changed");
+        // A rotation setting changed back: views swap in the fresh record.
+        if (res.meta?.kind === "turn") {
+            const file = getFileById(res.meta.fileId);
+            if (file) win?.webContents.send("media:updated", { relativePath: file.path, file });
+        }
         return res;
     };
     ipcMain.handle("history:undo", async () => applied(await undoHistory()));
@@ -915,6 +921,26 @@ function registerIpcHandlers(): void {
             return updated;
         },
     );
+
+    // One more quarter turn counter-clockwise on a file's rotation setting
+    // (the file itself is untouched). Instant, so the undo entry is made at
+    // the press. Returns the fresh record and tells every view.
+    ipcMain.handle("file:turn", (_event, fileId: number) => {
+        const before = getFileById(fileId);
+        if (!before) throw new Error("File not found");
+        const step = beginStep(`Rotated ${before.filename}`);
+        let updated: DbFile | undefined;
+        step.db(() => {
+            updated = addFileTurn(fileId);
+        });
+        step.meta = { kind: "turn", fileId };
+        step.commit();
+        BrowserWindow.getAllWindows()[0]?.webContents.send("media:updated", {
+            relativePath: before.path,
+            file: updated,
+        });
+        return updated;
+    });
 
     // Rotate left by quarter turns, in place. Returns the fresh record (new
     // content hash) and tells every view, so e.g. Compare shows it rotated.

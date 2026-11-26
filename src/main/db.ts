@@ -19,6 +19,9 @@ export interface DbFile {
     status: "active" | "missing";
     missing_since: string | null;
     folder_id?: number | null;
+    /** Quarter turns counter-clockwise (0–3), a viewing setting: the app
+     *  draws the file turned; the file on disk is untouched until baked. */
+    rotation: number;
 }
 
 export interface DbFolder {
@@ -169,7 +172,8 @@ export function initDb(rootPath: string): Database.Database {
             status           TEXT    NOT NULL DEFAULT 'active'
                 CHECK(status IN ('active', 'missing')),
             missing_since    TEXT,
-            folder_id        INTEGER REFERENCES folders(id) ON DELETE SET NULL
+            folder_id        INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+            rotation         INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS file_tags (
@@ -714,6 +718,12 @@ function runMigrations(db: Database.Database): void {
         (db.prepare(`PRAGMA table_info(tag_checks)`).all() as { name: string }[]).map((c) => c.name),
     ).has("passed")) {
         db.exec(`ALTER TABLE tag_checks ADD COLUMN passed INTEGER NOT NULL DEFAULT 0`);
+    }
+
+    // Migration 9: rotation as a viewing setting (quarter turns, see
+    // DbFile.rotation). Files rotated before were rewritten: 0 is right.
+    if (!fileCols.has("rotation")) {
+        db.exec(`ALTER TABLE files ADD COLUMN rotation INTEGER NOT NULL DEFAULT 0`);
     }
 }
 
@@ -2694,7 +2704,7 @@ export function getFileIdsByFilter(tree: FilterNode | null): number[] {
 export function upsertFile(
     file: Omit<
         DbFile,
-        "id" | "elo_score" | "comparison_count" | "date_indexed"
+        "id" | "elo_score" | "comparison_count" | "date_indexed" | "rotation"
     >,
 ): DbFile {
     const db = getDb();
@@ -2754,6 +2764,14 @@ export function upsertFile(
         .get(result.lastInsertRowid) as DbFile;
 
     return inserted;
+}
+
+/** Adds a quarter turn counter-clockwise to a file's rotation setting
+ *  (wraps at 4). Returns the fresh record. */
+export function addFileTurn(fileId: number): DbFile | undefined {
+    const db = getDb();
+    db.prepare(`UPDATE files SET rotation = (rotation + 1) % 4 WHERE id = ?`).run(fileId);
+    return db.prepare(`SELECT * FROM files WHERE id = ?`).get(fileId) as DbFile | undefined;
 }
 
 export function getFileByPath(relativePath: string): DbFile | undefined {
