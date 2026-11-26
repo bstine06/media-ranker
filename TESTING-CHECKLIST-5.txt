@@ -287,8 +287,14 @@ swap at the end.
        the file view's Back / ▲▼ / rotate / tag flash are its spot's overlay
        above it, Compare's dimmed players stay below the file view; name bar
        off while the file view is up.
-[ ] In the file view from Compare: hover pause/play, click, scrub, rotate
+[y] In the file view from Compare: hover pause/play, click, scrub, rotate
     button on hover near the top, Back, tag pointer
-[ ] Compare's other side stays dimmed (6%) under the file view, and can't
+    >> 2026-11-26: Back, click-to-pause, scrubbing work. The rotate button
+       does nothing; user: we don't need it, don't fix. (▶ button unclear,
+       clicking the video does the same.)
+[y] Compare's other side stays dimmed (6%) under the file view, and can't
     be clicked
+>> BUG (2026-11-26, open): a rotation goes into the undo history when it's
+   SAVED (~0.9 s after pressing R), so ⌘Z undoes things in the wrong order.
+   Part of a rethink of how rotation works.
 
