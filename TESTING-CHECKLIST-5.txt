@@ -184,3 +184,14 @@ side's file name).
 [ ] Esc with the tag picker open closes only the picker; with a confirm
     box open, only the box; in the tag panel's text field, the file view
     stays open
+
+
+======================================================================
+17. NO TAG POINTER IN COMPARE (UNTESTED)
+======================================================================
+
+[ ] Compare's sides: no pointer over the media; Tab, T, ` and right
+    click do nothing there
+[ ] Space picks the focused side (same as 2 / ↓); 1 / 3 still choose
+    the side
+[ ] Open a side in the file view: the pointer is there as usual

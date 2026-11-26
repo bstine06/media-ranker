@@ -2,11 +2,12 @@
 // Browse scroll, single file) uses the same keys:
 //   2 / ↓      confirm (Compare: focused side wins) or next file
 //   W / ↑      previous (Compare: undo the last pick)
-//   1 / 3      Compare: focus the left / right side (with the pointer)
+//   1 / 3      Compare: focus the left / right side
 //   Q / ←      rewind          E / →  fast forward
 //   V          play / pause    R      rotate left    K  king (crown / Compare)
 // Space, Tab / Shift+Tab, T, ` and H belong to the tag pointer everywhere
-// it is (contexts/TagPointerContext).
+// it is (contexts/TagPointerContext). Compare has no pointer: there Space
+// picks the focused side (like 2) and Tab does nothing.
 
 /** True while the user is typing somewhere keys should be left alone. A
  *  dropdown doesn't count: once picked from, keys go back to the viewer. */

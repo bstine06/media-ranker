@@ -15,7 +15,7 @@ import { isTyping } from "@renderer/lib/keys";
 import { byTagOrder } from "@renderer/lib/tagGroups";
 
 // The tag pointer: one tag carried on the cursor wherever it's over media
-// (Sweep, Compare, the scroll and single file views; not Browse's grid).
+// (Sweep, Pass, the scroll and single file views; not Compare or Browse's grid).
 // The same keys everywhere a pointer surface is active:
 //   Space  toggle the tag on the file under the pointer
 //   Tab / T (or right click on media)  hold: the picker. Tab steps back
