@@ -323,3 +323,17 @@ swap at the end.
     back: still turned
 [ ] The rotated file in Finder is untouched (opens the original way)
 [ ] Quit and reopen: the turn is remembered
+
+── 22. Rotation as a setting, step 3 (UNTESTED) ──────────────────────────
+   Thumbnails and hover zoom drawn turned by the setting. (Sweep / Pass
+   lanes: step 4.)
+[ ] Turn a wide file sideways in the file view, back to Browse: its tile
+    shows it turned and still fills the tile (no gaps, not squashed);
+    same in the list (row) layout
+[ ] Hover zoom on that tile: turned, and the zoom box has the turned shape
+    (tall for a wide file turned sideways), for a picture and a video
+[ ] A file used as a folder picture: turned in the sidebar, the file
+    view's side panel and the folder's info; turning it again or ⌘Z
+    updates those pictures right away
+[ ] The pending-changes list (Manage): turned thumbnails
+[ ] Unturned files everywhere look exactly as before

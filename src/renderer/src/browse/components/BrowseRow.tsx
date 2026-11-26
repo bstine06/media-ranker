@@ -4,6 +4,7 @@ import HoverPreview from "./HoverPreview";
 import { useEffect, useState } from "react";
 import { useHoverPreview } from "../hooks/useHoverPreview";
 import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
+import { TurnedImg } from "@renderer/lib/turn";
 import { DbFile } from "@renderer/shared/types/types";
 import { useFolders } from "@renderer/contexts/FolderContext";
 
@@ -82,7 +83,8 @@ export default function BrowseRow({
                     onMouseLeave={handleMouseLeave}
                 >
                     {thumbUrl ? (
-                        <img
+                        <TurnedImg
+                            rotation={file.rotation}
                             src={thumbUrl}
                             alt={file.filename}
                             className="h-full w-full object-cover"

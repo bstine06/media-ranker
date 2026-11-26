@@ -57,6 +57,7 @@ import {
     updateTagCategory,
     getFileById,
     addFileTurn,
+    getFileByHashAny,
     markFileMissingById,
     markFileMissing,
     moveFileRecord,
@@ -440,6 +441,12 @@ function registerIpcHandlers(): void {
         if (!rootPath) return null;
         const thumbPath = getThumbnailPath(rootPath, hash);
         return existsSync(thumbPath) ? thumbPath : null;
+    });
+
+    // The rotation setting of the file with this content (folder pictures
+    // only know the hash). 0 when there's none.
+    ipcMain.handle("file:rotation-by-hash", (_event, hash: string) => {
+        return getFileByHashAny(hash)?.rotation ?? 0;
     });
 
     ipcMain.handle("get-folder-metadata", (_event, folderRelPath: string) => {

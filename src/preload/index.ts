@@ -84,6 +84,8 @@ const api = {
     getFilesInFolder: (folderRelPath: string): Promise<unknown[]> =>
         ipcRenderer.invoke("get-files-in-folder", folderRelPath),
 
+    fileRotationByHash: (hash: string): Promise<number> =>
+        ipcRenderer.invoke("file:rotation-by-hash", hash),
     getThumbnailPath: (hash: string): Promise<string | null> =>
         ipcRenderer.invoke("get-thumbnail-path", hash),
 

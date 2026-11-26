@@ -9,6 +9,7 @@ import {
 } from "@renderer/contexts/PendingChangeContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
+import { TurnedImg } from "@renderer/lib/turn";
 import HoverPreview from "@renderer/browse/components/HoverPreview";
 import { useHoverPreview } from "@renderer/browse/hooks/useHoverPreview";
 
@@ -344,7 +345,9 @@ function DockRow({
                     onMouseLeave={handleMouseLeave}
                     className="h-9 w-9 shrink-0 overflow-hidden rounded bg-neutral-800"
                 >
-                    {thumb && <img src={thumb} alt="" className="h-full w-full object-cover" />}
+                    {thumb && file && (
+                        <TurnedImg rotation={file.rotation} src={thumb} alt="" className="h-full w-full object-cover" />
+                    )}
                 </div>
                 <div className="flex min-w-0 flex-col">
                     <span className="truncate text-neutral-200">

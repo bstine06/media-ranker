@@ -101,6 +101,8 @@ declare global {
             ) => () => void;
 
             getThumbnailPath: (hash: string) => Promise<string | null>;
+            /** Rotation setting of the file with this content (0 if none). */
+            fileRotationByHash: (hash: string) => Promise<number>;
             getTags: (fileId: number) => Promise<DbTag[]>;
             addTag: (fileId: number, tag: string) => Promise<DbTag[]>;
             removeTag: (fileId: number, tag: string) => Promise<DbTag[]>;

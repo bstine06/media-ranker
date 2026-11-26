@@ -3,6 +3,7 @@ import type { DbFile } from "../../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../../lib/media";
 import HoverPreview from "./HoverPreview";
 import { useHoverPreview } from "../hooks/useHoverPreview";
+import { TurnedImg } from "@renderer/lib/turn";
 import { FolderIcon } from "@renderer/components/icons/FolderIcon";
 import { TrashIcon } from "@renderer/components/icons/TrashIcon";
 import { CrownIcon } from "@renderer/components/icons/CrownIcon";
@@ -64,7 +65,8 @@ export default function MediaTile({
                 }}
             >
                 {thumbUrl ? (
-                    <img
+                    <TurnedImg
+                        rotation={file.rotation}
                         src={thumbUrl}
                         alt={file.filename}
                         className="h-full w-full object-cover"

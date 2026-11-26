@@ -4,6 +4,7 @@ import { DbFile } from '@renderer/shared/types/types'
 import { useLibraryRank } from '@renderer/contexts/RankContext'
 import { useSettings } from '@renderer/contexts/SettingsContext'
 import { volumeLevel } from "@renderer/lib/media"
+import { turnedFill, turnedSize } from "@renderer/lib/turn"
 
 export default function HoverPreview({
   file,
@@ -24,6 +25,11 @@ export default function HoverPreview({
 }): JSX.Element {
   const isVideo = file.media_type === 'video'
   const isGif = file.media_type === 'gif'
+  // Drawn turned by the file's rotation setting; the box takes the turned shape.
+  const rotation = file.rotation ?? 0
+  const fill: React.CSSProperties = rotation
+    ? turnedFill(rotation, 'cover')
+    : { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }
   const libraryRank = useLibraryRank(file.id)
   const videoRef = useRef<HTMLVideoElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
@@ -52,13 +58,13 @@ export default function HoverPreview({
 
   const handleVideoReady = () => {
     const v = videoRef.current
-    if (v?.videoWidth && v?.videoHeight) onNaturalSize(v.videoWidth, v.videoHeight)
+    if (v?.videoWidth && v?.videoHeight) onNaturalSize(...turnedSize(rotation, v.videoWidth, v.videoHeight))
     setReady(true)
   }
 
   const handleImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const i = e.currentTarget
-    onNaturalSize(i.naturalWidth, i.naturalHeight)
+    onNaturalSize(...turnedSize(rotation, i.naturalWidth, i.naturalHeight))
     setReady(true)
   }
 
@@ -100,6 +106,7 @@ export default function HoverPreview({
           transition: 'opacity 0.1s ease',
           pointerEvents: 'none',
           overflow: 'hidden',
+          containerType: rotation ? 'size' : undefined,
         }}
       >
         {isVideo ? (
@@ -111,7 +118,7 @@ export default function HoverPreview({
             autoPlay
             onCanPlay={handleVideoReady}
             onError={(e) => console.error('video error:', file.filename, e)}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            style={fill}
           />
         ) : (
           <img
@@ -119,7 +126,7 @@ export default function HoverPreview({
             src={fullUrl}
             alt={file.filename}
             onLoad={handleImgLoad}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            style={fill}
           />
         )}
 
