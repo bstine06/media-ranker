@@ -14,7 +14,8 @@ import type {
 } from "../shared/types/types";
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
-import { MediaPlayer, type MediaControls } from "./MediaPlayer";
+import { type MediaControls } from "./MediaPlayer";
+import { MediaSpot, type SpotFade } from "@renderer/media/MediaLayer";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -138,8 +139,12 @@ export default function CompareView({
         [],
     );
     const cardsRef = useRef<HTMLDivElement>(null);
-    const sideRoot = (side: Side): Element | null =>
-        cardsRef.current?.querySelector(`[data-side="${side}"] [data-current]`) ?? null;
+    // A side's player: drawn by the media layer (over the card's spot), one
+    // per file.
+    const sideRoot = (side: Side): Element | null => {
+        const f = pairRef.current?.[side === "a" ? 0 : 1];
+        return f ? document.querySelector(`[data-layer-player="${f.id}"]`) : null;
+    };
     const openInspect = useCallback((side: Side) => {
         const p = pairRef.current;
         if (!p || inspectRef.current) return;
@@ -222,7 +227,7 @@ export default function CompareView({
             // would leave the copies following elements that are gone.
             const side = i.side;
             const overlay = overlayRef.current;
-            const card = sideRoot(side)?.closest("[data-side]") ?? null;
+            const card = sideRoot(side);
             if (overlay && card && shownVideo(sideRoot(side)) && shownVideo(overlay)) {
                 const follow = () => {
                     const mine = shownVideo(sideRoot(side));
@@ -1218,6 +1223,12 @@ export default function CompareView({
     }
 
     const [a, b] = pair;
+    // The cards' media and top pieces are drawn by the media layer, not inside
+    // the dimmed page below: they're told to fade with it.
+    const mediaFade: SpotFade = {
+        opacity: inspect?.shown && !inspect.closing ? 0.06 : 1,
+        ms: inspect?.closing ? INSPECT_OUT_MS : INSPECT_MS,
+    };
 
     // "Placing 3/10" on the file being placed (hidden while a king holds).
     const placingLabel = (f: DbFile): string | undefined =>
@@ -1238,7 +1249,7 @@ export default function CompareView({
             }}
         >
             {session && (
-                <div className="pointer-events-none absolute inset-x-0 bottom-3 z-40 flex justify-center">
+                <div className="pointer-events-none absolute inset-x-0 bottom-3 z-50 flex justify-center">
                     <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-black/70 px-3 py-1 text-xs text-white/80 shadow">
                         {session.kind === "folder" ? (
                             <span>
@@ -1276,6 +1287,7 @@ export default function CompareView({
                         audible={(compareBothAudio || focus === "a") && audibleDuringInspect("a")}
                         hideMedia={hiddenSide("a", a)}
                         hudLifted={!!inspect}
+                        fade={mediaFade}
                         controlsRef={controlsA}
                         rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
@@ -1305,6 +1317,7 @@ export default function CompareView({
                         audible={(compareBothAudio || focus === "b") && audibleDuringInspect("b")}
                         hideMedia={hiddenSide("b", b)}
                         hudLifted={!!inspect}
+                        fade={mediaFade}
                         controlsRef={controlsB}
                         rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
@@ -1410,6 +1423,7 @@ function CompareCard({
     onReplaceFile,
     hideMedia,
     hudLifted,
+    fade,
 }: {
     /** Open in the file view, whose copy is on screen: this one is hidden
      *  (still playing) so there aren't two. */
@@ -1417,6 +1431,9 @@ function CompareCard({
     /** A file view is up: the always-on top pieces show in the copy above
      *  it (CardTop ghost), so the card's own are hidden. */
     hudLifted: boolean;
+    /** Compare dimming itself (a file view is up): the media and its top
+     *  pieces fade with it (they're drawn by the media layer). */
+    fade: SpotFade;
     file: DbFile;
     side: Side;
     rootPath: string;
@@ -1457,97 +1474,75 @@ function CompareCard({
         [focused, onFocus],
     );
 
-    // When this side gets a new file, the old player stays on top until the
-    // new one has a frame to show, so the cut never passes through black.
-    const [outgoing, setOutgoing] = useState<DbFile | null>(null);
-    const [prevFile, setPrevFile] = useState(file);
-    if (file.id !== prevFile.id) {
-        // Mid-swap already? The outgoing one is still what's visible.
-        setOutgoing(outgoing ?? prevFile);
-        setPrevFile(file);
-    } else if (file !== prevFile) {
-        setPrevFile(file); // same file, fresh scores
-    }
-    const incomingReady = useCallback(() => setOutgoing(null), []);
-    // Don't hold the old one forever if the new one never loads.
-    useEffect(() => {
-        if (!outgoing) return;
-        const t = setTimeout(incomingReady, 1500);
-        return () => clearTimeout(t);
-    }, [outgoing, incomingReady]);
-
+    // The info bar shows while the mouse is near the card's top. Read off the
+    // mouse's position (the media and the bar itself are drawn by the media
+    // layer, above the card, so the card doesn't get the mouse).
     const [showBar, setShowBar] = useState(false);
+    const cardRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (disabled) {
+            setShowBar(false);
+            return;
+        }
+        const onMove = (e: MouseEvent) => {
+            const r = cardRef.current?.getBoundingClientRect();
+            const inside = !!r && e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom;
+            setShowBar(inside && e.clientY - r!.top < INFO_BAR_ZONE_PX);
+        };
+        const onLeave = () => setShowBar(false);
+        window.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseleave", onLeave);
+        return () => {
+            window.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseleave", onLeave);
+        };
+    }, [disabled]);
 
+    // The media is a spot: the media layer draws this file's player over it
+    // (and, on a new file, keeps the old one on top until the new one has a
+    // frame, so the cut never passes through black). The top pieces ride
+    // along as the spot's overlay, above the player.
     return (
         <div
+            ref={cardRef}
             data-side={side}
-            className={`relative flex min-w-0 flex-1 flex-col overflow-hidden transition-opacity ${disabled ? "opacity-60" : ""}`}
-            onMouseMove={(e) => {
-                const top = e.currentTarget.getBoundingClientRect().top;
-                setShowBar(e.clientY - top < INFO_BAR_ZONE_PX);
-            }}
-            onMouseLeave={() => setShowBar(false)}
+            className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
         >
-            {/* Keyed siblings in one list, so the old player is the same
-                instance it was a moment ago (not remounted) while it covers
-                the swap. */}
             <div className="relative min-h-0 flex-1">
-                {[outgoing, file].map((f) => {
-                    if (!f) return null;
-                    const isOutgoing = f === outgoing;
-                    return (
-                        <div
-                            key={f.id}
-                            data-current={isOutgoing ? undefined : ""}
-                            style={!isOutgoing && hideMedia ? { opacity: 0 } : undefined}
-                            className={`absolute inset-0 ${isOutgoing ? "pointer-events-none z-10" : ""}`}
-                        >
-                            {isOutgoing ? (
-                                <MediaPlayer
-                                    file={f}
-                                    rootPath={rootPath}
-                                    disabled
-                                    muted
-                                    className="h-full w-full"
-                                    clickToPauseEnabled={false}
-                                    keyboardEnabled={false}
-                                />
-                            ) : (
-                                <MediaPlayer
-                                    file={f}
-                                    rootPath={rootPath}
-                                    disabled={disabled}
-                                    muted={!audible || disabled}
-                                    onClick={disabled ? undefined : onPick}
-                                    onMouseMove={handleMouseMove}
-                                    onReady={incomingReady}
-                                    className="h-full w-full"
-                                    clickToPauseEnabled={false}
-                                    keyboardEnabled={false}
-                                    controlsRef={controlsRef}
-                                    rotation={rotationOf(f)}
-                                />
-                            )}
-                        </div>
-                    );
-                })}
+                <MediaSpot
+                    file={file}
+                    className="absolute inset-0"
+                    fade={fade}
+                    hidePlayer={hideMedia}
+                    player={{
+                        disabled,
+                        muted: !audible || disabled,
+                        onClick: disabled ? undefined : onPick,
+                        onMouseMove: handleMouseMove,
+                        clickToPauseEnabled: false,
+                        keyboardEnabled: false,
+                        controlsRef,
+                        rotation: rotationOf(file),
+                    }}
+                    overlay={
+                        <CardTop
+                            file={file}
+                            focused={focused && !disabled}
+                            showBar={showBar}
+                            libraryRank={libraryRank}
+                            placingLabel={placingLabel}
+                            isKing={isKing}
+                            streak={streak}
+                            lifted={hudLifted}
+                            onInspectFile={onInspectFile}
+                            onCrown={onCrown}
+                            onUncrown={onUncrown}
+                            rotateLeft={rotateLeft}
+                            onGoToFolder={onGoToFolder}
+                        />
+                    }
+                />
             </div>
-
-            <CardTop
-                file={file}
-                focused={focused && !disabled}
-                showBar={showBar}
-                libraryRank={libraryRank}
-                placingLabel={placingLabel}
-                isKing={isKing}
-                streak={streak}
-                lifted={hudLifted}
-                onInspectFile={onInspectFile}
-                onCrown={onCrown}
-                onUncrown={onUncrown}
-                rotateLeft={rotateLeft}
-                onGoToFolder={onGoToFolder}
-            />
         </div>
     );
 }

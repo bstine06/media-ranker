@@ -39,6 +39,7 @@ interface MediaPlayerProps {
     rootPath: string;
     onClick?: () => void;
     onMouseMove?: (e: React.MouseEvent<HTMLDivElement>) => void;
+    onMouseLeave?: () => void;
     disabled?: boolean;
     muted?: boolean;
     className?: string;
@@ -66,6 +67,7 @@ export function MediaPlayer({
     rootPath,
     onClick,
     onMouseMove,
+    onMouseLeave,
     disabled = false,
     muted = true,
     className = "",
@@ -437,7 +439,10 @@ export function MediaPlayer({
             ref={containerRef}
             tabIndex={0}
             onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
+            onMouseLeave={() => {
+                setIsHovered(false);
+                onMouseLeave?.();
+            }}
         >
             {/* The picture, on its own so the media layer can move it apart
                 from the controls strip (src/renderer/src/media). Same box as

@@ -227,3 +227,28 @@ Checked and working: every open item in 14, 15, 16 and 17.
 - 16 FOUND + FIXED (192d2ec): in Sweep and Pass, G closed the file view and
   the same press opened it again. Now passes.
 Still yours: the rotate-then-close flicker (15, failed, not fixed yet).
+
+
+======================================================================
+18. MEDIA LAYER, STEP 2: COMPARE'S MEDIA LIVES IN THE LAYER (UNTESTED)
+======================================================================
+
+Compare should look and behave exactly as before.
+
+[ ] Pairs load; picking (click, Space, 2, ↓) swaps in the next pair with
+    no black in between (old one stays until the new one shows)
+[ ] Focus by moving the mouse over a side, and with 1 / 3; sound follows
+    the focused side (X: both)
+[ ] Hover near a side's top: the name bar shows; its buttons (crown,
+    rotate, folder) work; the rank bubble and focus line show as before
+[ ] V / Q / E / ← / → control the focused video; R rotates the focused
+    side; K crowns
+[ ] Resize the window and drag the sidebar edge: the media stays exactly
+    in its card (no lag, no offset)
+[ ] Switch to another view and back: no Compare media showing over the
+    other view; videos paused while away
+[ ] Dialogs over Compare (filter builder, settings…) are on top of the
+    media
+[ ] The file view from Compare still works as before (fly in / out, dim,
+    other side paused)
+
