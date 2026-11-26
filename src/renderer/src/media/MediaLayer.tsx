@@ -73,6 +73,9 @@ interface SpotState {
      *  newer one letting go), it flies here over this long; 0: it just
      *  appears (the default). */
     arriveMs?: number;
+    /** Spots that change file together (Compare's two sides): their old
+     *  players all go at once, when every new one is ready. */
+    group?: string;
 }
 
 interface Spot extends SpotState {
@@ -92,20 +95,38 @@ const LayerContext = createContext<LayerApi | null>(null);
 let nextSpotId = 1;
 let nextOrder = 1;
 
-/** A spot's old player, kept on top after it changed file until the new one is ready. */
+/** A spot's old player, kept on top after it changed file until the new one
+ *  (and, in a group, every new one) is ready. */
 interface Leaving {
     spotId: number;
     spot: Spot;
+    /** The spot's new player is ready. */
+    ready: boolean;
 }
 
 export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.Element {
     const spots = useRef(new Map<number, Spot>());
     const leaving = useRef(new Map<number, Leaving>());
+    // Files whose player is up and has shown something (it may be moving to
+    // another spot: no need to wait for it again).
+    const readyFiles = useRef(new Set<number>());
     const [, setTick] = useState(0);
     const changed = useCallback(() => setTick((t) => t + 1), []);
-    const endLeaving = useCallback(
-        (spotId: number) => {
-            if (leaving.current.delete(spotId)) changed();
+    // A spot's new player is ready (or its wait is over): its old one goes,
+    // with the rest of its group once they're all ready too.
+    const newReady = useCallback(
+        (spotId: number, force = false) => {
+            const l = leaving.current.get(spotId);
+            if (!l) return;
+            l.ready = true;
+            const group = l.spot.group;
+            const together = group
+                ? [...leaving.current.values()].filter((x) => x.spot.group === group)
+                : [l];
+            if (force || together.every((x) => x.ready)) {
+                for (const x of together) leaving.current.delete(x.spotId);
+                changed();
+            }
         },
         [changed],
     );
@@ -120,9 +141,13 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 if (!s) return;
                 if (s.file.id !== state.file.id) {
                     // Another file here: a new, newest claim; the old player
-                    // covers until the new one is ready.
-                    leaving.current.set(id, { spotId: id, spot: s });
+                    // covers until the new one is ready. A file that already
+                    // has a player showing (it was on another spot) needs no
+                    // waiting for.
+                    const alreadyShowing = readyFiles.current.has(state.file.id);
+                    leaving.current.set(id, { spotId: id, spot: s, ready: alreadyShowing });
                     spots.current.set(id, { ...state, id, order: nextOrder++ });
+                    if (alreadyShowing) newReady(id);
                 } else {
                     spots.current.set(id, { ...s, ...state });
                 }
@@ -134,7 +159,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 if (had || covering) changed();
             },
         }),
-        [changed],
+        [changed, newReady],
     );
 
     // Each file's player goes to its newest claim. A spot's old file (it
@@ -152,17 +177,18 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     return (
         <LayerContext.Provider value={api}>
             {children}
-            {/* Above the views (z-30); below dialogs (z-40+), toasts and the tag pointer's
-                cursor. Lets the mouse through except over a player or an
-                overlay's own controls. */}
-            <div data-media-layer className="pointer-events-none fixed inset-0 z-30">
+            {/* No box of its own: each player and overlay is placed (fixed) and
+                stacked by itself among the views (see LAYER_Z), so a view can
+                sit between players in the background and the active ones. */}
+            <div data-media-layer className="pointer-events-none">
                 {[...shown.entries()].map(([fileId, { spot, leavingFrom }]) => (
                     <LayerPlayer
                         key={fileId}
                         spot={spot}
                         leaving={leavingFrom !== null}
-                        onShown={() => endLeaving(spot.id)}
-                        onLeft={() => leavingFrom !== null && endLeaving(leavingFrom)}
+                        readyFiles={readyFiles.current}
+                        onShown={() => newReady(spot.id)}
+                        onLeft={() => leavingFrom !== null && newReady(leavingFrom, true)}
                     />
                 ))}
                 {[...spots.current.values()]
@@ -204,6 +230,23 @@ function useFollow(el: HTMLElement | null, box: MutableRefObject<HTMLDivElement 
     }, [el, box]);
 }
 
+/**
+ * Stacking among the views. A view that goes over another one (the file view
+ * over Compare) sits at FILE_VIEW: above the players its view below put in
+ * the background, below the active player, whose own overlay (the file
+ * view's buttons on the media) is above it. Dialogs (z-40+) stay on top.
+ */
+export const LAYER_Z = {
+    background: 10,
+    backgroundOverlay: 11,
+    /** A view laid over another one (Compare's file view). */
+    overView: 20,
+    active: 30,
+    leaving: 31,
+    activeOverlay: 35,
+} as const;
+const inBackground = (spot: Spot): boolean => (spot.fade?.opacity ?? 1) < 1;
+
 const fadeStyle = (fade: SpotFade | undefined, hidden = false): CSSProperties =>
     hidden
         ? { opacity: 0, transition: "none" }
@@ -244,11 +287,14 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
 function LayerPlayer({
     spot,
     leaving,
+    readyFiles,
     onShown,
     onLeft,
 }: {
     spot: Spot;
     leaving: boolean;
+    /** Kept up to date: this file is in it while its player has shown something. */
+    readyFiles: Set<number>;
     onShown: () => void;
     onLeft: () => void;
 }): JSX.Element {
@@ -260,10 +306,13 @@ function LayerPlayer({
     onReadyRef.current = spot.player.onReady;
     const onShownRef = useRef(onShown);
     onShownRef.current = onShown;
+    const fileId = spot.file.id;
     const ready = useCallback(() => {
+        readyFiles.add(fileId);
         onShownRef.current();
         onReadyRef.current?.();
-    }, []);
+    }, [readyFiles, fileId]);
+    useEffect(() => () => void readyFiles.delete(fileId), [readyFiles, fileId]);
     const onLeftRef = useRef(onLeft);
     onLeftRef.current = onLeft;
     useEffect(() => {
@@ -280,7 +329,10 @@ function LayerPlayer({
             data-layer-player={leaving ? undefined : spot.file.id}
             data-layer-leaving={leaving ? spot.file.id : undefined}
             className={`fixed ${inert ? "pointer-events-none" : "pointer-events-auto"} ${player.className ?? ""}`}
-            style={{ ...fadeStyle(spot.fade, spot.hidePlayer), zIndex: leaving ? 1 : undefined }}
+            style={{
+                ...fadeStyle(spot.fade, spot.hidePlayer),
+                zIndex: leaving ? LAYER_Z.leaving : inBackground(spot) ? LAYER_Z.background : LAYER_Z.active,
+            }}
         >
             <Player spot={{ ...spot, player }} onReady={leaving ? undefined : ready} />
         </div>
@@ -294,7 +346,12 @@ function SpotOverlay({ spot }: { spot: Spot }): JSX.Element {
     // Dimmed: its buttons ignore the mouse too (they'd sit over another view).
     const dimmed = (spot.fade?.opacity ?? 1) < 1;
     return (
-        <div ref={box} data-spot-overlay className="pointer-events-none fixed" style={fadeStyle(spot.fade)}>
+        <div
+            ref={box}
+            data-spot-overlay
+            className="pointer-events-none fixed"
+            style={{ ...fadeStyle(spot.fade), zIndex: dimmed ? LAYER_Z.backgroundOverlay : LAYER_Z.activeOverlay }}
+        >
             <div className={`relative h-full w-full ${dimmed ? "[&_*]:!pointer-events-none" : ""}`}>{spot.overlay}</div>
         </div>
     );
@@ -390,6 +447,7 @@ export function MediaSpot({
     fade,
     hidePlayer,
     arriveMs,
+    group,
     className,
     style,
 }: {
@@ -400,6 +458,8 @@ export function MediaSpot({
     hidePlayer?: boolean;
     /** Fly here over this long when the player comes from another spot. */
     arriveMs?: number;
+    /** Spots that change file together (see SpotState.group). */
+    group?: string;
     className?: string;
     style?: CSSProperties;
 }): JSX.Element {
@@ -408,7 +468,7 @@ export function MediaSpot({
     const ref = useRef<HTMLDivElement>(null);
     const id = useRef(0);
     if (id.current === 0) id.current = nextSpotId++;
-    const state = (): SpotState => ({ file, el: ref.current, player, overlay, fade, hidePlayer, arriveMs });
+    const state = (): SpotState => ({ file, el: ref.current, player, overlay, fade, hidePlayer, arriveMs, group });
     // Claimed when it appears, let go when it goes.
     useLayoutEffect(() => {
         api.claim(id.current, state());

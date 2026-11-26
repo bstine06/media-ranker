@@ -277,6 +277,18 @@ swap at the end.
 [ ] Compare's other side can't be clicked while the file view is up
 [ ] Rotate in the file view (several times, with saves), close: lands
     turned right, no flash, no stale frame
-[ ] Known for now: the rotate button at the top of the file view doesn't
-    appear on hover (use R)
+    >> First try 2026-11-26: Compare's two sides changed at different moments
+       and a side could show the previous file for ~1.5 s; in the file view no
+       hover / click / scrub; Compare's name bar reacted under the file view.
+       FIXED (pair swap checked in a scratch run: 20 picks, both sides switch
+       in the same frame, none stuck): a file moving sides isn't waited for;
+       Compare's two sides switch together; no flight on a pick. Layering:
+       the active player is above the file view (hover/click/scrub native),
+       the file view's Back / ▲▼ / rotate / tag flash are its spot's overlay
+       above it, Compare's dimmed players stay below the file view; name bar
+       off while the file view is up.
+[ ] In the file view from Compare: hover pause/play, click, scrub, rotate
+    button on hover near the top, Back, tag pointer
+[ ] Compare's other side stays dimmed (6%) under the file view, and can't
+    be clicked
 

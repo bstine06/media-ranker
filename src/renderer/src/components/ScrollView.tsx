@@ -350,30 +350,71 @@ export default function ScrollView({
             </div>
         );
 
-    return (
-        // As a spot (an inspection from Compare), the media is the media
-        // layer's player underneath: everything here lets the mouse through
-        // to it except the controls themselves.
-        <div className={`relative flex min-h-0 flex-1 ${asSpot ? "pointer-events-none" : ""}`}>
-            {onClose && (
-                <div className="absolute top-3 left-0 right-0 z-20" style={chromeStyle}>
-                    <button
-                        onClick={onClose}
-                        className="pointer-events-auto absolute left-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
-                    >
-                        ← Back
-                    </button>
+    // The pieces that sit on the media: in place, or (as a spot) the
+    // spot's overlay, drawn by the media layer above the player.
+    const backBar = onClose && (
+        <div className="absolute top-3 left-0 right-0 z-20" style={chromeStyle}>
+            <button
+                onClick={onClose}
+                className="pointer-events-auto absolute left-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
+            >
+                ← Back
+            </button>
 
-                    {progress && (
-                        <div
-                            className="absolute gap-1.5 rounded-full mr-3 bg-black/50 px-3 py-1.5 text-xs text-neutral-300"
-                            style={{ right: `${sidebarWidth}px` }}
-                        >
-                            {progress.index} / {progress.total}
-                        </div>
-                    )}
+            {progress && (
+                <div
+                    className="absolute gap-1.5 rounded-full mr-3 bg-black/50 px-3 py-1.5 text-xs text-neutral-300"
+                    style={{ right: `${sidebarWidth}px` }}
+                >
+                    {progress.index} / {progress.total}
                 </div>
             )}
+        </div>
+    );
+    const rotateButton = allowRotate && (
+        <button
+            onClick={rotateLeft}
+            title="Rotate left (R)"
+            tabIndex={nearTop ? 0 : -1}
+            className={`absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 p-2 text-neutral-300 hover:bg-black/70 hover:text-white transition-opacity duration-200 ${
+                nearTop ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+        >
+            <RotateIcon className="h-4 w-4" />
+        </button>
+    );
+    const arrows = (
+        <div
+            // Up / down mean nothing here; on closing they just go
+            // (no fade), so they don't hang over the picture.
+            style={closing ? { opacity: 0, transition: "none" } : chromeStyle}
+            className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group"
+            onKeyDown={(e) => {
+                if (e.key === " ") {
+                    e.preventDefault();
+                }
+            }}
+        >
+            <div className="flex flex-col gap-2 pointer-events-auto opacity-20 group-hover:opacity-100 duration-500">
+                <button
+                    onClick={() => navigate("up")}
+                    className="rounded-full bg-neutral-800 p-2 text-white disabled:opacity-20 hover:bg-black/80"
+                >
+                    ▲
+                </button>
+                <button
+                    onClick={() => navigate("down")}
+                    className="rounded-full bg-neutral-800 p-2 text-white hover:bg-black/80"
+                >
+                    ▼
+                </button>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="relative flex min-h-0 flex-1">
+            {!asSpot && backBar}
             <div
                 className="relative flex min-h-0 flex-1 flex-col"
                 onMouseMove={
@@ -387,25 +428,14 @@ export default function ScrollView({
                 }
                 onMouseLeave={() => setNearTop(false)}
             >
-                {allowRotate && (
-                    <button
-                        onClick={rotateLeft}
-                        title="Rotate left (R)"
-                        tabIndex={nearTop ? 0 : -1}
-                        className={`absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 p-2 text-neutral-300 hover:bg-black/70 hover:text-white transition-opacity duration-200 ${
-                            nearTop ? "opacity-100" : "pointer-events-none opacity-0"
-                        }`}
-                    >
-                        <RotateIcon className="h-4 w-4" />
-                    </button>
-                )}
+                {!asSpot && rotateButton}
                 <div
                     ref={areaRef}
                     className={`relative min-h-0 flex-1 overflow-hidden ${pointer.cursorClass}`}
                     onWheel={handleWheel}
                     {...pointer.handlers}
                 >
-                    <MediaFlash flash={pointer.flash} />
+                    {!asSpot && <MediaFlash flash={pointer.flash} />}
                     {([0, 1] as const).map((slot) => (
                         <div
                             key={slot}
@@ -432,9 +462,28 @@ export default function ScrollView({
                                             rotation: rotationOf(slotFiles[slot]!),
                                             className: pointer.cursorClass,
                                             onMouseEnter: pointer.handlers.onMouseEnter,
-                                            onMouseLeave: pointer.handlers.onMouseLeave,
+                                            onMouseLeave: () => {
+                                                pointer.handlers.onMouseLeave();
+                                                setNearTop(false);
+                                            },
+                                            onMouseMove: allowRotate
+                                                ? (e) => {
+                                                      const top = e.currentTarget.getBoundingClientRect().top;
+                                                      const near = e.clientY - top < NEAR_TOP_PX;
+                                                      if (near !== nearTop) setNearTop(near);
+                                                  }
+                                                : undefined,
                                             onContextMenu: pointer.handlers.onContextMenu,
                                         }}
+                                        // On the media, above the player.
+                                        overlay={
+                                            <>
+                                                {backBar}
+                                                {rotateButton}
+                                                <MediaFlash flash={pointer.flash} />
+                                                {arrows}
+                                            </>
+                                        }
                                     />
                                 )
                             ) : slotFiles[slot] && (
@@ -456,32 +505,7 @@ export default function ScrollView({
                     ))}
                 </div>
 
-                <div
-                    // Up / down mean nothing here; on closing they just go
-                    // (no fade), so they don't hang over the picture.
-                    style={closing ? { opacity: 0, transition: "none" } : chromeStyle}
-                    className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group"
-                    onKeyDown={(e) => {
-                        if (e.key === " ") {
-                            e.preventDefault();
-                        }
-                    }}
-                >
-                    <div className="flex flex-col gap-2 pointer-events-auto opacity-20 group-hover:opacity-100 duration-500">
-                        <button
-                            onClick={() => navigate("up")}
-                            className="rounded-full bg-neutral-800 p-2 text-white disabled:opacity-20 hover:bg-black/80"
-                        >
-                            ▲
-                        </button>
-                        <button
-                            onClick={() => navigate("down")}
-                            className="rounded-full bg-neutral-800 p-2 text-white hover:bg-black/80"
-                        >
-                            ▼
-                        </button>
-                    </div>
-                </div>
+                {!asSpot && arrows}
             </div>
 
             {/* Draggable divider */}

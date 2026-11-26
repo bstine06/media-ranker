@@ -15,7 +15,7 @@ import type {
 import { toMediaUrl, toThumbnailUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
 import { type MediaControls } from "./MediaPlayer";
-import { MediaSpot, type SpotFade } from "@renderer/media/MediaLayer";
+import { LAYER_Z, MediaSpot, type SpotFade } from "@renderer/media/MediaLayer";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -1340,7 +1340,9 @@ export default function CompareView({
             </div>
         </div>
             {inspect && (
-                <div ref={overlayRef} className="absolute inset-0 z-50 flex flex-col">
+                // Between Compare's players (in the background) and the active
+                // player in the media layer (see LAYER_Z).
+                <div ref={overlayRef} className="absolute inset-0 flex flex-col" style={{ zIndex: LAYER_Z.overView }}>
                     <SingleFileView
                         onClose={() => closeInspect(true)}
                         file={inspect.file}
@@ -1480,8 +1482,9 @@ function CompareCard({
     // layer, above the card, so the card doesn't get the mouse).
     const [showBar, setShowBar] = useState(false);
     const cardRef = useRef<HTMLDivElement>(null);
+    // Not while a file view is up over Compare (Compare's in the background).
     useEffect(() => {
-        if (disabled) {
+        if (disabled || hudLifted) {
             setShowBar(false);
             return;
         }
@@ -1497,7 +1500,7 @@ function CompareCard({
             window.removeEventListener("mousemove", onMove);
             document.removeEventListener("mouseleave", onLeave);
         };
-    }, [disabled]);
+    }, [disabled, hudLifted]);
 
     // The media is a spot: the media layer draws this file's player over it
     // (and, on a new file, keeps the old one on top until the new one has a
@@ -1515,8 +1518,11 @@ function CompareCard({
                     className="absolute inset-0"
                     fade={fade}
                     hidePlayer={hideMedia}
-                    // Its player back from the file view: it flies home.
-                    arriveMs={INSPECT_OUT_MS}
+                    // Its player back from the file view: it flies home (not
+                    // on an ordinary pick, where a file may change sides).
+                    arriveMs={hudLifted ? INSPECT_OUT_MS : 0}
+                    // Both sides of a new pair appear at once.
+                    group="compare"
                     player={{
                         disabled,
                         muted: !audible || disabled,
