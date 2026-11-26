@@ -400,3 +400,17 @@ swap at the end.
 [x] Baking a video that's playing: it carries on playing through the swap
     (no black frame / restart) (Claude's scratch run 2026-11-26): no restart;
     a black frame wasn't watched for
+
+── 27. Media layer step 4: delete fades where it is (UNTESTED) ───────────
+   A deleted file's player fades out where it is (~0.2 s, sound with it)
+   instead of going back to its card. Checked in Claude's scratch run
+   2026-11-26: from the file view over Compare and deleted in Finder while
+   on a card, it stays put and fades (picture and sound together), the
+   replacement is on that side underneath from the start, the other side
+   unchanged, no flight back.
+[ ] Compare, open a side in the file view (G), Delete: the file dissolves
+    where it is while Compare brightens; that side already shows a new file
+    (or its loading state); nothing flies back to the card
+[ ] A playing video deleted that way: its sound fades out, no cut-off pop
+[ ] A file on a Compare card deleted in Finder: it fades on its card
+[ ] After any of these: picks, G, rotation still work on both sides

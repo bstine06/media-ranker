@@ -17,6 +17,9 @@
 // - hidePlayer: the player hidden (still playing), its overlay not.
 // When a spot changes file, the old player stays on top until the new one
 // has something to show, so a swap never passes through black.
+// A file deleted (in the app or outside it): its player fades out where it
+// is (GONE_MS), not going back to any other claim; spots still naming it
+// show nothing for it until they move on.
 
 import {
     createContext,
@@ -95,6 +98,9 @@ const LayerContext = createContext<LayerApi | null>(null);
 let nextSpotId = 1;
 let nextOrder = 1;
 
+/** How long a deleted file's player takes to fade out where it is. */
+export const GONE_MS = 200;
+
 /** A spot's old player, kept on top after it changed file until the new one
  *  (and, in a group, every new one) is ready. */
 interface Leaving {
@@ -110,8 +116,23 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     // Files whose player is up and has shown something (it may be moving to
     // another spot: no need to wait for it again).
     const readyFiles = useRef(new Set<number>());
+    // Deleted files: fading out (with the spot they were shown at) …
+    const fading = useRef(new Map<number, Spot>());
+    // … and, until no spot names them any more, never shown again.
+    const deleted = useRef(new Set<number>());
     const [, setTick] = useState(0);
     const changed = useCallback(() => setTick((t) => t + 1), []);
+    // A deleted file stops being one once nothing names it (an undo can
+    // bring the same file back later).
+    const forget = useCallback(() => {
+        for (const id of deleted.current) {
+            if (fading.current.has(id)) continue;
+            const named = [...spots.current.values(), ...[...leaving.current.values()].map((l) => l.spot)].some(
+                (x) => x.file.id === id,
+            );
+            if (!named) deleted.current.delete(id);
+        }
+    }, []);
     // A spot's new player is ready (or its wait is over): its old one goes,
     // with the rest of its group once they're all ready too.
     const newReady = useCallback(
@@ -139,7 +160,12 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
             update: (id, state) => {
                 const s = spots.current.get(id);
                 if (!s) return;
-                if (s.file.id !== state.file.id) {
+                if (s.file.id !== state.file.id && deleted.current.has(s.file.id)) {
+                    // Moving on from a deleted file: it's fading by itself,
+                    // nothing to cover with.
+                    spots.current.set(id, { ...state, id, order: nextOrder++ });
+                    forget();
+                } else if (s.file.id !== state.file.id) {
                     // Another file here: a new, newest claim; the old player
                     // covers until the new one is ready. A file that already
                     // has a player showing (it was on another spot) needs no
@@ -156,10 +182,51 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
             release: (id) => {
                 const had = spots.current.delete(id);
                 const covering = leaving.current.delete(id);
+                forget();
                 if (had || covering) changed();
             },
         }),
-        [changed, newReady],
+        [changed, newReady, forget],
+    );
+
+    // A file deleted: its player stays where it's shown now and fades out.
+    useEffect(
+        () =>
+            window.api.onMediaRemoved(({ relativePath }) => {
+                const at = new Map<number, Spot>();
+                for (const s of spots.current.values()) {
+                    if (s.file.path !== relativePath) continue;
+                    const o = at.get(s.file.id);
+                    if (!o || s.order > o.order) at.set(s.file.id, s);
+                }
+                for (const [spotId, l] of leaving.current) {
+                    if (l.spot.file.path !== relativePath) continue;
+                    if (!at.has(l.spot.file.id)) at.set(l.spot.file.id, l.spot);
+                    // Covering for a spot's new file: no longer.
+                    leaving.current.delete(spotId);
+                }
+                if (at.size === 0) return;
+                for (const [fileId, spot] of at) {
+                    deleted.current.add(fileId);
+                    fading.current.set(fileId, spot);
+                }
+                // Groups that were waiting on a deleted file's cover only.
+                const groups = new Set([...leaving.current.values()].map((l) => l.spot.group).filter(Boolean));
+                for (const g of groups) {
+                    const together = [...leaving.current.values()].filter((l) => l.spot.group === g);
+                    if (together.every((l) => l.ready)) for (const l of together) leaving.current.delete(l.spotId);
+                }
+                changed();
+            }),
+        [changed],
+    );
+    const faded = useCallback(
+        (fileId: number) => {
+            fading.current.delete(fileId);
+            forget();
+            changed();
+        },
+        [changed, forget],
     );
 
     // Each file's player goes to its newest claim. A spot's old file (it
@@ -167,10 +234,12 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     // is ready: same key, so nothing is torn down.
     const shown = new Map<number, { spot: Spot; leavingFrom: number | null }>();
     for (const s of spots.current.values()) {
+        if (deleted.current.has(s.file.id)) continue;
         const o = shown.get(s.file.id);
         if (!o || s.order > o.spot.order) shown.set(s.file.id, { spot: s, leavingFrom: null });
     }
     for (const l of leaving.current.values()) {
+        if (deleted.current.has(l.spot.file.id)) continue;
         if (!shown.has(l.spot.file.id)) shown.set(l.spot.file.id, { spot: l.spot, leavingFrom: l.spotId });
     }
 
@@ -181,16 +250,41 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 stacked by itself among the views (see LAYER_Z), so a view can
                 sit between players in the background and the active ones. */}
             <div data-media-layer className="pointer-events-none">
-                {[...shown.entries()].map(([fileId, { spot, leavingFrom }]) => (
-                    <LayerPlayer
-                        key={fileId}
-                        spot={spot}
-                        leaving={leavingFrom !== null}
-                        readyFiles={readyFiles.current}
-                        onShown={() => newReady(spot.id)}
-                        onLeft={() => leavingFrom !== null && newReady(leavingFrom, true)}
-                    />
-                ))}
+                {/* One list, keyed by file and kept in file order: a deleted
+                    file's player stays the same element in the same place in
+                    the page (a moved element would lose its fade), so it
+                    fades where it is. */}
+                {[
+                    ...[...shown.entries()].map(([fileId, { spot, leavingFrom }]) => ({
+                        fileId,
+                        el: (
+                            <LayerPlayer
+                                key={fileId}
+                                spot={spot}
+                                leaving={leavingFrom !== null}
+                                readyFiles={readyFiles.current}
+                                onShown={() => newReady(spot.id)}
+                                onLeft={() => leavingFrom !== null && newReady(leavingFrom, true)}
+                            />
+                        ),
+                    })),
+                    ...[...fading.current.entries()].map(([fileId, spot]) => ({
+                        fileId,
+                        el: (
+                            <LayerPlayer
+                                key={fileId}
+                                spot={spot}
+                                leaving={false}
+                                gone
+                                readyFiles={readyFiles.current}
+                                onShown={() => {}}
+                                onLeft={() => faded(fileId)}
+                            />
+                        ),
+                    })),
+                ]
+                    .sort((x, y) => x.fileId - y.fileId)
+                    .map((x) => x.el)}
                 {[...spots.current.values()]
                     .filter((s) => s.overlay)
                     .map((s) => (
@@ -287,12 +381,16 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
 function LayerPlayer({
     spot,
     leaving,
+    gone = false,
     readyFiles,
     onShown,
     onLeft,
 }: {
     spot: Spot;
     leaving: boolean;
+    /** Its file was deleted: it stays where it is and fades out (sound
+     *  too), then onLeft. */
+    gone?: boolean;
     /** Kept up to date: this file is in it while its player has shown something. */
     readyFiles: Set<number>;
     onShown: () => void;
@@ -301,7 +399,8 @@ function LayerPlayer({
     const box = useRef<HTMLDivElement | null>(null);
     // Before following the new spot: a player changing spots flies there.
     useFlight(spot, box);
-    useFollow(spot.el, box);
+    // Deleted: stays where it was last placed.
+    useFollow(gone ? null : spot.el, box);
     const onReadyRef = useRef(spot.player.onReady);
     onReadyRef.current = spot.player.onReady;
     const onShownRef = useRef(onShown);
@@ -320,21 +419,47 @@ function LayerPlayer({
         const t = setTimeout(() => onLeftRef.current(), 1500);
         return () => clearTimeout(t);
     }, [leaving]);
-    const player = leaving ? { ...spot.player, onClick: undefined, controlsRef: undefined } : spot.player;
+    // Deleted: the sound fades with the picture, then it stops.
+    useEffect(() => {
+        if (!gone) return;
+        const videos = [...(box.current?.querySelectorAll("video") ?? [])];
+        const from = videos.map((v) => v.volume);
+        const t0 = performance.now();
+        let raf = 0;
+        const step = () => {
+            const k = Math.max(0, 1 - (performance.now() - t0) / GONE_MS);
+            videos.forEach((v, i) => (v.volume = from[i] * k));
+            if (k > 0) raf = requestAnimationFrame(step);
+            else videos.forEach((v) => v.pause());
+        };
+        raf = requestAnimationFrame(step);
+        const t = setTimeout(() => onLeftRef.current(), GONE_MS + 30);
+        return () => {
+            cancelAnimationFrame(raf);
+            clearTimeout(t);
+        };
+    }, [gone]);
+    const player =
+        leaving || gone
+            ? { ...spot.player, onClick: undefined, controlsRef: undefined, keyboardEnabled: false, onReady: undefined }
+            : spot.player;
     // Dimmed (its view in the background) or hidden: the mouse goes past it.
-    const inert = leaving || spot.hidePlayer || (spot.fade?.opacity ?? 1) < 1;
+    const inert = leaving || gone || spot.hidePlayer || (spot.fade?.opacity ?? 1) < 1;
     return (
         <div
             ref={box}
-            data-layer-player={leaving ? undefined : spot.file.id}
+            data-layer-player={leaving || gone ? undefined : spot.file.id}
             data-layer-leaving={leaving ? spot.file.id : undefined}
+            data-layer-gone={gone ? spot.file.id : undefined}
             className={`fixed ${inert ? "pointer-events-none" : "pointer-events-auto"} ${player.className ?? ""}`}
             style={{
-                ...fadeStyle(spot.fade, spot.hidePlayer),
-                zIndex: leaving ? LAYER_Z.leaving : inBackground(spot) ? LAYER_Z.background : LAYER_Z.active,
+                ...(gone
+                    ? { opacity: 0, transition: `opacity ${GONE_MS}ms ease-out` }
+                    : fadeStyle(spot.fade, spot.hidePlayer)),
+                zIndex: leaving || gone ? LAYER_Z.leaving : inBackground(spot) ? LAYER_Z.background : LAYER_Z.active,
             }}
         >
-            <Player spot={{ ...spot, player }} onReady={leaving ? undefined : ready} />
+            <Player spot={{ ...spot, player }} onReady={leaving || gone ? undefined : ready} />
         </div>
     );
 }
