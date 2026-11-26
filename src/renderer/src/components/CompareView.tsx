@@ -188,6 +188,9 @@ export default function CompareView({
     const resumeOtherSide = useRef<Side | null>(null);
     const overlayRef = useRef<HTMLDivElement>(null);
     const stopFollowing = useRef<(() => void) | null>(null);
+    // While paused: the exact time the hidden copy last jumped to (null:
+    // it hasn't, or it's playing).
+    const mineJumpedTo = useRef<number | null>(null);
     const onInspectShown = useCallback(() => {
         const i = inspectRef.current;
         if (i && !i.shown) {
@@ -199,11 +202,22 @@ export default function CompareView({
             const theirs = shownVideo(overlayRef.current);
             if (mine && theirs) {
                 const follow = () => {
+                    if (theirs.paused) {
+                        // Paused, a still frame shows: same time isn't
+                        // enough. Jump to exactly theirs, the way theirs got
+                        // there, so both pick the same frame.
+                        if (!mine.paused) mine.pause();
+                        if (mineJumpedTo.current !== theirs.currentTime) {
+                            mineJumpedTo.current = theirs.currentTime;
+                            mine.currentTime = theirs.currentTime;
+                        }
+                        return;
+                    }
+                    mineJumpedTo.current = null;
                     if (Math.abs(mine.currentTime - theirs.currentTime) > 0.04) {
                         mine.currentTime = theirs.currentTime;
                     }
-                    if (theirs.paused && !mine.paused) mine.pause();
-                    else if (!theirs.paused && mine.paused) mine.play().catch(() => {});
+                    if (mine.paused) mine.play().catch(() => {});
                 };
                 const events = ["seeked", "play", "pause", "playing"] as const;
                 for (const ev of events) theirs.addEventListener(ev, follow);
@@ -222,6 +236,7 @@ export default function CompareView({
         if (inspect) return;
         stopFollowing.current?.();
         stopFollowing.current = null;
+        mineJumpedTo.current = null;
     }, [inspect]);
     // This side's own copy is hidden while the file view's is up.
     const hiddenSide = (side: Side, file: DbFile): boolean =>
@@ -253,12 +268,15 @@ export default function CompareView({
             finish();
             return;
         }
-        // In step (within a frame, same playing / paused): just swap.
-        if (
-            theirs &&
-            Math.abs(mine.currentTime - theirs.currentTime) < 0.05 &&
-            mine.paused === theirs.paused
-        ) {
+        // In step: just swap. Playing: within a frame. Paused: this copy
+        // jumped to exactly theirs and has finished getting there.
+        const inStep =
+            !!theirs &&
+            mine.paused === theirs.paused &&
+            (theirs.paused
+                ? mineJumpedTo.current === theirs.currentTime && !mine.seeking
+                : Math.abs(mine.currentTime - theirs.currentTime) < 0.05);
+        if (inStep) {
             finish();
             return;
         }
@@ -279,10 +297,15 @@ export default function CompareView({
             else swap();
         };
         const cap = setTimeout(swap, 300);
-        if (Math.abs(mine.currentTime - time) < 0.02) {
+        // Paused: only an exact jump to that time counts (see follow).
+        const there = state.paused
+            ? mineJumpedTo.current === time && !mine.seeking
+            : Math.abs(mine.currentTime - time) < 0.02;
+        if (there) {
             swap();
         } else {
             mine.addEventListener("seeked", onSeeked);
+            mineJumpedTo.current = time;
             mine.currentTime = time;
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
