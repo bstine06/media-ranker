@@ -230,25 +230,26 @@ Still yours: the rotate-then-close flicker (15, failed, not fixed yet).
 
 
 ======================================================================
-18. MEDIA LAYER, STEP 2: COMPARE'S MEDIA LIVES IN THE LAYER (UNTESTED)
+18. MEDIA LAYER, STEP 2: COMPARE'S MEDIA LIVES IN THE LAYER
 ======================================================================
 
 Compare should look and behave exactly as before.
 
-[ ] Pairs load; picking (click, Space, 2, ↓) swaps in the next pair with
+[y] Pairs load; picking (click, Space, 2, ↓) swaps in the next pair with
     no black in between (old one stays until the new one shows)
-[ ] Focus by moving the mouse over a side, and with 1 / 3; sound follows
+[y] Focus by moving the mouse over a side, and with 1 / 3; sound follows
     the focused side (X: both)
-[ ] Hover near a side's top: the name bar shows; its buttons (crown,
+[y] Hover near a side's top: the name bar shows; its buttons (crown,
     rotate, folder) work; the rank bubble and focus line show as before
-[ ] V / Q / E / ← / → control the focused video; R rotates the focused
+[y] V / Q / E / ← / → control the focused video; R rotates the focused
     side; K crowns
-[ ] Resize the window and drag the sidebar edge: the media stays exactly
+[y] Resize the window and drag the sidebar edge: the media stays exactly
     in its card (no lag, no offset)
-[ ] Switch to another view and back: no Compare media showing over the
+[y] Switch to another view and back: no Compare media showing over the
     other view; videos paused while away
-[ ] Dialogs over Compare (filter builder, settings…) are on top of the
+[y] Dialogs over Compare (filter builder, settings…) are on top of the
     media
-[ ] The file view from Compare still works as before (fly in / out, dim,
+[y] The file view from Compare still works as before (fly in / out, dim,
     other side paused)
-
+>> 2026-11-26 user: all good. Resize is a bit chunky (maybe no worse than
+   before); accepted as a trade-off for now.
