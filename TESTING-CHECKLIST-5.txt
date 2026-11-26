@@ -113,7 +113,7 @@ side's file name).
 [y] No black box: around the picture you see dimmed Compare, both
     going in and in the file view itself
 [y] Only one copy on screen the whole time, going in and coming back
-[ ] No flicker opening from Compare (video and picture): Compare dims at
+[y] No flicker opening from Compare (video and picture): Compare dims at
     the same moment the moving copy appears, and a video starts moving
     already at the right moment (no glimpse of its first frame)
 [y] The tag panel slides in from the right edge as the picture grows,
@@ -125,19 +125,27 @@ side's file name).
     place; the buttons and tag panel fade in. Nothing snaps
 [y] ← Back: it shrinks back onto its side and Compare brightens around
     it; it lands exactly on the picture, no jump at the end
-[ ] Both sides: left and right, tall and wide files
+[ ] Both sides (left and right), each with a portrait file and a
+    landscape file
 [ ] A video playing part-way: the file view carries on from the same
     moment (no restart). Scrub somewhere else, ← Back: Compare's side
     carries on from there
-[ ] A paused video stays paused going in and coming back
-[ ] Nothing moves behind the file view: the other side's video pauses
+[N] A paused video stays paused going in and coming back
+    >> FAILED 2026-11-25: a video paused in Compare plays as soon as the
+       file view opens
+[y] Nothing moves behind the file view: the other side's video pauses
     as Compare dims, and picks up again on closing (if it was playing)
 [y] Closing a video: it lands and carries straight on, no stray frame
     and no pause at the landing. Also after scrubbing, pausing and
     playing in the file view; sound as before
-[ ] Delete the file from the file view: it fades away (no flying back
+[y] Delete the file from the file view: it fades away (no flying back
     to a file that's gone); Compare refills that side
-[ ] Rotate a file in the file view, ← Back: Compare shows it rotated
+    >> Works, but ⌘Z on that delete doesn't bring back the previous
+       matchup (it should, like undoing a pick does). Open, to discuss
+[N] Rotate a file in the file view, ← Back: Compare shows it rotated
+    >> FAILED 2026-11-25: closing before the rotation is saved (the new
+       version swapped in) gives the stray-frame flicker on return.
+       User thinks the fix belongs in the rotate logic. Open, to discuss
 [ ] Opening the file view from Sweep, Pass, Browse, Coverage, the side
     panel: works exactly as before (no animation yet)
 
