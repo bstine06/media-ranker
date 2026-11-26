@@ -4,6 +4,7 @@ import { DbFile, DbFolder, DbTag, DbTagCategory, getAllTagCategories } from "@ma
 import type { PoolFilter } from "@main/elo";
 import type { FilterNode } from "@main/tagFilter";
 import type { HistoryItem, Applied as HistoryApplied } from "@main/undo";
+import type { BakePlan } from "@main/bake";
 
 export interface FolderNode {
     name: string;
@@ -174,6 +175,11 @@ const api = {
     /** One more quarter turn counter-clockwise on the file's rotation
      *  setting (one undo entry). Resolves to the fresh record. */
     turnFile: (fileId: number): Promise<DbFile> => ipcRenderer.invoke("file:turn", fileId),
+
+    /** How baking the file's edits would go (see main/bake.ts). */
+    bakePlan: (fileId: number): Promise<BakePlan> => ipcRenderer.invoke("file:bake-plan", fileId),
+    /** Bake the file's edits into it (one undo entry). The fresh record. */
+    bakeFile: (fileId: number): Promise<DbFile> => ipcRenderer.invoke("file:bake", fileId),
 
     rotateFile: (relPath: string, quarterTurns: number): Promise<DbFile> =>
         ipcRenderer.invoke("file:rotate", relPath, quarterTurns),

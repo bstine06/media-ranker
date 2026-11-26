@@ -310,6 +310,10 @@ declare global {
             /** Rotates a file left by quarter turns, in place; resolves to its fresh record. */
             /** One more quarter turn counter-clockwise on the file's rotation setting. */
             turnFile: (fileId: number) => Promise<DbFile>;
+            bakePlan: (
+                fileId: number,
+            ) => Promise<{ ok: true; lossy: boolean } | { ok: false; reason: string }>;
+            bakeFile: (fileId: number) => Promise<DbFile>;
             rotateFile: (relPath: string, quarterTurns: number) => Promise<DbFile>;
             openFile: () => Promise<string | null>;
             deleteFile: (fileId: number) => Promise<void>;

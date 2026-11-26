@@ -140,6 +140,7 @@ import {
     type PlacementBounds,
 } from "./placement";
 import { rotateTrackedFile, previousVersionPath } from "./rotate";
+import { bakeFile, bakePlan } from "./bake";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
 import {
@@ -944,6 +945,34 @@ function registerIpcHandlers(): void {
         step.commit();
         BrowserWindow.getAllWindows()[0]?.webContents.send("media:updated", {
             relativePath: before.path,
+            file: updated,
+        });
+        return updated;
+    });
+
+    // How baking a file's edits would go: lossless, lossy (warned first), or
+    // not possible (why).
+    ipcMain.handle("file:bake-plan", async (_event, fileId: number) => {
+        if (!rootPath) throw new Error("No library open");
+        const file = getFileById(fileId);
+        if (!file) throw new Error("File not found");
+        return bakePlan(file, path.join(rootPath, file.path));
+    });
+
+    // Bake a file's edits into it (one undo entry: undo puts the original
+    // file and the edits back). Returns the fresh record and tells every view.
+    ipcMain.handle("file:bake", async (_event, fileId: number) => {
+        if (!rootPath) throw new Error("No library open");
+        const file = getFileById(fileId);
+        if (!file) throw new Error("File not found");
+        if (file.rotation % 4 === 0) return file;
+        const step = beginStep(`Baked ${file.filename}`);
+        const held = await bakeFile(rootPath, file, ignoredPaths, (fn) => step.db(fn));
+        step.disk({ kind: "swap", fileId: file.id, held });
+        step.commit();
+        const updated = getFileById(file.id);
+        BrowserWindow.getAllWindows()[0]?.webContents.send("media:updated", {
+            relativePath: file.path,
             file: updated,
         });
         return updated;

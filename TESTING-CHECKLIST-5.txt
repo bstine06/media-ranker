@@ -362,3 +362,22 @@ swap at the end.
     turned one; turning back to upright (4 presses or ⌘Z) greys it again
 [ ] No rotate button floats over the media any more
 [ ] The "Tags" heading is still there under the Edits row
+
+── 25. Bake, step 6 (UNTESTED) ────────────────────────────────────────────
+   Bake writes the rotation into the file. Lossless: JPEG (orientation tag),
+   MP4 / MOV / M4V / 3GP (rotation flag), PNG, BMP, TIFF. Re-saved, warning
+   first: WebP, AVIF, HEIC, GIF, WebM / OGV, a JPEG with EXIF but no
+   orientation tag. Not possible: SVG, animated WebP / PNG.
+   (Checked outside the app on generated files: JPEG tag set and picture
+   data byte-identical, PNG / WebP / GIF frames / MP4 flag / WebM turned.)
+[ ] The Tags heading row is gone (Edits row, then the tags)
+[ ] Turned JPEG, Bake: plain confirm (no quality warning); after it Bake
+    greys out, the file still shows turned the same, no flash / double turn
+[ ] That JPEG in Finder / Preview now opens turned
+[ ] Turned MP4 / MOV (a big one too): plain confirm; "Baking…" while it
+    works; plays on from where it was; in QuickTime it's turned
+[ ] Turned WebP or GIF: the warning ("lowers its quality slightly"); after
+    baking it shows turned, animated GIFs still animate at the same speed
+[ ] ⌘Z after a bake: the original file is back (Finder shows it unturned)
+    and the app shows it turned again with Bake lit; ⇧⌘Z bakes it again
+[ ] Thumbnails / tiles after a bake: turned the same, no double turn
