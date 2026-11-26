@@ -182,10 +182,11 @@ export default function ScrollView({
         }, INSPECT_MS + 50);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    // A slow load doesn't hold it up for long.
+    // A slow load doesn't hold it up for long. (A video waits for its jump
+    // to the handed-over moment, so it gets longer.)
     useEffect(() => {
         if (!inspect) return;
-        const t = setTimeout(growIn, inspect.startAt ? 250 : 150);
+        const t = setTimeout(growIn, inspect.startAt ? 500 : 150);
         return () => clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

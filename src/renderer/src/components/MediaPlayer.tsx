@@ -205,12 +205,19 @@ export function MediaPlayer({
         }, 3000);
         return () => clearTimeout(t);
     }, [handoff]);
+    // Opened from another player (startAt): it's ready once it has jumped
+    // to that moment, not on its first frame (the very start of the video).
+    const readyAfterSeekRef = useRef(isVideo && !!startAt);
     const finishHandoff = (v: HTMLVideoElement): void => {
         const resume = resumeRef.current;
         if (!resume) return;
         resumeRef.current = null;
         if (!resume.paused && !disabled) v.play().catch(() => {});
         setHandoff(null);
+        if (readyAfterSeekRef.current) {
+            readyAfterSeekRef.current = false;
+            reportReady();
+        }
     };
     const [isHovered, setIsHovered] = useState(false);
 
@@ -431,7 +438,9 @@ export function MediaPlayer({
                             const v = videoRef.current;
                             if (v) finishHandoff(v);
                         }}
-                        onLoadedData={reportReady}
+                        onLoadedData={() => {
+                            if (!readyAfterSeekRef.current) reportReady();
+                        }}
                         onPlay={() => setPlaying(true)}
                         onPause={() => {
                             // The old version pausing for the hand-off isn't

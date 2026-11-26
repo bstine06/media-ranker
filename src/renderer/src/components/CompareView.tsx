@@ -1137,7 +1137,9 @@ export default function CompareView({
         <div
             className="relative flex flex-1 flex-col overflow-hidden"
             style={{
-                opacity: inspect && !inspect.closing ? 0.06 : 1,
+                // Dims when the file view's copy appears (not before: this
+                // side's own copy would darken, then the moving one pop in).
+                opacity: inspect?.shown && !inspect.closing ? 0.06 : 1,
                 transition: `opacity ${INSPECT_MS}ms ease-out`,
             }}
         >
