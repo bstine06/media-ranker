@@ -23,6 +23,7 @@ import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { formatFileSize } from "@renderer/lib/media";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { MediaSlide } from "./MediaSlide";
+import { MediaSpot } from "@renderer/media/MediaLayer";
 import ConfirmDialog from "./ConfirmDialog";
 import { CrownIcon } from "./icons/CrownIcon";
 import { TrashIcon } from "./icons/TrashIcon";
@@ -56,6 +57,10 @@ export interface InspectProps {
     /** It's showing (starting to grow in): the view underneath can hide
      *  its own copy now, so there's only ever one on screen. */
     onShown?: () => void;
+    /** The media is a spot of the media layer (the very player of the view
+     *  it came from flies here and back); the rest above is for the older,
+     *  two-copy way, until it's gone. */
+    asSpot?: boolean;
 }
 
 export default function ScrollView({
@@ -174,10 +179,21 @@ export default function ScrollView({
         stopBar.current = from && to ? flyBar(area, areaRest, fromF, toF, from, to, hold, ms) : () => {};
     };
     useEffect(() => () => stopBar.current(), []);
+    const asSpot = !!inspect?.asSpot;
+    // As a spot: the player is already there and flies itself; the chrome
+    // comes in at once and the view underneath is told it's showing.
+    useLayoutEffect(() => {
+        if (!asSpot || flewIn.current) return;
+        flewIn.current = true;
+        setChromeShown(true);
+        inspectRef.current?.onShown?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     // Hidden until there's a picture to measure (it starts where it was).
     // Not once it's grown in: a picture can be ready before this runs a
     // second time (React re-runs effects on mount in development).
     useLayoutEffect(() => {
+        if (asSpot) return;
         if (inspect?.from && areaRef.current && !flewIn.current) areaRef.current.style.opacity = "0";
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -210,7 +226,7 @@ export default function ScrollView({
     // A slow load doesn't hold it up for long. (A video waits for its jump
     // to the handed-over moment, so it gets longer.)
     useEffect(() => {
-        if (!inspect) return;
+        if (!inspect || asSpot) return;
         const t = setTimeout(growIn, inspect.startAt ? 500 : 150);
         return () => clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -221,6 +237,12 @@ export default function ScrollView({
         if (!insp?.closing) return;
         flewIn.current = true;
         setChromeShown(false);
+        if (asSpot) {
+            // The spot goes (see the render), so the player flies back by
+            // itself; done once it has landed.
+            const t = setTimeout(() => insp.onClosed(null), INSPECT_OUT_MS);
+            return () => clearTimeout(t);
+        }
         const area = areaRef.current;
         const to = insp.closing.to;
         const pic = pictureRect(area);
@@ -329,12 +351,15 @@ export default function ScrollView({
         );
 
     return (
-        <div className="relative flex min-h-0 flex-1">
+        // As a spot (an inspection from Compare), the media is the media
+        // layer's player underneath: everything here lets the mouse through
+        // to it except the controls themselves.
+        <div className={`relative flex min-h-0 flex-1 ${asSpot ? "pointer-events-none" : ""}`}>
             {onClose && (
                 <div className="absolute top-3 left-0 right-0 z-20" style={chromeStyle}>
                     <button
                         onClick={onClose}
-                        className="absolute left-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
+                        className="pointer-events-auto absolute left-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-neutral-300 hover:bg-black/70 transition-colors"
                     >
                         ← Back
                     </button>
@@ -391,7 +416,28 @@ export default function ScrollView({
                                 zIndex: slot === frontSlot ? 2 : 1,
                             }}
                         >
-                            {slotFiles[slot] && (
+                            {slotFiles[slot] && asSpot && slot === frontSlot && slotFiles[slot]!.id === initialFile?.id ? (
+                                // The same player as the view it came from,
+                                // flown here by the media layer; gone while
+                                // closing, so it flies back.
+                                !closing && (
+                                    <MediaSpot
+                                        file={slotFiles[slot]!}
+                                        className="absolute inset-0"
+                                        arriveMs={INSPECT_MS}
+                                        player={{
+                                            disabled: !active,
+                                            muted: false,
+                                            seeThrough: true,
+                                            rotation: rotationOf(slotFiles[slot]!),
+                                            className: pointer.cursorClass,
+                                            onMouseEnter: pointer.handlers.onMouseEnter,
+                                            onMouseLeave: pointer.handlers.onMouseLeave,
+                                            onContextMenu: pointer.handlers.onContextMenu,
+                                        }}
+                                    />
+                                )
+                            ) : slotFiles[slot] && (
                                 <MediaSlide
                                     file={slotFiles[slot]!}
                                     rootPath={rootPath}
@@ -440,7 +486,7 @@ export default function ScrollView({
 
             {/* Draggable divider */}
             <div
-                className="relative w-1 bg-neutral-800 hover:bg-neutral-600 cursor-ew-resize group z-30"
+                className="pointer-events-auto relative w-1 bg-neutral-800 hover:bg-neutral-600 cursor-ew-resize group z-30"
                 style={panelStyle}
                 onMouseDown={panelResize.onMouseDown}
             >
@@ -448,7 +494,7 @@ export default function ScrollView({
             </div>
 
             <div
-                className="flex flex-col h-full overflow-hidden"
+                className="pointer-events-auto flex flex-col h-full overflow-hidden"
                 style={{ width: `${sidebarWidth}px`, ...panelStyle }}
             >
                 <div className="flex flex-col gap-1 px-3 py-2 border-b border-neutral-800 text-sm">
@@ -576,6 +622,7 @@ export default function ScrollView({
             </div>
 
             {showConfirm && (
+                <div className="pointer-events-auto">
                 <ConfirmDialog
                     title="Delete File"
                     message={`Delete "${currentFile.filename}"? ⌘Z brings it back until the app quits; then it goes to the Trash.`}
@@ -583,6 +630,7 @@ export default function ScrollView({
                     onConfirm={handleDelete}
                     onCancel={() => setShowConfirm(false)}
                 />
+                </div>
             )}
         </div>
     );

@@ -1285,7 +1285,7 @@ export default function CompareView({
                         disabled={!active}
                         focused={focus === "a"}
                         audible={(compareBothAudio || focus === "a") && audibleDuringInspect("a")}
-                        hideMedia={hiddenSide("a", a)}
+                        hideMedia={false}
                         hudLifted={!!inspect}
                         fade={mediaFade}
                         controlsRef={controlsA}
@@ -1315,7 +1315,7 @@ export default function CompareView({
                         disabled={!active}
                         focused={focus === "b"}
                         audible={(compareBothAudio || focus === "b") && audibleDuringInspect("b")}
-                        hideMedia={hiddenSide("b", b)}
+                        hideMedia={false}
                         hudLifted={!!inspect}
                         fade={mediaFade}
                         controlsRef={controlsB}
@@ -1353,6 +1353,7 @@ export default function CompareView({
                             closing: inspect.closing,
                             onClosed: onInspectClosed,
                             onShown: onInspectShown,
+                            asSpot: true,
                         }}
                     />
                 </div>
@@ -1514,6 +1515,8 @@ function CompareCard({
                     className="absolute inset-0"
                     fade={fade}
                     hidePlayer={hideMedia}
+                    // Its player back from the file view: it flies home.
+                    arriveMs={INSPECT_OUT_MS}
                     player={{
                         disabled,
                         muted: !audible || disabled,

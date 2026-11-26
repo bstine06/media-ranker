@@ -40,6 +40,8 @@ interface MediaPlayerProps {
     onClick?: () => void;
     onMouseMove?: (e: React.MouseEvent<HTMLDivElement>) => void;
     onMouseLeave?: () => void;
+    onMouseEnter?: () => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
     disabled?: boolean;
     muted?: boolean;
     className?: string;
@@ -68,6 +70,8 @@ export function MediaPlayer({
     onClick,
     onMouseMove,
     onMouseLeave,
+    onMouseEnter,
+    onContextMenu,
     disabled = false,
     muted = true,
     className = "",
@@ -438,7 +442,11 @@ export function MediaPlayer({
             onMouseMove={handleMouseMove}
             ref={containerRef}
             tabIndex={0}
-            onMouseEnter={() => setIsHovered(true)}
+            onMouseEnter={() => {
+                setIsHovered(true);
+                onMouseEnter?.();
+            }}
+            onContextMenu={onContextMenu}
             onMouseLeave={() => {
                 setIsHovered(false);
                 onMouseLeave?.();

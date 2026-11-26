@@ -34,6 +34,7 @@ import {
 import type { DbFile } from "@renderer/shared/types/types";
 import { MediaPlayer, type MediaControls } from "@renderer/components/MediaPlayer";
 import { useFolders } from "@renderer/contexts/FolderContext";
+import { INSPECT_EASE, flightCss, flyTo, pictureRect } from "@renderer/lib/inspect";
 
 /** How a spot wants the player to behave while it has it. */
 export interface SpotPlayer {
@@ -45,10 +46,14 @@ export interface SpotPlayer {
     onClick?: () => void;
     onMouseMove?: (e: React.MouseEvent<HTMLDivElement>) => void;
     onMouseLeave?: () => void;
+    onMouseEnter?: () => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
     onReady?: () => void;
     rotation?: number;
     seeThrough?: boolean;
     barFitsPicture?: boolean;
+    /** Extra classes on the player's box (e.g. the tag pointer hiding the cursor). */
+    className?: string;
 }
 
 /** The player and overlay's opacity, and how fast it changes. */
@@ -64,6 +69,10 @@ interface SpotState {
     overlay?: ReactNode;
     fade?: SpotFade;
     hidePlayer?: boolean;
+    /** When the player comes here from another spot (a newer claim, or the
+     *  newer one letting go), it flies here over this long; 0: it just
+     *  appears (the default). */
+    arriveMs?: number;
 }
 
 interface Spot extends SpotState {
@@ -217,6 +226,8 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
             onClick={p.onClick}
             onMouseMove={p.onMouseMove}
             onMouseLeave={p.onMouseLeave}
+            onMouseEnter={p.onMouseEnter}
+            onContextMenu={p.onContextMenu}
             onReady={onReady}
             rotation={p.rotation}
             seeThrough={p.seeThrough}
@@ -242,6 +253,8 @@ function LayerPlayer({
     onLeft: () => void;
 }): JSX.Element {
     const box = useRef<HTMLDivElement | null>(null);
+    // Before following the new spot: a player changing spots flies there.
+    useFlight(spot, box);
     useFollow(spot.el, box);
     const onReadyRef = useRef(spot.player.onReady);
     onReadyRef.current = spot.player.onReady;
@@ -259,12 +272,14 @@ function LayerPlayer({
         return () => clearTimeout(t);
     }, [leaving]);
     const player = leaving ? { ...spot.player, onClick: undefined, controlsRef: undefined } : spot.player;
+    // Dimmed (its view in the background) or hidden: the mouse goes past it.
+    const inert = leaving || spot.hidePlayer || (spot.fade?.opacity ?? 1) < 1;
     return (
         <div
             ref={box}
             data-layer-player={leaving ? undefined : spot.file.id}
             data-layer-leaving={leaving ? spot.file.id : undefined}
-            className={leaving ? "pointer-events-none fixed" : "pointer-events-auto fixed"}
+            className={`fixed ${inert ? "pointer-events-none" : "pointer-events-auto"} ${player.className ?? ""}`}
             style={{ ...fadeStyle(spot.fade, spot.hidePlayer), zIndex: leaving ? 1 : undefined }}
         >
             <Player spot={{ ...spot, player }} onReady={leaving ? undefined : ready} />
@@ -276,11 +291,91 @@ function LayerPlayer({
 function SpotOverlay({ spot }: { spot: Spot }): JSX.Element {
     const box = useRef<HTMLDivElement | null>(null);
     useFollow(spot.el, box);
+    // Dimmed: its buttons ignore the mouse too (they'd sit over another view).
+    const dimmed = (spot.fade?.opacity ?? 1) < 1;
     return (
         <div ref={box} data-spot-overlay className="pointer-events-none fixed" style={fadeStyle(spot.fade)}>
-            <div className="relative h-full w-full">{spot.overlay}</div>
+            <div className={`relative h-full w-full ${dimmed ? "[&_*]:!pointer-events-none" : ""}`}>{spot.overlay}</div>
         </div>
     );
+}
+
+/**
+ * A player changing spots (a newer claim on its file, or the newer one
+ * letting go) flies to the new one, if that spot asks for it (arriveMs).
+ * The player's box goes straight to the new spot. Inside it, the picture is
+ * moved by a transform from where it was on screen, easing to nothing (one
+ * smooth curve); the controls strip is moved by layout from where it was to
+ * its place, on the same curve, so it's laid out right (not scaled) all the
+ * way. Nothing is copied: it's the same element, still playing.
+ */
+function useFlight(spot: Spot, box: MutableRefObject<HTMLDivElement | null>): void {
+    const lastSpot = useRef<number | null>(null);
+    const stop = useRef<() => void>(() => {});
+    useLayoutEffect(() => {
+        const prev = lastSpot.current;
+        lastSpot.current = spot.id;
+        const b = box.current;
+        const el = spot.el;
+        const ms = spot.arriveMs ?? 0;
+        if (prev === null || prev === spot.id || !b || !el || ms <= 0) return;
+        stop.current();
+        const pictureEl = b.querySelector<HTMLElement>("[data-picture]");
+        const root = pictureEl?.parentElement as HTMLElement | null;
+        const hud = b.querySelector<HTMLElement>("[data-hud]");
+        // Where it is now (still over the old spot).
+        const fromPic = pictureRect(b);
+        const fromBar = hud?.getBoundingClientRect() ?? null;
+        // To the new spot.
+        const r = el.getBoundingClientRect();
+        Object.assign(b.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+        const ease = `${ms}ms ${INSPECT_EASE}`;
+        const cleanups: (() => void)[] = [];
+        if (root) {
+            const overflow = root.style.overflow;
+            root.style.overflow = "visible"; // the picture starts outside the new box
+            cleanups.push(() => (root.style.overflow = overflow));
+        }
+        const toPic = pictureRect(b);
+        if (pictureEl && fromPic && toPic) {
+            const f = flyTo(b.getBoundingClientRect(), toPic, fromPic);
+            Object.assign(pictureEl.style, { transformOrigin: "0 0", transition: "none", transform: flightCss(f) });
+            void pictureEl.offsetWidth;
+            Object.assign(pictureEl.style, { transition: `transform ${ease}`, transform: "none" });
+            cleanups.push(() => Object.assign(pictureEl.style, { transition: "", transform: "", transformOrigin: "" }));
+        }
+        const frame = hud?.parentElement;
+        if (hud && frame && fromBar) {
+            const fr = frame.getBoundingClientRect();
+            Object.assign(hud.style, {
+                transition: "none",
+                left: `${fromBar.left - fr.left}px`,
+                top: `${fromBar.top - fr.top}px`,
+                width: `${fromBar.width}px`,
+                height: `${fromBar.height}px`,
+                right: "auto",
+                bottom: "auto",
+            });
+            void hud.offsetWidth;
+            Object.assign(hud.style, {
+                transition: `left ${ease}, top ${ease}, width ${ease}, height ${ease}`,
+                left: "0px",
+                top: "0px",
+                width: `${fr.width}px`,
+                height: `${fr.height}px`,
+            });
+            cleanups.push(() => {
+                for (const p of ["transition", "left", "top", "width", "height", "right", "bottom"] as const) hud.style[p] = "";
+            });
+        }
+        const t = setTimeout(() => stop.current(), ms + 50);
+        stop.current = () => {
+            clearTimeout(t);
+            cleanups.forEach((c) => c());
+            stop.current = () => {};
+        };
+    }, [spot.id, spot.el, spot.arriveMs, box]);
+    useLayoutEffect(() => () => stop.current(), []);
 }
 
 /**
@@ -294,6 +389,7 @@ export function MediaSpot({
     overlay,
     fade,
     hidePlayer,
+    arriveMs,
     className,
     style,
 }: {
@@ -302,6 +398,8 @@ export function MediaSpot({
     overlay?: ReactNode;
     fade?: SpotFade;
     hidePlayer?: boolean;
+    /** Fly here over this long when the player comes from another spot. */
+    arriveMs?: number;
     className?: string;
     style?: CSSProperties;
 }): JSX.Element {
@@ -310,7 +408,7 @@ export function MediaSpot({
     const ref = useRef<HTMLDivElement>(null);
     const id = useRef(0);
     if (id.current === 0) id.current = nextSpotId++;
-    const state = (): SpotState => ({ file, el: ref.current, player, overlay, fade, hidePlayer });
+    const state = (): SpotState => ({ file, el: ref.current, player, overlay, fade, hidePlayer, arriveMs });
     // Claimed when it appears, let go when it goes.
     useLayoutEffect(() => {
         api.claim(id.current, state());

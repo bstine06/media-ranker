@@ -253,3 +253,30 @@ Compare should look and behave exactly as before.
     other side paused)
 >> 2026-11-26 user: all good. Resize is a bit chunky (maybe no worse than
    before); accepted as a trade-off for now.
+
+
+======================================================================
+19. MEDIA LAYER, STEP 3: THE FILE VIEW FROM COMPARE IS THE SAME PLAYER
+    (UNTESTED)
+======================================================================
+
+Open the file view from Compare (G, or click the name) and close it
+(Back, G, Esc). It's one player now, flown there and back: no copy, no
+swap at the end.
+
+[ ] Image and video, left and right side: it flies in and back smoothly,
+    lands exactly; Compare dims and comes back as before
+[ ] A video keeps playing straight through the flights (no restart, no
+    jump, no flash); paused stays paused
+[ ] The playhead goes from the card's width to the full width and back,
+    staying at the bottom, never jumping
+[ ] In the file view: clicking the video pauses it, scrubbing works, the
+    tag pointer works over the media (Space / Tab), right click opens the
+    picker
+[ ] The tag panel, Back, and the delete confirm box all take clicks
+[ ] Compare's other side can't be clicked while the file view is up
+[ ] Rotate in the file view (several times, with saves), close: lands
+    turned right, no flash, no stale frame
+[ ] Known for now: the rotate button at the top of the file view doesn't
+    appear on hover (use R)
+
