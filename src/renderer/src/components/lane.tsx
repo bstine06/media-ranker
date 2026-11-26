@@ -198,6 +198,9 @@ export function useLaneFullscreen({
                     !document.querySelector("[data-modal]")
                 ) {
                     e.preventDefault();
+                    // Nothing else gets this press: the view's own G comes
+                    // back on as the file view closes and would open it again.
+                    e.stopPropagation();
                     closeInspected();
                 }
                 return;
