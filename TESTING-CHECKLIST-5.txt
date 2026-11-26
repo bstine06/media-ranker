@@ -381,3 +381,9 @@ swap at the end.
 [ ] ⌘Z after a bake: the original file is back (Finder shows it unturned)
     and the app shows it turned again with Bake lit; ⇧⌘Z bakes it again
 [ ] Thumbnails / tiles after a bake: turned the same, no double turn
+
+── 26. Old rotate path removed, step 7 (UNTESTED) ─────────────────────────
+   The rotate-by-rewriting code is gone. Nothing should look different.
+[ ] R in the file view, Compare, Sweep, Pass: turns at once as in 21–23
+[ ] Baking a video that's playing: it carries on playing through the swap
+    (no black frame / restart)

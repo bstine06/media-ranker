@@ -26,6 +26,7 @@ import { holdingPath } from "./undo";
 import { ensureDir } from "./scanner";
 import { replaceTrackedFile } from "./replaceFile";
 import { ffmpegBin, needsSips } from "./imageConvert";
+import { keepPreviousVersion } from "./previousVersion";
 
 const execFileAsync = promisify(execFile);
 
@@ -261,6 +262,9 @@ export async function bakeFile(
     const tmp = join(tmpDir, `.baking-${file.id}-${Date.now()}${ext}`);
     try {
         await writeTurned(src, tmp, file.rotation % 4, ext, file.media_type);
+        if (file.media_type === "video") {
+            await keepPreviousVersion(rootPath, src, file.content_hash);
+        }
         const held = await holdingPath(basename(file.path));
         // replaceTrackedFile resets the rotation with the new content.
         await replaceTrackedFile(rootPath, file.path, tmp, ignoredPaths, { hold: held }, runDb);

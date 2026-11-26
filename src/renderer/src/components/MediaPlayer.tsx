@@ -12,7 +12,7 @@ import { useSettings } from "@renderer/contexts/SettingsContext";
 import { isTyping } from "@renderer/lib/keys";
 import { PlayState } from "@renderer/lib/inspect";
 
-/** How far ahead of the old version a rotated video's new version starts,
+/** How far ahead of the old version a video's new version (baked / replaced) starts,
  *  to cover the time its seek takes while the old one keeps playing. */
 const HANDOFF_LEAD_S = 0.15;
 
@@ -282,7 +282,7 @@ export function MediaPlayer({
         if (handoffElRef.current) handoffElRef.current.volume = level;
     }, [volume, fullUrl, handoff]);
 
-    // A new file starts at 0; a new version of the same file (rotated)
+    // A new file starts at 0; a new version of the same file (baked / replaced)
     // keeps its place.
     useEffect(() => {
         setCurrentTime(0);

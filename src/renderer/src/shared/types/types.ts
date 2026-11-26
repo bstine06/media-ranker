@@ -154,9 +154,6 @@ export function isDbTag(value: any): value is DbTag {
     );
 }
 
-export function isDbTagArray(value: any): value is DbTag[] {
-    return Array.isArray(value) && value.every(isDbTag);
-}
 /** Where a tag-count item counts from: every tag, uncategorized ones, or a category id. */
 export type CountFrom = "all" | "uncategorized" | number;
 

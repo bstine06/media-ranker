@@ -12,7 +12,7 @@ import type {
     PoolFilter,
     View,
 } from "../shared/types/types";
-import { toMediaUrl, toThumbnailUrl } from "../lib/media";
+import { toMediaUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
 import { type MediaControls } from "./MediaPlayer";
 import { LAYER_Z, MediaSpot, type SpotFade } from "@renderer/media/MediaLayer";

@@ -15,7 +15,7 @@ import BrowseRow from "./BrowseRow";
 import MetadataView from "./MetadataView";
 import { useFolders } from "@renderer/contexts/FolderContext";
 import { useTags } from "@renderer/contexts/TagsContext";
-import { toMediaUrl, toThumbnailUrl } from "@renderer/lib/media";
+import { toMediaUrl } from "@renderer/lib/media";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { SlotResolver } from "@renderer/hooks/useScrollSlots";
 import ScrollView from "@renderer/components/ScrollView";

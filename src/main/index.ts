@@ -139,7 +139,7 @@ import {
     recordPlacement,
     type PlacementBounds,
 } from "./placement";
-import { rotateTrackedFile, previousVersionPath } from "./rotate";
+import { previousVersionPath } from "./previousVersion";
 import { bakeFile, bakePlan } from "./bake";
 import fs from "fs/promises";
 import { getRandomFile } from "./random";
@@ -977,32 +977,6 @@ function registerIpcHandlers(): void {
         });
         return updated;
     });
-
-    // Rotate left by quarter turns, in place. Returns the fresh record (new
-    // content hash) and tells every view, so e.g. Compare shows it rotated.
-    ipcMain.handle(
-        "file:rotate",
-        async (_event, relPath: string, quarterTurns: number) => {
-            if (!rootPath) throw new Error("No library open");
-            const before = getFileByPath(relPath);
-            const step = beginStep(`Rotated ${before?.filename ?? path.basename(relPath)}`);
-            const held = await rotateTrackedFile(
-                rootPath,
-                relPath,
-                quarterTurns,
-                ignoredPaths,
-                (fn) => step.db(fn),
-            );
-            if (before && held) step.disk({ kind: "swap", fileId: before.id, held });
-            step.commit();
-            const updated = getFileByPath(relPath);
-            BrowserWindow.getAllWindows()[0]?.webContents.send("media:updated", {
-                relativePath: relPath,
-                file: updated,
-            });
-            return updated;
-        },
-    );
 
     ipcMain.handle("dialog:open-file", async () => {
         const result = await dialog.showOpenDialog({
@@ -1872,11 +1846,11 @@ const CORS_HEADERS = { "Access-Control-Allow-Origin": "*" };
 
 app.whenReady().then(() => {
     protocol.handle("media", async (request) => {
-        // Drop any ?query: it only versions the URL (so a rotated file isn't
-        // served from cache), it isn't part of the path.
+        // Drop any ?query: it only versions the URL (so a baked or replaced
+        // file isn't served from cache), it isn't part of the path.
         const [url, query = ""] = request.url.replace("media://local", "").split("?");
         let filePath = decodeURIComponent(url);
-        // An older version of a rotated video, still being streamed by the
+        // An older version of a baked video, still being streamed by the
         // player it's handing over from: serve those bytes, not the new file.
         const version = new URLSearchParams(query).get("v");
         if (rootPath && version && /^[0-9a-f]+$/i.test(version)) {

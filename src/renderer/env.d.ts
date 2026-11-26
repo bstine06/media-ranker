@@ -69,7 +69,7 @@ declare global {
                 callback: (file: { relativePath: string }) => void,
             ) => () => void;
 
-            /** A file's content changed in place (e.g. rotated). */
+            /** A file changed in place (content baked / replaced, or its rotation setting). */
             onMediaUpdated: (
                 callback: (data: {
                     relativePath: string;
@@ -307,14 +307,12 @@ declare global {
                 oldRelPath: string,
                 newAbsPath: string,
             ) => Promise<DbFile>;
-            /** Rotates a file left by quarter turns, in place; resolves to its fresh record. */
             /** One more quarter turn counter-clockwise on the file's rotation setting. */
             turnFile: (fileId: number) => Promise<DbFile>;
             bakePlan: (
                 fileId: number,
             ) => Promise<{ ok: true; lossy: boolean } | { ok: false; reason: string }>;
             bakeFile: (fileId: number) => Promise<DbFile>;
-            rotateFile: (relPath: string, quarterTurns: number) => Promise<DbFile>;
             openFile: () => Promise<string | null>;
             deleteFile: (fileId: number) => Promise<void>;
             /** Several files as one undo entry; resolves to the names that failed. */

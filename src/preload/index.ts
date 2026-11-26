@@ -181,8 +181,6 @@ const api = {
     /** Bake the file's edits into it (one undo entry). The fresh record. */
     bakeFile: (fileId: number): Promise<DbFile> => ipcRenderer.invoke("file:bake", fileId),
 
-    rotateFile: (relPath: string, quarterTurns: number): Promise<DbFile> =>
-        ipcRenderer.invoke("file:rotate", relPath, quarterTurns),
 
     openFile: () => ipcRenderer.invoke("dialog:open-file"),
 
@@ -245,7 +243,7 @@ const api = {
         return () => ipcRenderer.removeListener("media:renamed", handler);
     },
 
-    // A file's content changed in place (rotated / replaced); `file` is its
+    // A file changed in place (baked / replaced / turned); `file` is its
     // fresh record.
     onMediaUpdated: (
         callback: (data: { relativePath: string; file: DbFile | undefined }) => void,

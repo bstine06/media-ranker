@@ -17,7 +17,7 @@ export interface ScrollSlotsState {
     setCursor: (i: number) => void;
     handleWheel: (e: React.WheelEvent) => void;
     navigate: (dir: "up" | "down", file?: DbFile) => void;
-    /** Swap in a fresh record for a file already showing (e.g. after a rotate). */
+    /** Swap in a fresh record for a file already showing (e.g. after a turn). */
     replaceFile: (file: DbFile) => void;
 }
 

@@ -6,7 +6,7 @@ function encodePath(absPath: string): string {
 
 /**
  * `version` (the file's content hash) changes when a file is edited in place,
- * e.g. rotated, so the browser fetches the new content instead of a cached copy.
+ * e.g. baked or replaced, so the browser fetches the new content instead of a cached copy.
  */
 export function toMediaUrl(rootPath: string, relativePath: string, version?: string): string {
   const url = `media://local${encodePath(`${rootPath}/${relativePath}`)}`

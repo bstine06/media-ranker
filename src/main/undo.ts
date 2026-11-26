@@ -85,7 +85,7 @@ type MoveOp = {
      *  (into the holding folder; `fileIds` are files that went with it). */
     folder?: { fromRel: string; toRel: string; mode: "rename" | "delete"; fileIds: number[] };
 };
-/** A file's content replaced (rotate, replace): `held` is the other version. */
+/** A file's content replaced (bake, replace): `held` is the other version. */
 type SwapOp = { kind: "swap"; fileId: number; held: string };
 /** A new, empty collection folder. */
 type MkdirOp = { kind: "mkdir"; path: string; relPath: string };

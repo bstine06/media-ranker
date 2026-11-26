@@ -217,7 +217,7 @@ interface PassContextValue {
     back: () => void;
     /** The picker: this tag comes up now; the current one goes to the end. */
     pickTag: (tagId: number) => Promise<void>;
-    /** Replaces a file's record in the run's lists (e.g. after a rotate). */
+    /** Replaces a file's record in the run's lists (e.g. after a turn). */
     replaceFile: (file: DbFile) => void;
 }
 
