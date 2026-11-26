@@ -670,8 +670,6 @@ export default function CompareView({
     // library, refit it so only sides that no longer fit get swapped.
     // A file edited in place (e.g. rotated in the single file view) shows
     // its new version here too: same record, new content hash.
-    // Also called directly by a card that rotated its file, so the new
-    // version is in place before the preview turn is dropped.
     const replaceFile = useCallback(
         (file: DbFile) => {
             const swap = (f: DbFile): DbFile => (f.id === file.id ? file : f);
@@ -1300,7 +1298,6 @@ export default function CompareView({
                         streak={king?.streak ?? 0}
                         onCrown={() => crown(a, "a")}
                         onUncrown={endKing}
-                        onReplaceFile={replaceFile}
                         onGoToFolder={() => {
                             const folderName = a.path.split("/")[0];
                             setActiveFolder(folderName);
@@ -1330,7 +1327,6 @@ export default function CompareView({
                         streak={king?.streak ?? 0}
                         onCrown={() => crown(b, "b")}
                         onUncrown={endKing}
-                        onReplaceFile={replaceFile}
                         onGoToFolder={() => {
                             const folderName = b.path.split("/")[0];
                             setActiveFolder(folderName);
@@ -1423,7 +1419,6 @@ function CompareCard({
     streak,
     onCrown,
     onUncrown,
-    onReplaceFile,
     hideMedia,
     hudLifted,
     fade,
@@ -1456,10 +1451,8 @@ function CompareCard({
     streak: number;
     onCrown: () => void;
     onUncrown: () => void;
-    /** A rotated file's new version (same record, new content hash). */
-    onReplaceFile: (file: DbFile) => void;
 }): JSX.Element {
-    const { turns: rotationOf, rotateLeft } = useRotation(file, rootPath, onReplaceFile);
+    const { rotateLeft } = useRotation(file);
     rotateRef.current = rotateLeft;
     const libraryRank = useLibraryRank(file.id);
 
@@ -1531,7 +1524,7 @@ function CompareCard({
                         clickToPauseEnabled: false,
                         keyboardEnabled: false,
                         controlsRef,
-                        rotation: rotationOf(file),
+                        rotation: file.rotation,
                     }}
                     overlay={
                         <CardTop

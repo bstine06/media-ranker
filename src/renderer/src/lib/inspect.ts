@@ -50,8 +50,9 @@ export function pictureRect(root: Element | null): DOMRect | null {
     let nw = v ? v.videoWidth : img!.naturalWidth;
     let nh = v ? v.videoHeight : img!.naturalHeight;
     if (!nw || !nh) return box;
-    // A preview turned sideways (90° / 270°, not saved yet) shows the other
-    // way round: the box above is already the turned one, the shape isn't.
+    // A file turned sideways (its rotation setting, 90° / 270°) shows the
+    // other way round: the box above is already the turned one, the shape
+    // isn't.
     const turned = (v ?? img!.parentElement)?.style.transform.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/);
     if (turned && Math.round(Number(turned[1]) / 90) % 2 !== 0) [nw, nh] = [nh, nw];
     const s = Math.min(box.width / nw, box.height / nh);

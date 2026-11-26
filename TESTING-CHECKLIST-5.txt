@@ -305,3 +305,21 @@ swap at the end.
    Nothing in the app uses it yet (R still works the old way until step 2).
 [ ] An existing library opens normally (new column added on open)
 [ ] Replace file still works, and undo of it still works
+
+── 21. Rotation as a setting, step 2 (UNTESTED) ──────────────────────────
+   R / the rotate button in the file view and on Compare's cards now turn
+   the file's setting; the file on disk is never rewritten.
+   Until steps 3–4: Browse tiles, thumbnails and hover zoom still show the
+   file unturned, and Sweep / Pass still rotate the old way (rewriting).
+[ ] Compare, R on a side (and the card's rotate button): turns at once with
+    the turning animation, every press, including the 4th (back upright,
+    turning the same way, not spinning back)
+[ ] A playing video keeps playing through a turn (no reload, no jump)
+[ ] ⌘Z right after R turns it back at once (one undo per press, in order:
+    pick, R, R, ⌘Z ⌘Z ⌘Z undoes R, R, then the pick)
+[ ] The file view from Compare: R turns it there; close: Compare's side
+    shows it turned the same, lands without a jump
+[ ] The file view from Browse / the side panel: R turns it; scroll away and
+    back: still turned
+[ ] The rotated file in Finder is untouched (opens the original way)
+[ ] Quit and reopen: the turn is remembered

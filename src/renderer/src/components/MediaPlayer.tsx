@@ -138,13 +138,33 @@ export function MediaPlayer({
         ro.observe(el);
         return () => ro.disconnect();
     }, []);
-    // Animate turning further; snap back when the saved (already rotated)
-    // version replaces the preview.
-    const prevRotationRef = useRef(rotation);
-    const animateTurn = rotation > prevRotationRef.current;
-    prevRotationRef.current = rotation;
+    // The file's rotation setting (0–3) drawn as a running angle, so a turn
+    // always animates the short way: 3 → 0 turns on one more quarter, an
+    // undo turns back one. A new file, or new content (replaced / baked: it
+    // brings its own orientation, and the old version covers as it was),
+    // starts at its own setting with no motion.
+    // The transition stays on for the length of the turn, so a re-render in
+    // the middle (anything) doesn't cut it short; after that, size changes
+    // (a resize) follow at once.
+    const angleRef = useRef({ url: fullUrl, rotation, turns: rotation, at: 0 });
+    {
+        const a = angleRef.current;
+        if (a.url !== fullUrl) {
+            angleRef.current = { url: fullUrl, rotation, turns: rotation, at: 0 };
+        } else if (a.rotation !== rotation) {
+            const step = (((rotation - a.rotation) % 4) + 4) % 4;
+            angleRef.current = {
+                url: fullUrl,
+                rotation,
+                turns: a.turns + (step === 3 ? -1 : step),
+                at: performance.now(),
+            };
+        }
+    }
+    const turnsNow = angleRef.current.turns;
+    const animateTurn = performance.now() - angleRef.current.at < 250;
     const turnStyle = (turns: number, animate: boolean): React.CSSProperties => {
-        const sideways = turns % 2 === 1 && box.width > 0;
+        const sideways = Math.abs(turns % 2) === 1 && box.width > 0;
         const t = "200ms ease-out";
         return {
             width: sideways ? box.height : "100%",
@@ -163,7 +183,7 @@ export function MediaPlayer({
     };
 
     // ── Version hand-off ────────────────────────────────────────────────────
-    // When the same video gets a new version (rotation saved), the old
+    // When the same video gets a new version (replaced; later, baked), the old
     // element stays up, still turned and still playing, until the new one
     // has loaded and jumped to where the old one has got to. No restart, no
     // black, no freeze.
@@ -188,7 +208,7 @@ export function MediaPlayer({
     const resumeRef = useRef<{ time: number; paused: boolean } | null>(
         isVideo && startAt ? { ...startAt } : null,
     );
-    const shownRef = useRef({ id: file.id, url: fullUrl, turns: rotation });
+    const shownRef = useRef({ id: file.id, url: fullUrl, turns: turnsNow });
     // Whether this element starts by itself, decided once when it's created:
     // not when it picks up somewhere (it plays itself once there, or stays
     // paused). Flipping it later would set a paused video playing as soon as
@@ -213,10 +233,10 @@ export function MediaPlayer({
                 setImgCover(null);
             }
         }
-        shownRef.current = { id: file.id, url: fullUrl, turns: rotation };
+        shownRef.current = { id: file.id, url: fullUrl, turns: turnsNow };
         autoPlayRef.current = !resumeRef.current;
     } else {
-        shownRef.current.turns = rotation;
+        shownRef.current.turns = turnsNow;
     }
     // Where the hand-off should resume: the old element's live position
     // while it's still up (it keeps playing), else the last one recorded.
@@ -476,7 +496,7 @@ export function MediaPlayer({
                         key={fullUrl}
                         src={fullUrl}
                         className="absolute object-contain"
-                        style={turnStyle(rotation, animateTurn)}
+                        style={turnStyle(turnsNow, animateTurn)}
                         muted={muted}
                         loop
                         playsInline
@@ -520,7 +540,7 @@ export function MediaPlayer({
                 <>
                 <div
                     className={`absolute ${seeThrough ? "" : "bg-black"}`}
-                    style={turnStyle(rotation, animateTurn)}
+                    style={turnStyle(turnsNow, animateTurn)}
                     onClick={guardClick(() => handleClick())}
                     {...dragOutProps}
                 >
@@ -572,7 +592,7 @@ export function MediaPlayer({
 
                     {showLoadingCover && !imgCover && <LoadingCover />}
                 </div>
-                {/* A new version of the same image (a rotation saved): the
+                {/* A new version of the same image (replaced; later, baked): the
                     old one stays on top, as it was turned, until the new
                     one has loaded; then they swap in one frame. */}
                 {imgCover && (

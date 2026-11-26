@@ -114,14 +114,9 @@ export default function ScrollView({
         cursor,
         handleWheel,
         navigate,
-        replaceFile,
     } = useScrollSlots({ initialFile, resolver, active });
 
-    const { turns: rotationOf, rotateLeft } = useRotation(
-        currentFile,
-        rootPath,
-        replaceFile,
-    );
+    const { rotateLeft } = useRotation(currentFile);
 
     // The tag pointer works over the file on screen.
     useTagPointerSurface(active);
@@ -459,7 +454,7 @@ export default function ScrollView({
                                             disabled: !active,
                                             muted: false,
                                             seeThrough: true,
-                                            rotation: rotationOf(slotFiles[slot]!),
+                                            rotation: slotFiles[slot]!.rotation,
                                             className: pointer.cursorClass,
                                             onMouseEnter: pointer.handlers.onMouseEnter,
                                             onMouseLeave: () => {
@@ -492,7 +487,7 @@ export default function ScrollView({
                                     rootPath={rootPath}
                                     ref={videoRefs[slot]}
                                     disabled={!active || slot !== frontSlot}
-                                    rotation={rotationOf(slotFiles[slot]!)}
+                                    rotation={slotFiles[slot]!.rotation}
                                     seeThrough={!!inspect}
                                     {...(inspect &&
                                     slot === frontSlot &&

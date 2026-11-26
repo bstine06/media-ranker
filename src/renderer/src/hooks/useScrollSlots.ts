@@ -219,7 +219,7 @@ export function useScrollSlots({
 
     // The slots hold snapshots of their records, so refetch them whenever
     // something may have changed underneath: scores (a Compare pick, an
-    // undo), content (a rotation and its undo), or the path (a Finder
+    // undo), content or rotation (and their undo), or the path (a Finder
     // rename the watcher followed, a move and its undo).
     const slotFilesRef = useRef(slotFiles);
     slotFilesRef.current = slotFiles;
@@ -242,6 +242,7 @@ export function useScrollSlots({
                                     n.path === f.path &&
                                     n.filename === f.filename &&
                                     n.content_hash === f.content_hash &&
+                                    n.rotation === f.rotation &&
                                     n.elo_score === f.elo_score;
                                 return same ? f : n;
                             }) as [DbFile | null, DbFile | null];
