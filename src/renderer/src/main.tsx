@@ -14,6 +14,7 @@ import { RankProvider } from "./contexts/RankContext";
 import { TagPointerProvider } from "./contexts/TagPointerContext";
 import { PassProvider } from "./contexts/PassContext";
 import { PendingChangeProvider } from "./contexts/PendingChangeContext";
+import { MediaLayerProvider } from "./media/MediaLayer";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
@@ -29,7 +30,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                                             <TagPointerProvider>
                                                 <PassProvider>
                                                     <PendingChangeProvider>
-                                                        <App />
+                                                        <MediaLayerProvider>
+                                                            <App />
+                                                        </MediaLayerProvider>
                                                     </PendingChangeProvider>
                                                 </PassProvider>
                                             </TagPointerProvider>

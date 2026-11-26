@@ -439,6 +439,10 @@ export function MediaPlayer({
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
+            {/* The picture, on its own so the media layer can move it apart
+                from the controls strip (src/renderer/src/media). Same box as
+                the player. */}
+            <div data-picture className="absolute inset-0">
             {isVideo ? (
                 // Keyed list, so the outgoing version is the same element it
                 // was a moment ago (not remounted) while it covers the swap.
@@ -568,6 +572,7 @@ export function MediaPlayer({
                 )}
                 </>
             )}
+            </div>
 
             {isGif && (
                 <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
