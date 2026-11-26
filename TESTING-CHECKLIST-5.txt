@@ -130,11 +130,13 @@ side's file name).
 [ ] A video playing part-way: the file view carries on from the same
     moment (no restart). Scrub somewhere else, ← Back: Compare's side
     carries on from there
-[N] A paused video stays paused going in and coming back
+[y] A paused video stays paused going in and coming back
     >> FAILED 2026-11-25: a video paused in Compare plays as soon as the
        file view opens
        First fix (eb31d47) didn't work. FIX 2 BUILT (untested): React's
        double mount run, and autoplay flipping on once the jump was done
+       Fix 2 works. Left over: closing a PAUSED video, it jumps ~1 frame
+       at the swap (open)
 [y] Nothing moves behind the file view: the other side's video pauses
     as Compare dims, and picks up again on closing (if it was playing)
 [y] Closing a video: it lands and carries straight on, no stray frame
