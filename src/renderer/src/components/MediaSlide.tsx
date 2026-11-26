@@ -30,6 +30,7 @@ export const MediaSlide = React.forwardRef<
             startAt={startAt}
             onReady={onReady}
             seeThrough={seeThrough}
+            barFitsPicture
         />
     </div>
 ));

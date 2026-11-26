@@ -44,6 +44,7 @@ import {
     INSPECT_MS,
     type PlayState,
     applyPlayState,
+    barRect,
     pictureRect,
     playStateIn,
     shownVideo,
@@ -116,8 +117,10 @@ export default function CompareView({
         file: DbFile;
         side: Side;
         from: DOMRect | null;
+        /** Where this side drew the video's playhead strip. */
+        fromBar: DOMRect | null;
         startAt: PlayState | null;
-        closing: { to: DOMRect | null } | null;
+        closing: { to: DOMRect | null; toBar: DOMRect | null } | null;
         /** The file view's copy is showing: this side hides its own (it
          *  keeps playing) until the file view has gone back and closed. */
         shown: boolean;
@@ -146,6 +149,7 @@ export default function CompareView({
             file: side === "a" ? p[0] : p[1],
             side,
             from: pictureRect(root),
+            fromBar: barRect(root),
             startAt: playStateIn(root),
             closing: null,
             shown: false,
@@ -159,7 +163,14 @@ export default function CompareView({
         if (!i || i.closing) return;
         const p = pairRef.current;
         const still = !!p && (i.side === "a" ? p[0] : p[1]).id === i.file.id;
-        const next = { ...i, closing: { to: flyBack && still ? pictureRect(sideRoot(i.side)) : null } };
+        const back = flyBack && still;
+        const next = {
+            ...i,
+            closing: {
+                to: back ? pictureRect(sideRoot(i.side)) : null,
+                toBar: back ? barRect(sideRoot(i.side)) : null,
+            },
+        };
         inspectRef.current = next;
         setInspect(next);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1357,6 +1368,7 @@ export default function CompareView({
                         setView={setView}
                         inspect={{
                             from: inspect.from,
+                            fromBar: inspect.fromBar,
                             startAt: inspect.startAt,
                             closing: inspect.closing,
                             onClosed: onInspectClosed,

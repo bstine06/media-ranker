@@ -56,6 +56,9 @@ interface MediaPlayerProps {
     /** No black behind the media: what's underneath shows around it (an
      *  inspection, over the view it was opened from). */
     seeThrough?: boolean;
+    /** The playhead strip only as wide as the picture (under it, at the
+     *  bottom of the player), instead of the player's full width. */
+    barFitsPicture?: boolean;
 }
 
 export function MediaPlayer({
@@ -73,8 +76,11 @@ export function MediaPlayer({
     rotation = 0,
     startAt = null,
     seeThrough = false,
+    barFitsPicture = false,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement>(null);
+    // The video's own shape (width / height), once known.
+    const [videoAspect, setVideoAspect] = useState<number | null>(null);
     const imgRef = useRef<HTMLImageElement>(null);
 
     const isVideo = file.media_type === "video";
@@ -290,6 +296,16 @@ export function MediaPlayer({
 
     const showLoadingCover = !isVideo && !isGif && !fullLoaded;
     const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+    // Where the playhead strip rests: the player's full width, or just the
+    // picture's (shown object-contain, centred; a sideways turn swaps it).
+    const barFrame: React.CSSProperties = (() => {
+        if (!barFitsPicture || !videoAspect || box.width <= 0 || box.height <= 0) {
+            return { left: 0, right: 0 };
+        }
+        const aspect = rotation % 2 === 1 ? 1 / videoAspect : videoAspect;
+        const width = Math.min(box.width, box.height * aspect);
+        return { left: (box.width - width) / 2, width };
+    })();
 
     const handleClick = useCallback(() => {
         if (disabled) return;
@@ -438,6 +454,7 @@ export function MediaPlayer({
                             const v = videoRef.current;
                             const d = v?.duration;
                             if (d && isFinite(d)) setDuration(d);
+                            if (v?.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight);
                             // Pick up where the previous version was.
                             const resume = resumeRef.current;
                             if (v && resume) {
@@ -529,8 +546,13 @@ export function MediaPlayer({
             )}
 
             {isVideo && (
+                // The strip's resting place (full width, or the picture's
+                // width); the strip itself fills it, except while a file
+                // view flight moves it on its own (see ScrollView).
+                <div data-hud-frame className="absolute bottom-0 h-[26px]" style={barFrame}>
                 <div
-                    className="absolute bottom-0 left-0 right-0 flex items-center group/controls"
+                    data-hud
+                    className="absolute inset-0 flex items-center group/controls"
                     onClick={(e) => e.stopPropagation()}
                 >
                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/5">
@@ -574,7 +596,8 @@ export function MediaPlayer({
                         style={{ fontSize: "10px" }}
                     >
                         {formatTime(currentTime)} / {formatTime(duration)}
-                    </span> 
+                    </span>
+                </div>
                 </div>
             )}
         </div>

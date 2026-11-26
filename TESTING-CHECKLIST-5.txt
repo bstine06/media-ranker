@@ -151,6 +151,12 @@ side's file name).
     >> FAILED 2026-11-25: closing before the rotation is saved (the new
        version swapped in) gives the stray-frame flicker on return.
        User thinks the fix belongs in the rotate logic. Open, to discuss
+[ ] File view playhead bar: only as wide as the video (not the whole
+    media area), at the bottom of the window. In Browse's file view too
+[ ] Flying in and out (a video): the bar never jumps. It starts where
+    Compare draws it (card width, window bottom), stays 4 px thick and
+    glides to the file view's bar, on the same motion as the video. Try a
+    wide video in a thin window (bars above and below)
 [ ] Opening the file view from Sweep, Pass, Browse, Coverage, the side
     panel: works exactly as before (no animation yet)
 

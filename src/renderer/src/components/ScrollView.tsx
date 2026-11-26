@@ -2,7 +2,13 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import {
     INSPECT_EASE,
     INSPECT_MS,
+    AT_REST,
+    Flight,
     PlayState,
+    barRect,
+    barUnder,
+    flightCss,
+    flyBar,
     flyTo,
     pictureRect,
     playStateIn,
@@ -36,10 +42,14 @@ const NEAR_TOP_PX = 96;
 export interface InspectProps {
     /** The picture's rect where it was opened from; null: just appear. */
     from: DOMRect | null;
+    /** Where that view draws a video's playhead strip; null: it draws
+     *  none (the strip then starts along the picture's bottom edge). */
+    fromBar: DOMRect | null;
     /** A video's play state there, so it carries on here. */
     startAt: PlayState | null;
-    /** Set to close: go back to `to`, or fade out if it's null. */
-    closing: { to: DOMRect | null } | null;
+    /** Set to close: go back to `to` (the strip to `toBar`, or the
+     *  picture's bottom edge), or fade out if `to` is null. */
+    closing: { to: DOMRect | null; toBar: DOMRect | null } | null;
     /** Done closing, with the video's play state at that moment. */
     onClosed: (state: PlayState | null) => void;
     /** It's showing (starting to grow in): the view underneath can hide
@@ -143,18 +153,26 @@ export default function ScrollView({
     const inspectRef = useRef(inspect);
     inspectRef.current = inspect;
     const flewIn = useRef(false);
-    const moveArea = (from: string, to: string) => {
+    const moveArea = (from: Flight, to: Flight) => {
         const area = areaRef.current;
         if (!area) return;
         area.style.transformOrigin = "0 0";
         area.style.transition = "none";
-        area.style.transform = from;
+        area.style.transform = flightCss(from);
         area.style.opacity = "1";
         void area.offsetWidth; // start from there
         area.style.transition = `transform ${INSPECT_MS}ms ${INSPECT_EASE}`;
-        area.style.transform = to;
+        area.style.transform = flightCss(to);
     };
-    const SETTLED = "none";
+    // A video's playhead strip isn't scaled with the picture: it goes on its
+    // own from where the other view draws it to its place here (and back),
+    // on the same progress (see flyBar).
+    const stopBar = useRef<() => void>(() => {});
+    const startBar = (area: HTMLElement, areaRest: DOMRect, fromF: Flight, toF: Flight, from: DOMRect | null, to: DOMRect | null, hold: boolean) => {
+        stopBar.current();
+        stopBar.current = from && to ? flyBar(area, areaRest, fromF, toF, from, to, hold) : () => {};
+    };
+    useEffect(() => () => stopBar.current(), []);
     // Hidden until there's a picture to measure (it starts where it was).
     // Not once it's grown in: a picture can be ready before this runs a
     // second time (React re-runs effects on mount in development).
@@ -174,7 +192,13 @@ export default function ScrollView({
             if (area) area.style.opacity = "1";
             return;
         }
-        moveArea(flyTo(area.getBoundingClientRect(), pic, insp.from), SETTLED);
+        const areaRest = area.getBoundingClientRect();
+        const flight = flyTo(areaRest, pic, insp.from);
+        const bar = barRect(area);
+        if (bar) {
+            startBar(area, areaRest, flight, AT_REST, insp.fromBar ?? barUnder(insp.from, bar.height), bar, false);
+        }
+        moveArea(flight, AT_REST);
         setTimeout(() => {
             if (inspectRef.current?.closing) return;
             area.style.transition = "";
@@ -200,7 +224,14 @@ export default function ScrollView({
         const to = insp.closing.to;
         const pic = pictureRect(area);
         if (area && to && pic) {
-            moveArea(SETTLED, flyTo(area.getBoundingClientRect(), pic, to));
+            stopBar.current();
+            const areaRest = area.getBoundingClientRect();
+            const flight = flyTo(areaRest, pic, to);
+            const bar = barRect(area);
+            if (bar) {
+                startBar(area, areaRest, AT_REST, flight, bar, insp.closing.toBar ?? barUnder(to, bar.height), true);
+            }
+            moveArea(AT_REST, flight);
         } else if (area) {
             area.style.transition = `opacity ${INSPECT_MS}ms ease-out`;
             area.style.opacity = "0";
