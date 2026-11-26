@@ -163,6 +163,9 @@ side's file name).
     >> User: passable, a success; revisit only if it bothers later
 [y] Hover a side (name bar showing), open with a click on the name:
     nothing odd at the top
+[ ] Leaving the file view feels responsive: Compare's keys work and the
+    other side's video plays the moment you press Back / G / Esc (during
+    the flight, not after it lands); the way back is a bit quicker (170 ms)
 [ ] Opening the file view from Sweep, Pass, Browse, Coverage, the side
     panel: works exactly as before (no animation yet)
 

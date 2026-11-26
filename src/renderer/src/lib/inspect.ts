@@ -7,8 +7,10 @@ export interface PlayState {
     paused: boolean;
 }
 
-/** How long the picture takes to grow in or go back. */
+/** How long the picture takes to grow in. */
 export const INSPECT_MS = 220;
+/** …and to go back (quicker: leaving should feel snappy). */
+export const INSPECT_OUT_MS = 170;
 export const INSPECT_EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 
 /** The shown video in `root` (not a version hand-off's cover), or null. */
@@ -102,6 +104,7 @@ export function flyBar(
     from: DOMRect,
     to: DOMRect,
     hold: boolean,
+    ms: number,
 ): () => void {
     const hud = area.querySelector<HTMLElement>("[data-hud]");
     const frame = hud?.parentElement;
@@ -161,7 +164,7 @@ export function flyBar(
     const start = performance.now();
     let raf = 0;
     const tick = () => {
-        if (performance.now() - start > INSPECT_MS + 40) {
+        if (performance.now() - start > ms + 40) {
             if (hold) place(new DOMMatrixReadOnly(flightCss(toF) === "none" ? undefined : flightCss(toF)));
             else clear();
             return;

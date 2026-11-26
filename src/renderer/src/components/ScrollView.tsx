@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import {
     INSPECT_EASE,
     INSPECT_MS,
+    INSPECT_OUT_MS,
     AT_REST,
     Flight,
     PlayState,
@@ -153,7 +154,7 @@ export default function ScrollView({
     const inspectRef = useRef(inspect);
     inspectRef.current = inspect;
     const flewIn = useRef(false);
-    const moveArea = (from: Flight, to: Flight) => {
+    const moveArea = (from: Flight, to: Flight, ms: number) => {
         const area = areaRef.current;
         if (!area) return;
         area.style.transformOrigin = "0 0";
@@ -161,16 +162,16 @@ export default function ScrollView({
         area.style.transform = flightCss(from);
         area.style.opacity = "1";
         void area.offsetWidth; // start from there
-        area.style.transition = `transform ${INSPECT_MS}ms ${INSPECT_EASE}`;
+        area.style.transition = `transform ${ms}ms ${INSPECT_EASE}`;
         area.style.transform = flightCss(to);
     };
     // A video's playhead strip isn't scaled with the picture: it goes on its
     // own from where the other view draws it to its place here (and back),
     // on the same progress (see flyBar).
     const stopBar = useRef<() => void>(() => {});
-    const startBar = (area: HTMLElement, areaRest: DOMRect, fromF: Flight, toF: Flight, from: DOMRect | null, to: DOMRect | null, hold: boolean) => {
+    const startBar = (area: HTMLElement, areaRest: DOMRect, fromF: Flight, toF: Flight, from: DOMRect | null, to: DOMRect | null, hold: boolean, ms: number) => {
         stopBar.current();
-        stopBar.current = from && to ? flyBar(area, areaRest, fromF, toF, from, to, hold) : () => {};
+        stopBar.current = from && to ? flyBar(area, areaRest, fromF, toF, from, to, hold, ms) : () => {};
     };
     useEffect(() => () => stopBar.current(), []);
     // Hidden until there's a picture to measure (it starts where it was).
@@ -196,9 +197,9 @@ export default function ScrollView({
         const flight = flyTo(areaRest, pic, insp.from);
         const bar = barRect(area);
         if (bar) {
-            startBar(area, areaRest, flight, AT_REST, insp.fromBar ?? barUnder(insp.from, bar.height), bar, false);
+            startBar(area, areaRest, flight, AT_REST, insp.fromBar ?? barUnder(insp.from, bar.height), bar, false, INSPECT_MS);
         }
-        moveArea(flight, AT_REST);
+        moveArea(flight, AT_REST, INSPECT_MS);
         setTimeout(() => {
             if (inspectRef.current?.closing) return;
             area.style.transition = "";
@@ -229,27 +230,29 @@ export default function ScrollView({
             const flight = flyTo(areaRest, pic, to);
             const bar = barRect(area);
             if (bar) {
-                startBar(area, areaRest, AT_REST, flight, bar, insp.closing.toBar ?? barUnder(to, bar.height), true);
+                startBar(area, areaRest, AT_REST, flight, bar, insp.closing.toBar ?? barUnder(to, bar.height), true, INSPECT_OUT_MS);
             }
-            moveArea(AT_REST, flight);
+            moveArea(AT_REST, flight, INSPECT_OUT_MS);
         } else if (area) {
-            area.style.transition = `opacity ${INSPECT_MS}ms ease-out`;
+            area.style.transition = `opacity ${INSPECT_OUT_MS}ms ease-out`;
             area.style.opacity = "0";
         }
         // The video keeps playing on the way back: hand over where it got to.
-        const t = setTimeout(() => insp.onClosed(playStateIn(area)), INSPECT_MS);
+        const t = setTimeout(() => insp.onClosed(playStateIn(area)), INSPECT_OUT_MS);
         return () => clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [closing]);
+    // In and out take different times (going back is quicker).
+    const chromeMs = closing ? INSPECT_OUT_MS : INSPECT_MS;
     const chromeStyle: React.CSSProperties | undefined = inspect
-        ? { opacity: chromeShown ? 1 : 0, transition: `opacity ${INSPECT_MS}ms ease-out` }
+        ? { opacity: chromeShown ? 1 : 0, transition: `opacity ${chromeMs}ms ease-out` }
         : undefined;
     // The tag panel (and its divider) slides in from the right edge and out
     // again, on the media's curve.
     const panelStyle: React.CSSProperties | undefined = inspect
         ? {
               transform: chromeShown ? "none" : `translateX(${sidebarWidth + 4}px)`,
-              transition: `transform ${INSPECT_MS}ms ${INSPECT_EASE}`,
+              transition: `transform ${chromeMs}ms ${INSPECT_EASE}`,
           }
         : undefined;
 

@@ -43,6 +43,7 @@ import {
 import { MediaFlash } from "./TagPointer";
 import {
     INSPECT_MS,
+    INSPECT_OUT_MS,
     type PlayState,
     applyPlayState,
     barRect,
@@ -128,7 +129,12 @@ export default function CompareView({
     } | null>(null);
     const inspectRef = useRef(inspect);
     inspectRef.current = inspect;
-    const inspectedFile = inspect?.file ?? null;
+    // Sound: none from Compare while a file view is up. Once it's going back,
+    // the other side may be heard again at once (focus can move there during
+    // the flight); the opened side stays quiet until the swap, the file
+    // view's copy has the sound till then.
+    const audibleDuringInspect = (side: Side): boolean =>
+        !inspect || (!!inspect.closing && inspect.side !== side);
     // The file changed in place (rotated, renamed): same inspection.
     const setInspectedFile = useCallback(
         (update: (f: DbFile) => DbFile) =>
@@ -174,6 +180,13 @@ export default function CompareView({
         };
         inspectRef.current = next;
         setInspect(next);
+        // Compare is back in charge from now, not from the landing: the other
+        // side plays again at once (its keys are on again too; see
+        // keysEnabled).
+        if (resumeOtherSide.current) {
+            shownVideo(sideRoot(resumeOtherSide.current))?.play().catch(() => {});
+            resumeOtherSide.current = null;
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     // G again, or Esc, closes the file view (back to its side, like ← Back).
@@ -288,10 +301,20 @@ export default function CompareView({
             (theirs.paused
                 ? mineJumpedTo.current === theirs.currentTime && !mine.seeking
                 : Math.abs(mine.currentTime - theirs.currentTime) < 0.05);
+        // For checking in dev tools how the landing went (temporary).
+        const report = {
+            apart: theirs ? +(mine.currentTime - theirs.currentTime).toFixed(3) : null,
+            comparePaused: mine.paused,
+            fileViewPaused: theirs?.paused ?? null,
+            seeking: mine.seeking,
+        };
         if (inStep) {
+            console.info("[inspect] landing: in step, instant swap", report);
             finish();
             return;
         }
+        console.warn("[inspect] landing: copies apart, jump-and-wait fallback", report);
+        const waitStart = performance.now();
         theirs?.pause();
         const time = theirs ? theirs.currentTime : state.time;
         let done = false;
@@ -301,6 +324,7 @@ export default function CompareView({
             clearTimeout(cap);
             mine.removeEventListener("seeked", onSeeked);
             if (!state.paused) mine.play().catch(() => {});
+            console.warn(`[inspect] fallback swap after ${Math.round(performance.now() - waitStart)} ms`);
             finish();
         };
         // Seeked: wait for that frame to be on screen, where supported.
@@ -1041,7 +1065,9 @@ export default function CompareView({
         handlePick(focus);
     }, [comparing, pair, focus, handlePick]);
 
-    const keysEnabled = active && !inspectedFile;
+    // Off while a file view is up, back on the moment it starts going back
+    // (not at its landing): Compare responds straight away.
+    const keysEnabled = active && !inspecting;
 
     // ── Tag pointer ──────────────────────────────────────────────────────
     // It works over both sides: the side under the mouse is its target. 1 /
@@ -1268,7 +1294,7 @@ export default function CompareView({
                 // Dims when the file view's copy appears (not before: this
                 // side's own copy would darken, then the moving one pop in).
                 opacity: inspect?.shown && !inspect.closing ? 0.06 : 1,
-                transition: `opacity ${INSPECT_MS}ms ease-out`,
+                transition: `opacity ${inspect?.closing ? INSPECT_OUT_MS : INSPECT_MS}ms ease-out`,
             }}
         >
             {session && (
@@ -1308,7 +1334,7 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "a"}
-                        audible={(compareBothAudio || focus === "a") && !inspect}
+                        audible={(compareBothAudio || focus === "a") && audibleDuringInspect("a")}
                         hideMedia={hiddenSide("a", a)}
                         hudLifted={!!inspect}
                         controlsRef={controlsA}
@@ -1338,7 +1364,7 @@ export default function CompareView({
                         rootPath={rootPath!}
                         disabled={!active}
                         focused={focus === "b"}
-                        audible={(compareBothAudio || focus === "b") && !inspect}
+                        audible={(compareBothAudio || focus === "b") && audibleDuringInspect("b")}
                         hideMedia={hiddenSide("b", b)}
                         hudLifted={!!inspect}
                         controlsRef={controlsB}
@@ -1390,7 +1416,7 @@ export default function CompareView({
                     className="pointer-events-none absolute inset-0 z-[60] flex"
                     style={{
                         opacity: inspect.shown && !inspect.closing ? 0 : 1,
-                        transition: `opacity ${INSPECT_MS}ms ease-out`,
+                        transition: `opacity ${inspect.closing ? INSPECT_OUT_MS : INSPECT_MS}ms ease-out`,
                     }}
                 >
                     {([a, b] as const).map((f, i) => (
