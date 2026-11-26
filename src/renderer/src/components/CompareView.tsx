@@ -198,18 +198,53 @@ export default function CompareView({
     const hiddenSide = (side: Side, file: DbFile): boolean =>
         !!inspect?.shown && inspect.side === side && inspect.file.id === file.id;
     // Gone back: the side carries on from where the file view's video got to.
+    // A video doesn't swap back until this side's copy has jumped to the
+    // file view's moment and shown that frame: otherwise it shows, for a
+    // frame or two, where it was paused when the file view opened. The file
+    // view's copy holds still at the landing spot meanwhile (capped).
+    const overlayRef = useRef<HTMLDivElement>(null);
     const onInspectClosed = useCallback((state: PlayState | null) => {
         const i = inspectRef.current;
         const p = pairRef.current;
-        if (i && p && (i.side === "a" ? p[0] : p[1]).id === i.file.id) {
-            applyPlayState(sideRoot(i.side), state);
+        const finish = () => {
+            if (resumeOtherSide.current) {
+                shownVideo(sideRoot(resumeOtherSide.current))?.play().catch(() => {});
+                resumeOtherSide.current = null;
+            }
+            inspectRef.current = null;
+            setInspect(null);
+        };
+        const same = !!i && !!p && (i.side === "a" ? p[0] : p[1]).id === i.file.id;
+        const mine = same ? shownVideo(sideRoot(i!.side)) : null;
+        const theirs = shownVideo(overlayRef.current);
+        if (!mine || !state) {
+            if (same) applyPlayState(sideRoot(i!.side), state);
+            finish();
+            return;
         }
-        if (resumeOtherSide.current) {
-            shownVideo(sideRoot(resumeOtherSide.current))?.play().catch(() => {});
-            resumeOtherSide.current = null;
+        theirs?.pause();
+        const time = theirs ? theirs.currentTime : state.time;
+        let done = false;
+        const swap = () => {
+            if (done) return;
+            done = true;
+            clearTimeout(cap);
+            mine.removeEventListener("seeked", onSeeked);
+            if (!state.paused) mine.play().catch(() => {});
+            finish();
+        };
+        // Seeked: wait for that frame to be on screen, where supported.
+        const onSeeked = () => {
+            if (mine.requestVideoFrameCallback) mine.requestVideoFrameCallback(() => swap());
+            else swap();
+        };
+        const cap = setTimeout(swap, 300);
+        if (Math.abs(mine.currentTime - time) < 0.02) {
+            swap();
+        } else {
+            mine.addEventListener("seeked", onSeeked);
+            mine.currentTime = time;
         }
-        inspectRef.current = null;
-        setInspect(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -1251,7 +1286,7 @@ export default function CompareView({
             </div>
         </div>
             {inspect && (
-                <div className="absolute inset-0 z-50 flex flex-col">
+                <div ref={overlayRef} className="absolute inset-0 z-50 flex flex-col">
                     <SingleFileView
                         onClose={() => closeInspect(true)}
                         file={inspect.file}
