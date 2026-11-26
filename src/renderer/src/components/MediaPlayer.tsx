@@ -254,8 +254,14 @@ export function MediaPlayer({
         containerRef.current?.focus();
     }, []);
 
+    // Handed over paused (startAt): it doesn't start playing on arrival.
+    const arrivedPausedRef = useRef(isVideo && !!startAt?.paused);
     useEffect(() => {
         if (!videoRef.current) return;
+        if (arrivedPausedRef.current) {
+            arrivedPausedRef.current = false;
+            return;
+        }
         disabled ? videoRef.current.pause() : videoRef.current.play();
     }, [disabled]);
 

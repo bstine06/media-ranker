@@ -125,7 +125,7 @@ side's file name).
     place; the buttons and tag panel fade in. Nothing snaps
 [y] ← Back: it shrinks back onto its side and Compare brightens around
     it; it lands exactly on the picture, no jump at the end
-[ ] Both sides (left and right), each with a portrait file and a
+[y] Both sides (left and right), each with a portrait file and a
     landscape file
 [ ] A video playing part-way: the file view carries on from the same
     moment (no restart). Scrub somewhere else, ← Back: Compare's side
@@ -133,6 +133,7 @@ side's file name).
 [N] A paused video stays paused going in and coming back
     >> FAILED 2026-11-25: a video paused in Compare plays as soon as the
        file view opens
+       FIX BUILT (untested): it now arrives paused
 [y] Nothing moves behind the file view: the other side's video pauses
     as Compare dims, and picks up again on closing (if it was playing)
 [y] Closing a video: it lands and carries straight on, no stray frame
