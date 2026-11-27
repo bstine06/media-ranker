@@ -107,17 +107,6 @@ export default function HoverPreview({
             {libraryRank}
           </div>
         )}
-        {ready && (
-          <div
-            className="absolute bottom-0 left-0 right-0 px-3 py-2"
-            style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}
-          >
-            <p className="truncate text-xs font-medium text-white">{file.filename}</p>
-            <p className="text-xs text-neutral-400">
-              {Math.round(file.elo_score)} pts · {file.media_type}
-            </p>
-          </div>
-        )}
       </div>
     </>,
     document.body
