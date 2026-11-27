@@ -472,3 +472,24 @@ swap at the end.
     >> Claude's scratch run 2026-11-26: none in 5 round trips, no console errors
 [x] Delete from the file view over Compare: still fades where it is (27)
     >> Claude's scratch run 2026-11-26: step 4's checks all pass again (file view and Finder delete, ⌘Z)
+
+── 29. Media layer rework: players inside their spots (UNTESTED) ─────────
+   Each player now sits inside its place in the view (moves, resizes, is
+   cut off and stacks with it by itself), lifted out only while it flies
+   or fades. Compare and its file view should look as before, except the
+   flight now passes over the card's top pieces. Checked in Claude's
+   scratch run 2026-11-26: G / Esc on playing and paused videos, Esc
+   mid-flight, the other side pausing and playing again, a layout change
+   (player moves with its card in the same frame), 8 picks, the delete
+   fade (file view and Finder), ⌘Z; no console errors.
+[ ] The flight over the card's crown / rank / focus line: on G the
+    player flies over them as Compare dims; on Esc the card's player
+    covers its whole card while flying home, so the crown and focus line
+    show again only as it lands. Does it look acceptable?
+    (frames: scratchpad/t/shots/s6-in-30ms.png, s6-in-70ms, s6-in-120ms,
+    s6-out-30ms, s6-out-70ms, s6-out-120ms)
+[ ] Resizing the window or dragging the sidebar / tag panel edge with
+    Compare up: the videos stay exactly in their cards, no lag behind
+    (this was the "smooth resize" backlog item)
+[ ] Compare as before: picks, hover bar, click to pick, R, K, both sides
+    switching together
