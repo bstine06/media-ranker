@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { INSPECT_EASE, INSPECT_MS, INSPECT_OUT_MS, LANDING_PAD_MS } from "@renderer/lib/inspect";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
@@ -9,7 +9,7 @@ import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { formatFileSize } from "@renderer/lib/media";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { MediaSlide } from "./MediaSlide";
-import { MediaSpot } from "@renderer/media/MediaLayer";
+import { MediaSpot, type TileShape } from "@renderer/media/MediaLayer";
 import ConfirmDialog from "./ConfirmDialog";
 import { CrownIcon } from "./icons/CrownIcon";
 import { TrashIcon } from "./icons/TrashIcon";
@@ -32,6 +32,14 @@ export interface InspectProps {
     onClosed: () => void;
     /** It's showing: the view underneath can dim. */
     onShown?: () => void;
+    /** Opened from a plain picture of the file (a Browse tile; no player
+     *  for it was up): the player grows from there (see the media layer). */
+    arriveFrom?: () => TileShape | null;
+    /** That picture's thumbnail, the player's loading picture meanwhile. */
+    posterUrl?: string;
+    /** Closing: the file on screen's plain picture to shrink onto (Browse:
+     *  its tile), or null to fade. Unset: back to the view it came from. */
+    leaveTo?: (file: DbFile) => TileShape | null;
 }
 
 export default function ScrollView({
@@ -128,6 +136,28 @@ export default function ScrollView({
         inspectRef.current.onShown?.();
     }, []);
     const closing = !!inspect?.closing;
+    // The file it was opened on, until a step moves on (then flights in
+    // are over: a stepped-to file just appears).
+    const stepped = useRef(false);
+    if (cursor !== 0) stepped.current = true;
+    const opened = (f: DbFile) => !stepped.current && f.id === initialFile?.id;
+    const currentFileRef = useRef(currentFile);
+    currentFileRef.current = currentFile;
+    // Grown from a tile: once, on opening.
+    const grewFrom = useRef(false);
+    const growFrom = useCallback((): TileShape | null => {
+        if (grewFrom.current) return null;
+        grewFrom.current = true;
+        return inspectRef.current?.arriveFrom?.() ?? null;
+    }, []);
+    // Onto the file on screen's tile, only when closing (a step's spot going
+    // isn't leaving). Undefined: not leaving that way.
+    const leaveTo = useCallback((): TileShape | null | undefined => {
+        const insp = inspectRef.current;
+        if (!insp?.closing || !insp.leaveTo) return undefined;
+        const f = currentFileRef.current;
+        return f ? insp.leaveTo(f) : null;
+    }, []);
     useEffect(() => {
         const insp = inspectRef.current;
         if (!insp?.closing) return;
@@ -266,10 +296,13 @@ export default function ScrollView({
                                 zIndex: slot === frontSlot ? 2 : 1,
                             }}
                         >
-                            {slotFiles[slot] && asSpot && slot === frontSlot && slotFiles[slot]!.id === initialFile?.id ? (
-                                // The same player as the view it came from,
-                                // flown here by the media layer; gone while
-                                // closing, so it flies back. (Its mouse
+                            {slotFiles[slot] && asSpot ? (
+                                // As an inspection every file shown is a
+                                // spot (its one player). The opened one's is
+                                // the very player of the view it came from
+                                // (or grown from its tile), flown here by the
+                                // media layer. Gone while closing, so it
+                                // flies back (or onto its tile). (Its mouse
                                 // handlers go on the player: it's rendered
                                 // by the layer, so React events from it don't
                                 // pass through this view.)
@@ -277,13 +310,16 @@ export default function ScrollView({
                                     <MediaSpot
                                         file={slotFiles[slot]!}
                                         className="absolute inset-0"
-                                        arriveMs={INSPECT_MS}
+                                        arriveMs={opened(slotFiles[slot]!) ? INSPECT_MS : 0}
+                                        arriveFrom={opened(slotFiles[slot]!) ? growFrom : undefined}
+                                        leaveTo={leaveTo}
                                         player={{
-                                            disabled: !active,
-                                            muted: false,
-                                            focused: active,
+                                            disabled: !active || slot !== frontSlot,
+                                            muted: slot !== frontSlot,
+                                            focused: active && slot === frontSlot,
                                             seeThrough: true,
                                             rotation: slotFiles[slot]!.rotation,
+                                            posterUrl: opened(slotFiles[slot]!) ? inspect?.posterUrl : undefined,
                                             className: pointer.cursorClass,
                                             onMouseEnter: pointer.handlers.onMouseEnter,
                                             onMouseLeave: pointer.handlers.onMouseLeave,

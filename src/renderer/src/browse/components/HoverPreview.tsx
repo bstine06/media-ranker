@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DbFile } from '@renderer/shared/types/types'
 import { useLibraryRank } from '@renderer/contexts/RankContext'
-import { useSettings } from '@renderer/contexts/SettingsContext'
-import { volumeLevel } from "@renderer/lib/media"
-import { turnedFill, turnedSize } from "@renderer/lib/turn"
+import { turnedSize } from "@renderer/lib/turn"
+import { MediaSpot } from "@renderer/media/MediaLayer"
 
 export default function HoverPreview({
   file,
@@ -23,16 +22,12 @@ export default function HoverPreview({
   height: number
   onNaturalSize: (w: number, h: number) => void
 }): JSX.Element {
-  const isVideo = file.media_type === 'video'
-  const isGif = file.media_type === 'gif'
-  // Drawn turned by the file's rotation setting; the box takes the turned shape.
+  // The media is a spot: the file's one player (media layer), drawn turned
+  // by its rotation setting; the box takes the turned shape. It's the
+  // focused player while it shows (Q / E, hold 4, P, its bar), heard, and
+  // never takes the mouse (that's on the tile). G flies it to the file view.
   const rotation = file.rotation ?? 0
-  const fill: React.CSSProperties = rotation
-    ? turnedFill(rotation, 'cover')
-    : { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }
   const libraryRank = useLibraryRank(file.id)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
   const [ready, setReady] = useState(false)
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
 
@@ -47,26 +42,8 @@ export default function HoverPreview({
     return () => window.removeEventListener('mousemove', handleMouseMove)
   }, [file.content_hash])
 
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.play()
-  }, [])
-
-  const { volume } = useSettings()
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.volume = volumeLevel(volume)
-  }, [volume, fullUrl])
-
-  const handleVideoReady = () => {
-    const v = videoRef.current
-    if (v?.videoWidth && v?.videoHeight) onNaturalSize(...turnedSize(rotation, v.videoWidth, v.videoHeight))
-    setReady(true)
-  }
-
-  const handleImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const i = e.currentTarget
-    onNaturalSize(...turnedSize(rotation, i.naturalWidth, i.naturalHeight))
-    setReady(true)
-  }
+  // The media's own shape, unturned: the box's size as drawn.
+  const handleAspect = (aspect: number) => onNaturalSize(...turnedSize(rotation, aspect * 1000, 1000))
 
   return createPortal(
     <>
@@ -106,30 +83,22 @@ export default function HoverPreview({
           transition: 'opacity 0.1s ease',
           pointerEvents: 'none',
           overflow: 'hidden',
-          containerType: rotation ? 'size' : undefined,
         }}
       >
-        {isVideo ? (
-          <video
-            ref={videoRef}
-            src={fullUrl}
-            loop
-            playsInline
-            autoPlay
-            onCanPlay={handleVideoReady}
-            onError={(e) => console.error('video error:', file.filename, e)}
-            style={fill}
-          />
-        ) : (
-          <img
-            ref={imgRef}
-            src={fullUrl}
-            alt={file.filename}
-            onLoad={handleImgLoad}
-            style={fill}
-          />
-        )}
-
+        <MediaSpot
+          file={file}
+          className="absolute inset-0"
+          player={{
+            focused: true,
+            muted: false,
+            inert: true,
+            clickToPauseEnabled: false,
+            keyboardEnabled: false,
+            rotation,
+            onReady: () => setReady(true),
+            onAspect: handleAspect,
+          }}
+        />
         {ready && libraryRank && (
           <div
             className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white"

@@ -15,7 +15,10 @@ export default function BrowseRow({
     onClick,
     onDragOut,
     isSelected = false,
+    previewOff = false,
 }: {
+    /** A file view is up: no hover zoom (its player is in the file view). */
+    previewOff?: boolean;
     file: DbFile;
     rootPath: string;
     rank: number | null;
@@ -128,7 +131,7 @@ export default function BrowseRow({
                 )}
             </div>
 
-            {preview && layout && (
+            {preview && layout && !previewOff && (
                 <HoverPreview
                     file={file}
                     fullUrl={fullUrl}

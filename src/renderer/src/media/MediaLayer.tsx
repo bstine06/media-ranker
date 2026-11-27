@@ -94,8 +94,9 @@ interface SpotState {
      *  up. */
     arriveFrom?: () => TileShape | null;
     /** Let go with no other claim on the file: the player shrinks onto
-     *  this picture, its crop closing in, and goes (a video crossfades). */
-    leaveTo?: () => TileShape | null;
+     *  this picture, its crop closing in, and goes (a video crossfades);
+     *  null: it fades out; undefined: it just goes, as without. */
+    leaveTo?: () => TileShape | null | undefined;
 }
 
 interface Spot extends SpotState {
@@ -248,7 +249,8 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                     !deleted.current.has(s.file.id) &&
                     ![...spots.current.values()].some((x) => x.file.id === s.file.id)
                 ) {
-                    departing.current.set(s.file.id, { spot: s, to: s.leaveTo() });
+                    const to = s.leaveTo();
+                    if (to !== undefined) departing.current.set(s.file.id, { spot: s, to });
                 }
                 const covering = leaving.current.delete(id);
                 forget();
@@ -799,6 +801,8 @@ export function MediaSpot({
     player = {},
     arriveMs,
     group,
+    arriveFrom,
+    leaveTo,
     className,
     style,
 }: {
@@ -808,6 +812,10 @@ export function MediaSpot({
     arriveMs?: number;
     /** Spots that change file together (see SpotState.group). */
     group?: string;
+    /** A new player starts from this plain picture (see SpotState). */
+    arriveFrom?: () => TileShape | null;
+    /** Let go: onto this plain picture (see SpotState). */
+    leaveTo?: () => TileShape | null | undefined;
     className?: string;
     style?: CSSProperties;
 }): JSX.Element {
@@ -816,7 +824,7 @@ export function MediaSpot({
     const ref = useRef<HTMLDivElement>(null);
     const id = useRef(0);
     if (id.current === 0) id.current = nextSpotId++;
-    const state = (): SpotState => ({ file, el: ref.current, player, arriveMs, group });
+    const state = (): SpotState => ({ file, el: ref.current, player, arriveMs, group, arriveFrom, leaveTo });
     // Claimed when it appears, let go when it goes.
     useLayoutEffect(() => {
         api.claim(id.current, state());

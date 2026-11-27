@@ -14,7 +14,10 @@ export default function MediaTile({
     onClickTrash,
     onClickCrown,
     onDragOut,
+    previewOff = false,
 }: {
+    /** A file view is up: no hover zoom (its player is in the file view). */
+    previewOff?: boolean;
     file: DbFile;
     rootPath: string;
     onClickTrash: () => void;
@@ -129,7 +132,7 @@ export default function MediaTile({
                 )}
             </div>
 
-            {preview && layout && (
+            {preview && layout && !previewOff && (
                 <HoverPreview
                     file={file}
                     fullUrl={fullUrl}
