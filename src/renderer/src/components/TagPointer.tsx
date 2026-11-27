@@ -435,7 +435,10 @@ export function CursorPointer(): JSX.Element | null {
         if (show) place();
     });
 
-    const { tags } = useFileTags(show ? target!.file.id : null);
+    // Loaded for the file under the mouse even while the pointer is off or
+    // put away, so turning it on shows the right colour from the first
+    // frame (not "not on this file" until the tags arrive).
+    const { tags } = useFileTags(target && !target.ownPointer ? target.file.id : null);
     const onFile = tag ? (tags.find((t) => t.id === tag.id) as OnFile | undefined) : undefined;
 
     return (
