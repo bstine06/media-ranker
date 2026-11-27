@@ -59,6 +59,10 @@ export interface SpotPlayer {
     barFitsPicture?: boolean;
     /** Extra classes on the player's box (e.g. the tag pointer hiding the cursor). */
     className?: string;
+    /** The window losing focus (with "pause when unfocused" on): pause and
+     *  pick up again on return (the default), or keep playing silently (a
+     *  lane, like Pass's). */
+    whenAway?: "pause" | "silence";
 }
 
 interface SpotState {
@@ -355,6 +359,8 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
             rotation={p.rotation}
             seeThrough={p.seeThrough}
             barFitsPicture={p.barFitsPicture}
+            // Every layer player's sound goes through the app's mixer.
+            mixed
         />
     );
 }
@@ -480,6 +486,8 @@ function LayerPlayer({
         else delete box.dataset.layerLeaving;
         if (leaving || gone) delete box.dataset.layerPlayer;
         else box.dataset.layerPlayer = String(fileId);
+        // What it does when the window loses focus (see SettingsContext).
+        box.dataset.whenAway = player.whenAway ?? "pause";
         // On top of the spot's new player while covering or fading.
         box.style.zIndex = leaving || gone ? "2" : "1";
         if (gone) {

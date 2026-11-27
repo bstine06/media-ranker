@@ -6,9 +6,11 @@ import React, {
     useRef,
     useCallback,
     useMemo,
+    useLayoutEffect,
 } from "react";
 import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
 import { useSettings } from "@renderer/contexts/SettingsContext";
+import { attach, detach, setAudible, setMasterVolume } from "@renderer/lib/audioMix";
 import { isTyping } from "@renderer/lib/keys";
 
 /** How far ahead of the old version a video's new version (baked / replaced) starts,
@@ -58,6 +60,9 @@ interface MediaPlayerProps {
     /** The playhead strip only as wide as the picture (under it, at the
      *  bottom of the player), instead of the player's full width. */
     barFitsPicture?: boolean;
+    /** Sound through the app's mixer (lib/audioMix): muted / the Settings
+     *  volume become its gain there and the master's. Read on mount. */
+    mixed?: boolean;
 }
 
 export function MediaPlayer({
@@ -78,8 +83,9 @@ export function MediaPlayer({
     rotation = 0,
     seeThrough = false,
     barFitsPicture = false,
+    mixed = false,
 }: MediaPlayerProps): JSX.Element {
-    const videoRef = useRef<HTMLVideoElement>(null);
+    const videoRef = useRef<HTMLVideoElement | null>(null);
     // The video's own shape (width / height), once known.
     const [videoAspect, setVideoAspect] = useState<number | null>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -260,11 +266,35 @@ export function MediaPlayer({
     // Settings volume (0–100). Set on every new element too: a new file or
     // version mounts a fresh <video> at full volume.
     const { volume } = useSettings();
+    // Through the mixer: the element plays at full volume into it, muted /
+    // not is its gain there, the Settings volume is the master's. (Once an
+    // element's sound is in the mixer it's heard nowhere else.) If the mixer
+    // can't take it, the element's own mute and volume, as without.
+    const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+    const [inMix, setInMix] = useState(false);
+    // Tried and failed: its own mute and volume from then on.
+    const [mixFailed, setMixFailed] = useState(false);
+    const mixedRef = useRef(mixed);
+    useLayoutEffect(() => {
+        if (!mixedRef.current || !videoEl) return;
+        const ok = attach(videoEl);
+        setInMix(ok);
+        setMixFailed(!ok);
+        if (ok) videoEl.muted = false;
+        return () => {
+            detach(videoEl);
+            setInMix(false);
+        };
+    }, [videoEl]);
+    useEffect(() => {
+        if (inMix && videoEl) setAudible(videoEl, !muted);
+    }, [inMix, videoEl, muted]);
     useEffect(() => {
         const level = volumeLevel(volume);
-        if (videoRef.current) videoRef.current.volume = level;
-        if (handoffElRef.current) handoffElRef.current.volume = level;
-    }, [volume, fullUrl, handoff]);
+        if (inMix) setMasterVolume(level);
+        else if (videoRef.current) videoRef.current.volume = level;
+        if (handoffElRef.current && !inMix) handoffElRef.current.volume = level;
+    }, [volume, fullUrl, handoff, inMix]);
 
     // A new file starts at 0; a new version of the same file (baked / replaced)
     // keeps its place.
@@ -464,6 +494,7 @@ export function MediaPlayer({
                     handoff && (
                         <video
                             key={handoff.url}
+                            crossOrigin={mixed ? "anonymous" : undefined}
                             src={handoff.url}
                             className="pointer-events-none absolute z-[1] object-contain"
                             style={turnStyle(handoff.turns, false)}
@@ -473,12 +504,20 @@ export function MediaPlayer({
                         />
                     ),
                     <video
-                        ref={videoRef}
+                        ref={(v) => {
+                            videoRef.current = v;
+                            setVideoEl(v);
+                        }}
                         key={fullUrl}
+                        // Before src, or the mixer hears silence (media://
+                        // sends the CORS header).
+                        crossOrigin={mixed ? "anonymous" : undefined}
                         src={fullUrl}
                         className="absolute object-contain"
                         style={turnStyle(turnsNow, animateTurn)}
-                        muted={muted}
+                        // In the mix: muted is its gain there instead.
+                        // (Silent until it's in, so nothing plays past it.)
+                        muted={inMix ? false : muted || (mixedRef.current && !mixFailed)}
                         loop
                         playsInline
                         autoPlay={!disabled && autoPlayRef.current}

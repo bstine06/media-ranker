@@ -280,15 +280,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     // When the app loses focus (switching apps, dragging a file out into
     // another app), pause every playing video; when it comes back, resume
     // only the ones we paused. Videos the user paused stay paused. Sweep's
-    // and Pass's lanes (their sound in the mixer) keep playing instead, with
-    // their sound faded out until the window is back.
+    // and Pass's lanes keep playing instead, with their sound faded out
+    // until the window is back: mixed videos, unless their media layer
+    // player says to pause (data-when-away, a spot setting).
     useEffect(() => {
         if (!pauseWhenUnfocused) return;
         const pausedByBlur = new Set<HTMLVideoElement>();
         const onBlur = () => {
             setAway(true);
             document.querySelectorAll("video").forEach((v) => {
-                if (!v.paused && !isMixed(v)) {
+                if (!v.paused && (!isMixed(v) || v.closest('[data-when-away="pause"]'))) {
                     pausedByBlur.add(v);
                     v.pause();
                 }
