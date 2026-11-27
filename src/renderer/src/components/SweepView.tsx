@@ -13,9 +13,11 @@ import {
     type PointerTarget,
 } from "@renderer/contexts/TagPointerContext";
 import { PointerLabel } from "./TagPointer";
-import { stepVideo } from "@renderer/lib/media";
 import { isSideways } from "@renderer/lib/turn";
-import { LaneMedia, measureAspect, useLaneFullscreen } from "./lane";
+import { measureAspect, useLaneFullscreen } from "./lane";
+import { MediaSpot } from "@renderer/media/MediaLayer";
+import { Liftable } from "@renderer/media/Liftable";
+import { INSPECT_MS, INSPECT_OUT_MS } from "@renderer/lib/inspect";
 import { MediaFlash } from "./TagPointer";
 import SingleFileView from "./SingleFileView";
 import { TagPill } from "./TagPill";
@@ -85,8 +87,15 @@ export default function SweepView({
     const { crown } = useKingOfHill();
 
     const sweepTagId = tag?.id ?? null;
-    // G: a file open in the single file view, over the sweep.
-    const [inspected, setInspected] = useState<DbFile | null>(null);
+    // G: a file open in the file view over the sweep, as an inspection (as
+    // over Compare and Pass): every lane stops at once, the sweep stays on
+    // screen dimmed, and the tile's very player flies to the file view; on
+    // closing it flies back and the lanes go on once it has landed.
+    const [inspect, setInspect] = useState<{ file: DbFile; closing: boolean; shown: boolean } | null>(null);
+    const openInspected = useCallback(
+        (file: DbFile) => setInspect((i) => i ?? { file, closing: false, shown: false }),
+        [],
+    );
 
     // Latest filters for fetching, without re-creating the layout.
     // Skipping answered files: only files without a firm answer for the tag.
@@ -162,31 +171,44 @@ export default function SweepView({
     // away, app-wide): content only, no pointer, toolbar or hints. Esc also
     // leaves the single file view.
     const contentOnly = hidden;
-    const closeInspected = useCallback(() => setInspected(null), []);
+    const closeInspected = useCallback(() => setInspect((i) => (i && !i.closing ? { ...i, closing: true } : i)), []);
+    const onInspectShown = useCallback(() => setInspect((i) => (i && !i.shown ? { ...i, shown: true } : i)), []);
+    const onInspectClosed = useCallback(() => setInspect(null), []);
+    const dimmed = !!inspect?.shown && !inspect.closing;
+    const fadeMs = inspect?.closing ? INSPECT_OUT_MS : INSPECT_MS;
+    // The strip's pieces on the media (the pointer) go above the flight
+    // meanwhile, fading with the dim (see Liftable).
+    const liftFade = inspect ? { opacity: dimmed ? 0 : 1, ms: fadeMs } : null;
     const { fullscreen } = useLaneFullscreen({
         active,
         immersive,
         setImmersive,
         pickingRef,
-        inspected: !!inspected,
+        inspected: !!inspect,
         closeInspected,
     });
 
-    // The sweep stays mounted (and paused) under the single file view, so
-    // closing it comes back to the same spot.
-    const sweeping = active && !inspected;
+    // The sweep stays mounted, on screen and still, under the file view;
+    // its lanes go on again only once the player has landed back.
+    const sweeping = active && !inspect;
 
     return (
         <div className="relative flex flex-1 flex-col overflow-hidden bg-neutral-950">
-            {inspected && (
-                <SingleFileView
-                    file={inspected}
-                    active={active}
-                    setView={setView}
-                    onClose={() => setInspected(null)}
-                />
+            {inspect && (
+                <div className="absolute inset-0 z-20 flex flex-col">
+                    <SingleFileView
+                        file={inspect.file}
+                        active={active}
+                        setView={setView}
+                        onClose={closeInspected}
+                        inspect={{ closing: inspect.closing, onClosed: onInspectClosed, onShown: onInspectShown }}
+                    />
+                </div>
             )}
-            <div className={inspected ? "hidden" : "relative flex flex-1 flex-col overflow-hidden"}>
+            <div
+                className="relative flex flex-1 flex-col overflow-hidden"
+                style={{ opacity: dimmed ? 0.06 : 1, transition: `opacity ${fadeMs}ms ease-out` }}
+            >
                 {/* No toolbar in full screen: just the strip. */}
                 {!contentOnly && !fullscreen && (
                     <SweepToolbar
@@ -210,7 +232,9 @@ export default function SweepView({
                         tag={tag}
                         speed={sweepSpeed}
                         onSpeed={setSweepSpeed}
-                        onInspect={setInspected}
+                        onInspect={openInspected}
+                        inspectedId={inspect?.file.id ?? null}
+                        liftFade={liftFade}
                         fetchFile={fetchFile}
                         setVisible={setVisible}
                         onCompare={toCompare}
@@ -315,12 +339,20 @@ function SweepStrip({
     speed,
     onSpeed,
     onInspect,
+    inspectedId,
+    liftFade,
     fetchFile,
     setVisible,
     onCompare,
     contentOnly,
     ending,
 }: {
+    /** The file open in the file view over the sweep (its tile's player is
+     *  there and flies home on closing), or null. */
+    inspectedId: number | null;
+    /** A file view is up: the pointer sits above the flying player, at
+     *  this opacity. */
+    liftFade: { opacity: number; ms: number } | null;
     /** What a lane shows when it runs out of files. */
     ending: LaneEnding;
     rootPath: string;
@@ -379,8 +411,15 @@ function SweepStrip({
     scrubHoldRef.current = sweepScrubHold;
     // Lanes are stopped for a scrub (they ease to a halt fast).
     const scrubbingRef = useRef(false);
-    // The tile key of the video being scrubbed.
+    // The tile key of the video being scrubbed: its player stays the
+    // focused one (it answers Q / E) until the lock goes. State too, so the
+    // tiles know.
     const scrubLock = useRef<number | null>(null);
+    const [lockKey, setLockKey] = useState<number | null>(null);
+    const setScrubLock = useCallback((key: number | null) => {
+        scrubLock.current = key;
+        setLockKey(key);
+    }, []);
     const scrubResume = useRef<(1 | 0 | -1)[] | null>(null);
     const scrubTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const clearScrubTimer = () => {
@@ -391,8 +430,8 @@ function SweepStrip({
     const cancelScrubResume = useCallback(() => {
         clearScrubTimer();
         scrubbingRef.current = false;
-        scrubLock.current = null;
-    }, []);
+        setScrubLock(null);
+    }, [setScrubLock]);
     const pauseForScrub = () => {
         if (scrubHoldRef.current) {
             clearScrubTimer();
@@ -449,12 +488,6 @@ function SweepStrip({
     );
     // Unique tile keys across lanes (flashes are keyed by them).
     const keyCounter = useRef(0);
-    // Each tile's <video>, by tile key (Q / E scrub the active one).
-    const videoEls = useRef(new Map<number, HTMLVideoElement>());
-    const onTileVideo = useCallback((key: number, el: HTMLVideoElement | null) => {
-        if (el) videoEls.current.set(key, el);
-        else videoEls.current.delete(key);
-    }, []);
 
     // The pointer: where the mouse is over the strip (null: resting), and
     // which lane it's in. 2 shifts it down a lane (wrapping to the top), at
@@ -504,6 +537,12 @@ function SweepStrip({
     };
     const placePointerRef = useRef(placePointer);
     placePointerRef.current = placePointer;
+    // Lifted above a flight or back (a new element each time): put where it
+    // was, not at its rest spot.
+    const lifted = liftFade != null;
+    useLayoutEffect(() => {
+        placePointerRef.current();
+    }, [lifted]);
     // Fewer lanes: the shift wraps to fit, and the pointer follows.
     useEffect(() => {
         laneOffset.current %= laneCount;
@@ -615,23 +654,9 @@ function SweepStrip({
 
     // ── Rotation (R) ─────────────────────────────────────────────────────
     // R adds a turn to the file's rotation setting at once (one undo entry;
-    // the file itself is untouched) and the media shows turned straight
-    // away. While pressing, the tile keeps the width it had, the turned media
-    // zoomed to fill it, and its lane eases to a stop, so pressing R again
-    // (90, 180, 270) never needs the mouse moved. Once pressing stops (or the
-    // pointer moves to another file, or the view is left) the tile takes its
-    // new shape: its left edge stays, the files to its right move.
-    // `heldShape`: per file, the rotation its tile's width is held at.
-    const heldShapeRef = useRef<Record<number, number>>({});
-    const [heldShape, setHeldShapeState] = useState<Record<number, number>>({});
-    const setHeldShape = (update: (p: Record<number, number>) => Record<number, number>) => {
-        heldShapeRef.current = update(heldShapeRef.current);
-        setHeldShapeState(heldShapeRef.current);
-    };
-    // The lane whose file is being turned (it holds still), or null.
-    const [rotatingLane, setRotatingLane] = useState<number | null>(null);
-    const rotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+    // the file itself is untouched): the media shows turned and the tile
+    // takes its new shape straight away (its left edge stays, the files to
+    // its right move).
     // A file's record changed (turned here or elsewhere, an undo, new
     // content): every lane showing it updates.
     const replaceItemFile = useCallback((file: DbFile) => {
@@ -669,50 +694,11 @@ function SweepStrip({
         });
     }, [replaceItemFile]);
 
-    /** The rotation a file's tile is shaped for (held while turning). */
-    const shapeRotation = useCallback(
-        (file: DbFile) => heldShape[file.id] ?? file.rotation,
-        [heldShape],
-    );
-
-    const releaseShape = useCallback((keep?: number) => {
-        if (Object.keys(heldShapeRef.current).every((id) => Number(id) === keep)) return;
-        setHeldShape((p) => (keep != null && p[keep] != null ? { [keep]: p[keep] } : {}));
-    }, []);
-
     const rotateLeft = useCallback(() => {
         const item = activeItem;
         if (!item) return;
-        const id = item.file.id;
-        if (heldShapeRef.current[id] == null) {
-            const r = item.file.rotation;
-            setHeldShape((p) => ({ ...p, [id]: r }));
-        }
-        setRotatingLane(pointerLaneRef.current);
-        window.api.turnFile(id).catch((err: unknown) => console.error("Rotate failed:", err));
-        if (rotTimer.current) clearTimeout(rotTimer.current);
-        rotTimer.current = setTimeout(() => releaseShape(), 900);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeItem, releaseShape]);
-
-    // The pointer moved to another file: the turned one takes its shape now.
-    const rotActiveId = activeItem?.file.id;
-    useEffect(() => {
-        releaseShape(rotActiveId);
-    }, [rotActiveId, releaseShape]);
-
-    // Nothing held: its lane carries on.
-    useEffect(() => {
-        if (rotatingLane != null && Object.keys(heldShape).length === 0) setRotatingLane(null);
-    }, [rotatingLane, heldShape]);
-
-    // Leaving: everything takes its shape.
-    useEffect(() => {
-        if (!active) releaseShape();
-    }, [active, releaseShape]);
-    useEffect(() => () => {
-        if (rotTimer.current) clearTimeout(rotTimer.current);
-    }, []);
+        window.api.turnFile(item.file.id).catch((err: unknown) => console.error("Rotate failed:", err));
+    }, [activeItem]);
 
     const { tags } = useFileTags(activeItem?.file.id ?? null);
     const onFile = tag ? tags.find((t) => t.id === tag.id) : undefined;
@@ -830,7 +816,7 @@ function SweepStrip({
                     laneOffset.current = (laneOffset.current + 1) % laneCountRef.current;
                     // Aimed somewhere else, like moving the mouse: the next
                     // scrub picks the video under the pointer again.
-                    scrubLock.current = null;
+                    setScrubLock(null);
                     placePointerRef.current();
                     break;
                 case "Equal":
@@ -849,15 +835,13 @@ function SweepStrip({
                 case "KeyE":
                 case "ArrowLeft":
                 case "ArrowRight": {
-                    // Scrub the active video, as everywhere else. The lanes
-                    // stop meanwhile (see Scrub pause).
+                    // The active video's player steps it (its own keys, as
+                    // everywhere); the lanes stop meanwhile (see Scrub pause).
                     e.preventDefault();
-                    const key = scrubLock.current ?? activeItem?.key;
-                    const video = key != null ? videoEls.current.get(key) : undefined;
-                    if (key != null && video) {
-                        scrubLock.current = key;
+                    const key = scrubLock.current ?? (activeItem?.file.media_type === "video" ? activeItem.key : null);
+                    if (key != null) {
+                        setScrubLock(key);
                         pauseForScrub();
-                        stepVideo(video, e.code === "KeyQ" || e.code === "ArrowLeft" ? -1 : 1);
                     }
                     break;
                 }
@@ -905,20 +889,20 @@ function SweepStrip({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active, onCompare, onSpeed, onInspect, sweepAllLanes]);
 
-    const pointerMotion = motion[pointerLane] ?? CRUISE;
-
-    return (
-        <div
-            ref={boxRef}
-            // The pointer stands in for the mouse here, so the cursor hides
-            // (back while picking, to click a result).
-            className={`relative min-h-0 flex-1 overflow-hidden bg-black select-none ${
-                picking ? "" : "cursor-none"
-            }`}
-            onMouseMove={(e) => {
+    // The strip's mouse handling, as page listeners: the tiles' players are
+    // rendered by the media layer, so React's events from them never reach
+    // this box (the page's do: they're inside it). Fresh closures each render.
+    const boxHandlers = useRef<{
+        mousemove: (e: MouseEvent) => void;
+        mouseleave: () => void;
+        contextmenu: (e: MouseEvent) => void;
+        wheel: (e: WheelEvent) => void;
+    } | null>(null);
+    boxHandlers.current = {
+        mousemove: (e: MouseEvent) => {
                 // The pointer holds still while the picker is open.
                 if (pickingRef.current) return;
-                const rect = e.currentTarget.getBoundingClientRect();
+                const rect = boxRef.current!.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 // Really moved: a 2 shift ends and the pointer follows the
                 // mouse again.
@@ -926,7 +910,7 @@ function SweepStrip({
                 if (!last || last.x !== e.screenX || last.y !== e.screenY) {
                     laneOffset.current = 0;
                     // Aiming somewhere else: the next scrub picks again.
-                    scrubLock.current = null;
+                    if (scrubLock.current != null) setScrubLock(null);
                 }
                 lastScreen.current = { x: e.screenX, y: e.screenY };
                 mouseX.current = x;
@@ -940,8 +924,8 @@ function SweepStrip({
                 else if (x > rect.width - right)
                     applyEdge("right", Math.min(1, (x - (rect.width - right)) / (right - full)), lanes);
                 else applyEdge(null, 0, []);
-            }}
-            onMouseLeave={() => {
+        },
+        mouseleave: () => {
                 if (pickingRef.current) return;
                 mouseX.current = null;
                 mouseY.current = null;
@@ -949,13 +933,13 @@ function SweepStrip({
                 applyEdge(null, 0, []);
                 // Glide back to where it rests: the top of its (shifted) lane.
                 placePointer(true);
-            }}
-            onContextMenu={(e) => {
+        },
+        contextmenu: (e: MouseEvent) => {
                 // Right click: hold; again: let go.
                 e.preventDefault();
                 togglePicker();
-            }}
-            onWheel={(e) => {
+        },
+        wheel: (e: WheelEvent) => {
                 // Scrolling (wheel or two fingers) sets the speed: up faster,
                 // down slower. Proportional, so a trackpad's many small
                 // steps and a wheel's big ones both feel right. Pinch
@@ -964,7 +948,39 @@ function SweepStrip({
                 const next = wheelSpeed.current * Math.exp(-e.deltaY * 0.002);
                 applySpeed(Math.max(SPEED_MIN, Math.min(SPEED_MAX, next)));
                 onSpeed(Math.round(wheelSpeed.current));
-            }}
+                    },
+    };
+    useEffect(() => {
+        const box = boxRef.current;
+        if (!box) return;
+        const on = {
+            mousemove: (e: MouseEvent) => boxHandlers.current?.mousemove(e),
+            mouseleave: () => boxHandlers.current?.mouseleave(),
+            contextmenu: (e: MouseEvent) => boxHandlers.current?.contextmenu(e),
+            wheel: (e: WheelEvent) => boxHandlers.current?.wheel(e),
+        };
+        box.addEventListener("mousemove", on.mousemove);
+        box.addEventListener("mouseleave", on.mouseleave);
+        box.addEventListener("contextmenu", on.contextmenu);
+        box.addEventListener("wheel", on.wheel);
+        return () => {
+            box.removeEventListener("mousemove", on.mousemove);
+            box.removeEventListener("mouseleave", on.mouseleave);
+            box.removeEventListener("contextmenu", on.contextmenu);
+            box.removeEventListener("wheel", on.wheel);
+        };
+    }, []);
+
+    const pointerMotion = motion[pointerLane] ?? CRUISE;
+
+    return (
+        <div
+            ref={boxRef}
+            // The pointer stands in for the mouse here, so the cursor hides
+            // (back while picking, to click a result).
+            className={`relative min-h-0 flex-1 overflow-hidden bg-black select-none ${
+                picking ? "" : "cursor-none"
+            }`}
         >
             <div className="absolute inset-0 flex flex-col">
                 {Array.from({ length: laneCount }, (_, i) => (
@@ -979,7 +995,6 @@ function SweepStrip({
                         fetchFile={fetchFile}
                         motion={motion[i] ?? CRUISE}
                         speedMult={laneSpeed(i)}
-                        holdStill={rotatingLane === i}
                         wheelSpeed={wheelSpeed}
                         velocities={velocities}
                         edgeDepths={edgeDepths}
@@ -992,9 +1007,9 @@ function SweepStrip({
                         mouseX={mouseX}
                         keyCounter={keyCounter}
                         flashes={flashes}
-                        shapeRotation={shapeRotation}
                         onTileClick={onTileClick}
-                        onTileVideo={onTileVideo}
+                        lockKey={lockKey}
+                        inspectedId={inspectedId}
                         onActive={onLaneActive}
                         onVisible={onLaneVisible}
                         register={registerLane}
@@ -1003,7 +1018,9 @@ function SweepStrip({
                 ))}
             </div>
 
-            {/* The pointer, with the tag it applies */}
+            {/* The pointer, with the tag it applies (above the player flying
+                past while a file view is up) */}
+            <Liftable over={boxRef} fade={liftFade}>
             <div
                 ref={pointerRef}
                 // w-max + nowrap: near an edge it runs off screen rather than wrap.
@@ -1015,6 +1032,7 @@ function SweepStrip({
             >
                 <PointerLabel onFile={onFile} originTop={mouseX.current == null} />
             </div>
+            </Liftable>
 
             {/* Direction / stopped (the pointer's lane), and the lanes */}
             <div
@@ -1023,7 +1041,7 @@ function SweepStrip({
                 }`}
             >
                 {pointerMotion.dir === 1 ? (pointerMotion.boost ? "▶▶" : "▶") : pointerMotion.dir === -1 ? "◀◀" : "❚❚"}{" "}
-                {speed} px/s · 4 slower · 5 faster · {laneCount} lane{laneCount === 1 ? "" : "s"} (+ / −) ·{" "}
+                {speed} px/s · 5 slower · 6 faster · {laneCount} lane{laneCount === 1 ? "" : "s"} (+ / −) ·{" "}
                 {sweepAllAudio ? "all audio (X)" : "pointer's audio (X)"}
             </div>
         </div>
@@ -1046,7 +1064,6 @@ function StripLane({
     fetchFile,
     motion,
     speedMult,
-    holdStill,
     wheelSpeed,
     velocities,
     edgeDepths,
@@ -1059,9 +1076,9 @@ function StripLane({
     mouseX,
     keyCounter,
     flashes,
-    shapeRotation,
     onTileClick,
-    onTileVideo,
+    lockKey,
+    inspectedId,
     onActive,
     onVisible,
     register,
@@ -1078,8 +1095,6 @@ function StripLane({
     motion: LaneMotion;
     /** Varispeed: this lane's speed against the set speed. */
     speedMult: number;
-    /** A file in it is being rotated: ease to a stop. */
-    holdStill: boolean;
     wheelSpeed: React.MutableRefObject<number>;
     velocities: React.MutableRefObject<number[]>;
     edgeDepths: React.MutableRefObject<number[]>;
@@ -1095,10 +1110,11 @@ function StripLane({
     mouseX: React.MutableRefObject<number | null>;
     keyCounter: React.MutableRefObject<number>;
     flashes: Record<number, { kind: "on" | "already" | "denied"; n: number }>;
-    /** The rotation a file's tile is shaped for (held while R is pressed). */
-    shapeRotation: (file: DbFile) => number;
     onTileClick: (item: StripItem) => void;
-    onTileVideo: (key: number, el: HTMLVideoElement | null) => void;
+    /** A scrub's tile: its player stays the focused one meanwhile. */
+    lockKey: number | null;
+    /** The file open in the file view over the sweep, or null. */
+    inspectedId: number | null;
     onActive: (lane: number, item: StripItem | undefined) => void;
     onVisible: (lane: number, loaded: number[], near: number[]) => void;
     register: (lane: number, handle: LaneHandle | null) => void;
@@ -1141,8 +1157,8 @@ function StripLane({
     // `aspect` is the media's own shape; the tile takes the turned one.
     const widthOf = useCallback(
         (item: StripItem) =>
-            (isSideways(shapeRotation(item.file)) ? 1 / item.aspect : item.aspect) * height,
-        [height, shapeRotation],
+            (isSideways(item.file.rotation) ? 1 / item.aspect : item.aspect) * height,
+        [height],
     );
     // Deleted files' spots, by path, for an undo to put them back.
     const removedSpots = useRef(
@@ -1411,8 +1427,7 @@ function StripLane({
                 boostLevel.current = 1;
             }
             const cruise = wheelSpeed.current * speedMult;
-            // Rotating one of its files: ease to a stop.
-            const target = holdStill ? 0 : motion.dir * cruise * boostLevel.current;
+            const target = motion.dir * cruise * boostLevel.current;
             const v = velocities.current[index];
             const scrubbing = scrubbingRef.current;
             // Snappy into and out of fast forward; gentle for everything else.
@@ -1447,7 +1462,6 @@ function StripLane({
                 !motion.boost &&
                 depth === 0 &&
                 !scrubbing &&
-                !holdStill &&
                 velocities.current[index] > 0 &&
                 document.hasFocus();
             const marks = tripMinX.current;
@@ -1502,7 +1516,7 @@ function StripLane({
         raf = requestAnimationFrame(frame);
         return () => cancelAnimationFrame(raf);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [active, motion.dir, motion.boost, holdStill, speedMult, width, widthOf, topUp]);
+    }, [active, motion.dir, motion.boost, speedMult, width, widthOf, topUp]);
 
     return (
         <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -1514,12 +1528,14 @@ function StripLane({
                         width={widthOf(it)}
                         rootPath={rootPath}
                         isActive={isPointerLane && i === activeIndex}
+                        focused={active && (lockKey != null ? lockKey === it.key : isPointerLane && i === activeIndex)}
+                        inspected={inspectedId === it.file.id}
+                        returning={inspectedId != null}
                         play={active && i >= playing[0] && i <= playing[1]}
                         seen={active && i >= onScreen[0] && i <= onScreen[1]}
                         flash={flashes[it.key]}
                         height={height}
                         onShape={onShape}
-                        onVideo={onTileVideo}
                         onClick={() => onTileClick(it)}
                     />
                 ))}
@@ -1600,14 +1616,15 @@ function LaneEndCard({
 function StripTile({
     item,
     width,
-    rootPath,
     isActive,
+    focused,
+    inspected,
+    returning,
     play,
     seen,
     flash,
     height,
     onShape,
-    onVideo,
     onClick,
 }: {
     item: StripItem;
@@ -1615,10 +1632,16 @@ function StripTile({
     height: number;
     /** Reports the media's real shape (width / height) once loaded. */
     onShape: (key: number, aspect: number) => void;
-    /** Hands over its <video> (null when it goes), for scrubbing. */
-    onVideo: (key: number, el: HTMLVideoElement | null) => void;
     rootPath: string;
     isActive: boolean;
+    /** Its player answers the playback keys and shows its bar: the
+     *  pointer's file (or the one being scrubbed). */
+    focused: boolean;
+    /** Open in the file view over the sweep: its player is there (and
+     *  keeps playing while it flies home). */
+    inspected: boolean;
+    /** A file view is up: the inspected file's player flies home on closing. */
+    returning: boolean;
     /** On screen or about to be: videos play; otherwise they're paused. */
     play: boolean;
     /** Some of it on screen: with X, heard. */
@@ -1644,21 +1667,31 @@ function StripTile({
     return (
         <div
             className="relative h-full shrink-0 overflow-hidden"
-            // A new shape (once R stops being pressed) eases in: the left edge
-            // stays and the files to the right slide along. (The turn
-            // itself snaps.) A lane resize (H, F, the window, + / −) snaps
-            // too: the row's offset is rescaled at once, so easing the
-            // widths would throw the row off and slide it back.
+            // A new shape (R) eases in: the left edge stays and the files to
+            // the right slide along. (The turn itself snaps.) A lane resize
+            // (H, F, the window, + / −) snaps too: the row's offset is
+            // rescaled at once, so easing the widths would throw the row off
+            // and slide it back.
             style={{ width, transition: resized ? "none" : "width 250ms ease-out" }}
             onClick={onClick}
         >
-            <LaneMedia
+            {/* A spot: the file's one player (media layer), moving with the
+                lane, flown to the file view and back on G. Its clicks come
+                through the player (React events from it don't reach here). */}
+            <MediaSpot
                 file={item.file}
-                rootPath={rootPath}
-                audible={audible}
-                play={play}
-                onShape={(aspect) => onShape(item.key, aspect)}
-                onVideo={(el) => onVideo(item.key, el)}
+                className="absolute inset-0"
+                arriveMs={returning && inspected ? INSPECT_OUT_MS : 0}
+                player={{
+                    disabled: !(play || inspected),
+                    muted: !audible,
+                    focused,
+                    clickToPauseEnabled: false,
+                    keyboardEnabled: false,
+                    rotation: item.file.rotation,
+                    onAspect: (aspect) => onShape(item.key, aspect),
+                    onClick,
+                }}
             />
             {/* Tag feedback on the tile's top and bottom edges. */}
             <MediaFlash flash={flash ?? null} />
