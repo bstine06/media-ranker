@@ -331,7 +331,9 @@ export function MediaPlayer({
     }, [file.content_hash, fullUrl, isVideo, preloaded]);
 
     useEffect(() => {
-        containerRef.current?.focus();
+        // Without scrolling: in a clipped row wider than the screen (Pass's
+        // lane) focusing would scroll the row sideways to show it.
+        containerRef.current?.focus({ preventScroll: true });
     }, []);
 
     // Play / pause when `disabled` really changes (React may run this twice
@@ -437,7 +439,7 @@ export function MediaPlayer({
     }
 
     useEffect(() => {
-        videoRef.current?.focus();
+        videoRef.current?.focus({ preventScroll: true });
     }, []);
 
     // Frame-by-frame when paused, time-skip when playing
