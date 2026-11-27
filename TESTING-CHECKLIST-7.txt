@@ -89,7 +89,8 @@ sweep seemed to handle this well with no extra fix, youre welcome to take a clos
 
 
 ── 7. Sweep: turning round takes longer (UNTESTED) ───────────────────────
-[ ] Going forward, tap 1 (even a slowish tap): the lanes just pause
-[ ] Hold 1: pause, then after about half a second, fast reverse; let go:
+[y] Going forward, tap 1 (even a slowish tap): the lanes just pause
+[y] Hold 1: pause, then after about half a second, fast reverse; let go:
     normal reverse. The mirror image going backwards with 3
-[ ] Does 500 ms feel right? (Too slow / still too quick: note it)
+[y] Does 500 ms feel right? (Too slow / still too quick: note it)
+    >> User: 400 ms is better; set to 400 (good)

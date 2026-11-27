@@ -318,7 +318,7 @@ type LaneMotion = { dir: 1 | 0 | -1; boost: boolean };
 const CRUISE: LaneMotion = { dir: 1, boost: false };
 /** The opposite direction key held this long after its pause: fast the
  *  other way. */
-const TURN_HOLD_MS = 500;
+const TURN_HOLD_MS = 400;
 /** R holds the pointer's lane still until this long after the last press. */
 const TURN_PAUSE_MS = 900;
 
