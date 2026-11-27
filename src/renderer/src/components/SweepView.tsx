@@ -135,10 +135,10 @@ export default function SweepView({
                 seen.current = new Set(loaded);
                 file = await get(loaded);
             }
-            // Fewer files than the lanes hold: showing everything, a repeat
-            // (never one on screen or about to be). Skipping answered files,
-            // no: the lane ends on its end card instead.
-            if (!file && tagId == null) file = await get([...visible.current.near, ...reserved.current]);
+            // Fewer files than the lanes hold: never a repeat (a file has one
+            // player, so it can only be in one place). The lane ends on its
+            // end card until a file is free again (dropped far behind in
+            // another lane; it tries again every 2 s).
             if (file) {
                 seen.current.add(file.id);
                 reserved.current.add(file.id);
