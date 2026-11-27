@@ -323,6 +323,26 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
             }),
         [changed],
     );
+    // A deleted file back (an undo): no longer one, so every spot still
+    // naming it (the file view sliding it back in, a view in the background)
+    // shows it again. Waiting for no spot to name it first, as before, meant
+    // it never came back: one nearly always still does.
+    useEffect(
+        () =>
+            window.api.onMediaAdded(({ relativePath, hash }) => {
+                const named = [...spots.current.values(), ...[...leaving.current.values()].map((l) => l.spot)];
+                let back = false;
+                for (const s of named) {
+                    if (!deleted.current.has(s.file.id)) continue;
+                    if (s.file.path !== relativePath && s.file.content_hash !== hash) continue;
+                    deleted.current.delete(s.file.id);
+                    for (const [key, f] of fading.current) if (f.file.id === s.file.id) fading.current.delete(key);
+                    back = true;
+                }
+                if (back) changed();
+            }),
+        [changed],
+    );
     const departed = useCallback(
         (key: PlayerKey) => {
             if (departing.current.delete(key)) changed();
@@ -709,6 +729,7 @@ function LayerPlayer({
     // Covering, fading or leaving, or a spot that never takes it: the mouse
     // goes past it.
     const inert = leaving || gone || departing || !!spot.player.inert;
+    const wasGone = useRef(false);
     useLayoutEffect(() => {
         box.className = `${inert ? "pointer-events-none" : "pointer-events-auto"} ${player.className ?? ""}`;
         if (gone) box.dataset.layerGone = String(fileId);
@@ -727,6 +748,12 @@ function LayerPlayer({
         if (gone) {
             box.style.transition = `opacity ${GONE_MS}ms ease-out`;
             box.style.opacity = "0";
+            wasGone.current = true;
+        } else if (wasGone.current) {
+            // Back mid-fade (an undo straight after the delete): whole again.
+            wasGone.current = false;
+            box.style.transition = "";
+            box.style.opacity = "";
         }
     });
     return createPortal(<Player spot={{ ...spot, player }} onReady={leaving || gone ? undefined : ready} />, box);
