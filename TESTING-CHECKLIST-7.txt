@@ -94,3 +94,14 @@ sweep seemed to handle this well with no extra fix, youre welcome to take a clos
     normal reverse. The mirror image going backwards with 3
 [y] Does 500 ms feel right? (Too slow / still too quick: note it)
     >> User: 400 ms is better; set to 400 (good)
+
+
+── 8. Compare without the info bar (UNTESTED) ────────────────────────────
+[ ] Hover near the top of a card: no bar, no darkening; nothing there
+    takes clicks (a click picks the side as anywhere else)
+[ ] The focus line, the rank bubble and "Placing 3/10" show as before
+[ ] K: the crown shows on that side; after a win or two, "×2" beside it;
+    hovering it says the streak; clicking it stops keeping it on screen
+[ ] Not crowned: no crown at all on either side
+[ ] G opens the file view, R turns the focused side, as before
+[ ] G and back with a crowned side: the crown and streak fade out and back
