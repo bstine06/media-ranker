@@ -30,17 +30,32 @@ Tick each box as you go. Note anything odd next to the item.
 ── 2. Left over from checklist 6 ─────────────────────────────────────────
 [ ] A baked MP4 / MOV opens turned in QuickTime (a big one too, if you
     feel like it)
-[ ] Q / E step back / forward on the focused video (Compare's focused side,
+[y] Q / E step back / forward on the focused video (Compare's focused side,
     the file view, Pass's current tile); P plays / pauses (V no longer does)
 
 
 ── 3. R in Browse (UNTESTED) ─────────────────────────────────────────────
-[ ] Hover a tile with the zoom up, R: the zoom turns (with the turning
+[y] Hover a tile with the zoom up, R: the zoom turns (with the turning
     animation) and takes the new shape at once (a wide video turned
     sideways: a tall zoom); the tile under it turns too
-[ ] R R R R: each press turns it again; back upright after four
-[ ] R on a tile before its zoom shows, and with hover zoom off in
+[y] R R R R: each press turns it again; back upright after four
+[y] R on a tile before its zoom shows, and with hover zoom off in
     Settings: the tile turns
 [ ] List view: R on the row under the mouse turns it
 [ ] ⌘Z after R in Browse: turns it back, one press at a time
 [ ] R with the mouse off any tile: nothing happens
+
+
+── 4. Quick 1 / 3 in the file view (UNTESTED) ────────────────────────────
+   A press during a slide now jumps that slide to its end and starts the
+   next at once (it used to be ignored).
+[ ] Browse's file view: tap 3 quickly several times: it moves one file per
+    press, as fast as you press, and stops when you stop (nothing keeps
+    sliding afterwards)
+[ ] The same backwards with 1, and mixing 1 and 3
+[ ] A single press still glides as before
+[ ] After quick stepping: the file on screen plays (video) and is heard;
+    the tag pointer, R and G act on that file; Esc lands on its tile
+[ ] The same in the file view from Compare, Sweep and Pass, and a file
+    opened from a list
+[ ] Delete in the file view, then ⌘Z: the file still slides back in

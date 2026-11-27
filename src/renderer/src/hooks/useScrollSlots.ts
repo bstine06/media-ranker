@@ -51,24 +51,34 @@ export function useScrollSlots({
 
     // A step slides left or right, one file on screen at a time ("down":
     // the next, coming in from the right; "up": the previous, from the
-    // left). `file`: slide that file in instead of asking
-    // the resolver for the next one. Asked for mid-slide, it waits for the
-    // slide to end (the file on screen was removed: it mustn't be dropped);
-    // a plain step mid-slide is ignored as before.
-    const pendingRef = useRef<{ dir: "up" | "down"; file: DbFile } | null>(null);
+    // left). `file`: slide that file in instead of asking the resolver for
+    // the next one. A step asked for mid-slide cuts that slide short (it
+    // jumps to its end) and starts at once, so quick presses move as fast as
+    // they come. One asked for while the next file is still being looked up
+    // waits for its slide to start (latest wins).
+    const frontRef = useRef(frontSlot);
+    frontRef.current = frontSlot;
+    const cursorRef = useRef(cursor);
+    cursorRef.current = cursor;
+    // The slide under way: ends it now (as its timer would).
+    const finishRef = useRef<(() => void) | null>(null);
+    const pendingRef = useRef<{ dir: "up" | "down"; file?: DbFile } | null>(null);
     const navigateRef = useRef<(dir: "up" | "down", file?: DbFile) => void>(() => {});
     const navigate = useCallback(async (dir: "up" | "down", file?: DbFile) => {
+        if (finishRef.current) finishRef.current();
         if (lockedRef.current) {
-            if (file) pendingRef.current = { dir, file };
+            pendingRef.current = { dir, file };
             return;
         }
 
         lockedRef.current = true;
+        const frontSlot = frontRef.current;
         videoRefs[frontSlot].current?.pause();
 
-        const incoming = file ?? (await resolver(dir, cursor));
+        const incoming = file ?? (await resolver(dir, cursorRef.current));
         if (!incoming) {
             lockedRef.current = false;
+            pendingRef.current = null;
             return;
         }
 
@@ -97,19 +107,28 @@ export function useScrollSlots({
                     next[backSlot] = "translateX(0)";
                     return next;
                 });
-                setTimeout(() => {
+                const finish = () => {
+                    clearTimeout(timer);
+                    finishRef.current = null;
+                    frontRef.current = backSlot;
                     setFrontSlot(backSlot as 0 | 1);
+                    // No transition: a slide cut short jumps to its end.
                     setSlotTransitions(["none", "none"]);
                     videoRefs[backSlot].current?.play();
                     lockedRef.current = false;
-                    setCursor((c) => dir === "down" ? c + 1 : c - 1);
-                    const pending = pendingRef.current;
-                    pendingRef.current = null;
-                    if (pending) setTimeout(() => navigateRef.current(pending.dir, pending.file), 0);
-                }, GLIDE_MS + 20);
+                    cursorRef.current += dir === "down" ? 1 : -1;
+                    setCursor((c) => (dir === "down" ? c + 1 : c - 1));
+                };
+                const timer = setTimeout(finish, GLIDE_MS + 20);
+                finishRef.current = finish;
+                // A step asked for while this one was being set up: now.
+                const pending = pendingRef.current;
+                pendingRef.current = null;
+                if (pending) setTimeout(() => navigateRef.current(pending.dir, pending.file), 0);
             });
         });
-    }, [frontSlot, resolver]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [resolver]);
     navigateRef.current = navigate;
 
     // Keyboard
