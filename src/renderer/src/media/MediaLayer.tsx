@@ -496,7 +496,9 @@ function LayerPlayer({
         // What it does when the window loses focus (see SettingsContext).
         box.dataset.whenAway = player.whenAway ?? "pause";
         // On top of the spot's new player while covering or fading.
-        box.style.zIndex = leaving || gone ? "2" : "1";
+        // Otherwise no level of its own: it stacks in page order, so the
+        // view's pieces laid after its spot (Pass's no-ring) stay on top.
+        box.style.zIndex = leaving || gone ? "1" : "";
         if (gone) {
             box.style.transition = `opacity ${GONE_MS}ms ease-out`;
             box.style.opacity = "0";

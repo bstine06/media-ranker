@@ -517,7 +517,15 @@ export function MediaPlayer({
             document.removeEventListener("mouseleave", onLeave);
         };
     }, [live]);
-    const barShown = isVideo && (scrubbing || ffOn || (live && (nearBottom || poked > 0)));
+    // Whatever brought it up (the mouse near the bottom, holding 4, dragging
+    // the playhead, a key step), it stays the same moment after (poked).
+    const barWanted = scrubbing || ffOn || (live && nearBottom);
+    const wasWanted = useRef(false);
+    useEffect(() => {
+        if (wasWanted.current && !barWanted) setPoked(Date.now());
+        wasWanted.current = barWanted;
+    }, [barWanted]);
+    const barShown = isVideo && (barWanted || (live && poked > 0));
 
     return (
         <div
@@ -695,7 +703,7 @@ export function MediaPlayer({
                 <div data-hud-frame className="absolute bottom-0 h-[26px]" style={barFrame}>
                 <div
                     data-hud
-                    className={`absolute inset-0 flex items-center transition-opacity duration-150 ${barShown ? "opacity-100" : "pointer-events-none opacity-0"}`}
+                    className={`absolute inset-0 flex items-center transition-opacity ${barShown ? "opacity-100 duration-150" : "pointer-events-none opacity-0 duration-300"}`}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/5">
