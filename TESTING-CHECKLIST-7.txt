@@ -77,3 +77,12 @@ furthermore, a file seen in sweep, then gone to browse to delete it, then back t
     the Sweep placeholder and Compare's lost matchup are the next fixes)
 
 sweep seemed to handle this well with no extra fix, youre welcome to take a closer look at it though. Compare's lost matchup is the only thing that needs fixing here, and it was on our current todo list anyway
+
+
+
+── 6. Sweep stops in the background (UNTESTED) ───────────────────────────
+[ ] "Pause when unfocused" on, Sweep running: switch to another app: every
+    lane stops at once, videos paused, silent
+[ ] Back to the app: the lanes go on at their speed, the videos play again
+[ ] Nothing new slides in (or starts playing) while the app is in the back
+[ ] Setting off: the lanes keep moving in the background, as before
