@@ -458,12 +458,17 @@ swap at the end.
    pieces). Nothing should look different. One small change: the card's
    own rank, crown, placing label and focus line now fade out above the
    flying player and come back on the way home (before, a copy of them did).
-[ ] Compare, G on a side with a rank / crown / "Placing" label: they fade
+[x] Compare, G on a side with a rank / crown / "Placing" label: they fade
     out as Compare dims and back in on Esc, never covered by the player
     flying past
-[ ] G / Esc on a playing and a paused video: flies in and back as before,
+    >> Claude's scratch run 2026-11-26: crowned side: its pieces stay above the player both ways, fade 1 → 0 over ~0.2 s on G and back to 1 on Esc; the crown is still there after 4 round trips. Rank / "Placing" not set up, same code path
+[x] G / Esc on a playing and a paused video: flies in and back as before,
     keeps playing / stays paused, no jump at the landing
-[ ] The other side's video pauses while the file view is up and plays
+    >> Claude's scratch run 2026-11-26: same video element throughout, time only moves forward both ways, lands on the card's exact rect; paused stays on the same frame (6.608 s) through G and Esc
+[x] The other side's video pauses while the file view is up and plays
     again on closing
-[ ] No "[inspect] landing" messages in the dev tools console any more
-[ ] Delete from the file view over Compare: still fades where it is (27)
+    >> Claude's scratch run 2026-11-26: paused from the first frames after G, playing again as Esc starts
+[x] No "[inspect] landing" messages in the dev tools console any more
+    >> Claude's scratch run 2026-11-26: none in 5 round trips, no console errors
+[x] Delete from the file view over Compare: still fades where it is (27)
+    >> Claude's scratch run 2026-11-26: step 4's checks all pass again (file view and Finder delete, ⌘Z)
