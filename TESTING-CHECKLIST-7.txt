@@ -69,9 +69,11 @@ furthermore, a file seen in sweep, then gone to browse to delete it, then back t
 
 
 ── 5. Undo a delete: the file shows again (UNTESTED) ─────────────────────
-[ ] Browse's file view: Delete, then ⌘Z: the file slides back in and shows
+[y] Browse's file view: Delete, then ⌘Z: the file slides back in and shows
     (picture and video; a video plays and is heard)
-[ ] Delete, then ⌘Z straight away (during the fade): it shows
-[ ] Delete in Browse a file that's also on a Compare card or in a Sweep
+[y] Delete, then ⌘Z straight away (during the fade): it shows
+[ y, all good] Delete in Browse a file that's also on a Compare card or in a Sweep
     lane, ⌘Z, then go to that view: does it show there? (Note what you see;
     the Sweep placeholder and Compare's lost matchup are the next fixes)
+
+sweep seemed to handle this well with no extra fix, youre welcome to take a closer look at it though. Compare's lost matchup is the only thing that needs fixing here, and it was on our current todo list anyway
