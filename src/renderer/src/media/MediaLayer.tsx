@@ -244,10 +244,13 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 liftFrom(leaving.current.get(id)?.spot.el);
                 const had = spots.current.delete(id);
                 // Nothing else wants the file: onto its plain picture.
+                // (A claim in a view that's hidden, e.g. Compare's card while
+                // Browse shows, doesn't count: nobody would see it there.)
+                const seen = (x: Spot) => !!x.el && x.el.getClientRects().length > 0;
                 if (
                     s?.leaveTo &&
                     !deleted.current.has(s.file.id) &&
-                    ![...spots.current.values()].some((x) => x.file.id === s.file.id)
+                    ![...spots.current.values()].some((x) => x.file.id === s.file.id && seen(x))
                 ) {
                     const to = s.leaveTo();
                     if (to !== undefined) departing.current.set(s.file.id, { spot: s, to });
@@ -332,7 +335,9 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 {/* Keyed by file: a player stays the same one whatever it does
                     (moves, covers, fades). Each renders into its own box. */}
                 {[
-                    ...[...shown.entries()].map(([fileId, { spot, leavingFrom }]) => ({
+                    // On its way onto a tile: that first (a hidden view's
+                    // claim gets it once it has landed).
+                    ...[...shown.entries()].filter(([fileId]) => !departing.current.has(fileId)).map(([fileId, { spot, leavingFrom }]) => ({
                         fileId,
                         el: (
                             <LayerPlayer
@@ -349,7 +354,6 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                         ),
                     })),
                     ...[...departing.current.entries()]
-                        .filter(([fileId]) => !shown.has(fileId))
                         .map(([fileId, { spot, to }]) => ({
                             fileId,
                             el: (
@@ -427,6 +431,9 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
     );
 }
 
+/** How many mounted players use each box (see LayerPlayer's keep). */
+const boxOwners = new WeakMap<HTMLDivElement, number>();
+
 /** A video's crossfade into its tile's thumbnail, after landing on it. */
 const DEPART_FADE_MS = 100;
 
@@ -445,13 +452,19 @@ function containRect(box: DOMRect, aspect: number): DOMRect {
 /** A clip (in the picture element's own box, `area` at rest) that shows
  *  only `visible` on screen while the element is moved by `f`. */
 function insetFor(area: DOMRect, f: { k: number; tx: number; ty: number }, visible: DOMRect): string {
+    const [top, right, bottom, left] = insetValues(area, f, visible);
+    return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+}
+/** The same as numbers: top, right, bottom, left. */
+function insetValues(area: DOMRect, f: { k: number; tx: number; ty: number }, visible: DOMRect): number[] {
     const x = (sx: number) => (sx - area.left - f.tx) / f.k;
     const y = (sy: number) => (sy - area.top - f.ty) / f.k;
-    const top = Math.max(0, y(visible.top));
-    const left = Math.max(0, x(visible.left));
-    const right = Math.max(0, area.width - x(visible.right));
-    const bottom = Math.max(0, area.height - y(visible.bottom));
-    return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
+    return [
+        Math.max(0, y(visible.top)),
+        Math.max(0, area.width - x(visible.right)),
+        Math.max(0, area.height - y(visible.bottom)),
+        Math.max(0, x(visible.left)),
+    ];
 }
 
 /** Float `box` above the app exactly where it is now on screen. */
@@ -562,11 +575,19 @@ function LayerPlayer({
     }, [departTo != null, box]);
     const keepRef = useRef(keep);
     keepRef.current = keep;
+    // Out of the page only after a real unmount: development's strict mode
+    // unmounts and mounts again at once, and taking the box out meanwhile
+    // would reset what's moving in it (a player growing from a tile).
     useLayoutEffect(() => {
+        boxOwners.set(box, (boxOwners.get(box) ?? 0) + 1);
         keepRef.current(box);
         return () => {
-            box.remove();
-            keepRef.current(null);
+            boxOwners.set(box, (boxOwners.get(box) ?? 1) - 1);
+            queueMicrotask(() => {
+                if ((boxOwners.get(box) ?? 0) > 0) return;
+                box.remove();
+                keepRef.current(null);
+            });
         };
     }, [box]);
     const onReadyRef = useRef(spot.player.onReady);
@@ -621,6 +642,8 @@ function LayerPlayer({
         else delete box.dataset.layerGone;
         if (leaving) box.dataset.layerLeaving = String(fileId);
         else delete box.dataset.layerLeaving;
+        if (departing) box.dataset.layerDeparting = String(fileId);
+        else delete box.dataset.layerDeparting;
         if (leaving || gone || departing) delete box.dataset.layerPlayer;
         else box.dataset.layerPlayer = String(fileId);
         // On top of the spot's new player while covering or fading.
@@ -667,7 +690,10 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
         const ms = spot.arriveMs ?? 0;
         // A new player for a spot that starts it from a plain picture of the
         // file (a Browse tile): it grows from there, the tile's crop opening.
-        const from = prev === null && ms > 0 ? (spot.arriveFrom?.() ?? null) : null;
+        // (Coming from a spot nobody can see, e.g. Compare's card while Browse
+        // shows, counts as new: there's nothing on screen to fly from.)
+        const fromHidden = prev !== null && prev !== spot.id && b.getClientRects().length === 0;
+        const from = (prev === null || fromHidden) && ms > 0 ? (spot.arriveFrom?.() ?? null) : null;
         if (from) {
             stop.current();
             fl.appendChild(b);
@@ -691,18 +717,29 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
                 }
                 const area = new DOMRect(r.left, r.top, r.width, r.height);
                 const f = flyTo(area, containRect(area, from.aspect), coverRect(from.rect, from.aspect));
-                const ease = `${ms}ms ${INSPECT_EASE}`;
-                Object.assign(pictureEl.style, {
-                    transformOrigin: "0 0",
-                    transition: "none",
-                    transform: flightCss(f),
-                    clipPath: insetFor(area, f, from.rect),
+                const clip0 = insetValues(area, f, from.rect);
+                // Drawn frame by frame (not a CSS transition: a new player's
+                // video could drop one and appear at full size at once).
+                const t0 = performance.now();
+                let raf = 0;
+                const frame = () => {
+                    const k = Math.min(1, (performance.now() - t0) / ms);
+                    const e = 1 - (1 - k) ** 3;
+                    const at = { k: f.k + (1 - f.k) * e, tx: f.tx * (1 - e), ty: f.ty * (1 - e) };
+                    const c = clip0.map((v) => v * (1 - e));
+                    Object.assign(pictureEl.style, {
+                        transformOrigin: "0 0",
+                        transition: "none",
+                        transform: flightCss(at),
+                        clipPath: `inset(${c[0]}px ${c[1]}px ${c[2]}px ${c[3]}px)`,
+                    });
+                    if (k < 1) raf = requestAnimationFrame(frame);
+                };
+                frame();
+                cleanups.push(() => {
+                    cancelAnimationFrame(raf);
+                    Object.assign(pictureEl.style, { transition: "", transform: "", transformOrigin: "", clipPath: "" });
                 });
-                void pictureEl.offsetWidth;
-                Object.assign(pictureEl.style, { transition: `transform ${ease}, clip-path ${ease}`, transform: "none", clipPath: "inset(0px)" });
-                cleanups.push(() =>
-                    Object.assign(pictureEl.style, { transition: "", transform: "", transformOrigin: "", clipPath: "" }),
-                );
             }
             flyingTo.current = spot.id;
             const t = setTimeout(() => {
@@ -788,7 +825,8 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
             stop.current = () => {};
         };
     });
-    useLayoutEffect(() => () => stop.current(), []);
+    // (No stop on unmount: strict mode's test unmount would cut a flight
+    // short; a real unmount takes the box out of the page anyway.)
 }
 
 /**

@@ -312,7 +312,8 @@ export default function ScrollView({
                                         className="absolute inset-0"
                                         arriveMs={opened(slotFiles[slot]!) ? INSPECT_MS : 0}
                                         arriveFrom={opened(slotFiles[slot]!) ? growFrom : undefined}
-                                        leaveTo={leaveTo}
+                                        // Only the file on screen lands on its tile.
+                                        leaveTo={slot === frontSlot ? leaveTo : undefined}
                                         player={{
                                             disabled: !active || slot !== frontSlot,
                                             muted: slot !== frontSlot,

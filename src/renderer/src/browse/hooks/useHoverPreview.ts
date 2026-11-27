@@ -57,8 +57,12 @@ window.addEventListener("dragenter", markDragActivity, true);
 window.addEventListener("dragover", markDragActivity, true);
 const isDragging = () => performance.now() - lastDragActivity < DRAG_GRACE_MS;
 
-export function useHoverPreview(delayMs = 200) {
+/** `off`: none at all meanwhile (a file view is up): a pending one is
+ *  dropped, and one needs a fresh hover after. */
+export function useHoverPreview(delayMs = 200, off = false) {
     const { hoverPreviewEnabled } = useSettings();
+    const offRef = useRef(off);
+    offRef.current = off;
     const [preview, setPreview] = useState<PreviewState | null>(null);
 
     const previewRef = useRef<PreviewState | null>(null);
@@ -93,6 +97,11 @@ export function useHoverPreview(delayMs = 200) {
 
     const isHoveringRef = useRef(false);
 
+    // Switched off: drop it (and any pending one).
+    useEffect(() => {
+        if (off) clearPreview();
+    }, [off, clearPreview]);
+
     // Close an open preview as soon as a drag passes over the window.
     useEffect(() => {
         if (!preview) return;
@@ -107,13 +116,13 @@ export function useHoverPreview(delayMs = 200) {
 
     const handleMouseEnter = useCallback(() => {
       isHoveringRef.current = true;
-        if (!hoverPreviewEnabled || isDragging()) return;
+        if (!hoverPreviewEnabled || isDragging() || offRef.current) return;
         const rect = elementRef.current?.getBoundingClientRect();
         if (!rect) return;
 
         if (hoverTimer.current) clearTimeout(hoverTimer.current);
         hoverTimer.current = setTimeout(() => {
-            if (isDragging()) return;
+            if (isDragging() || offRef.current) return;
             const state: PreviewState = {
                 anchorY: rect.top,
                 tileRight: rect.right,

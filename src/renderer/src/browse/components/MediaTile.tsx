@@ -34,7 +34,7 @@ export default function MediaTile({
         handleMouseEnter,
         handleMouseLeave,
         handleNaturalSize,
-    } = useHoverPreview();
+    } = useHoverPreview(200, previewOff);
 
     const isVideo = file.media_type === "video";
     const fullUrl = toMediaUrl(rootPath, file.path, file.content_hash);

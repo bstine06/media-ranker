@@ -36,7 +36,7 @@ export default function BrowseRow({
         handleMouseEnter,
         handleMouseLeave,
         handleNaturalSize,
-    } = useHoverPreview();
+    } = useHoverPreview(200, previewOff);
 
     useEffect(() => {
         window.api.getThumbnailPath(file.content_hash).then((absPath) => {
