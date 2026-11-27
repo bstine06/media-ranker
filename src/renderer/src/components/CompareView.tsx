@@ -191,6 +191,21 @@ export default function CompareView({
     }, []);
 
     const undoStackRef = useRef<UndoEntry[]>([]);
+    // What a delete took away, by the deleted file: the matchup on screen
+    // (if the file was in it) as it was, with the focus, the crown and
+    // placement, and the undo list before the delete dropped its pairs.
+    // Undoing that delete (here or in any view) puts them back.
+    type LostToDelete = {
+        n: number;
+        pair: [DbFile, DbFile] | null;
+        focus: Side;
+        king: KingState | null;
+        recentChallengers: number[];
+        placement: PlacementState | null;
+        undoStack: UndoEntry[];
+    };
+    const lostRef = useRef(new Map<number, LostToDelete>());
+    const lostCount = useRef(0);
     const pairShownAtRef = useRef(0);
     // Each card's rotate-left, for R on the focused side.
     const rotateA = useRef<(() => void) | null>(null);
@@ -530,6 +545,10 @@ export default function CompareView({
     }, []);
 
     const pairRef = useRef(pair);
+    const focusRef = useRef(focus);
+    focusRef.current = focus;
+    // Another library: its history is gone, so nothing to bring back.
+    useEffect(() => lostRef.current.clear(), [rootPath]);
     pairRef.current = pair;
     const loadedRootRef = useRef(rootPath);
     useEffect(() => {
@@ -548,6 +567,23 @@ export default function CompareView({
     useEffect(() => {
         const offRemoved = window.api.onMediaRemoved(({ relativePath }) => {
             const gone = (f: DbFile) => f.path === relativePath;
+            // Kept for an undo of this delete (see lostRef).
+            const onScreen = pairRef.current?.some(gone) ? pairRef.current : null;
+            const goneFile =
+                onScreen?.find(gone) ??
+                undoStackRef.current.flatMap((e) => e.pair).find(gone) ??
+                (placementRef.current && gone(placementRef.current.file) ? placementRef.current.file : undefined);
+            if (goneFile) {
+                lostRef.current.set(goneFile.id, {
+                    n: ++lostCount.current,
+                    pair: onScreen,
+                    focus: focusRef.current,
+                    king: kingRef.current,
+                    recentChallengers: recentChallengersRef.current,
+                    placement: placementRef.current,
+                    undoStack: undoStackRef.current,
+                });
+            }
             const pre = prefetchedRef.current;
             if (pre && pre.pair.some(gone)) prefetchedRef.current = null;
             // Undoing would bring the deleted file back on screen.
@@ -780,6 +816,57 @@ export default function CompareView({
     useEffect(() => {
         return window.api.onHistoryApplied(async (applied) => {
             const meta = applied.meta;
+            // A delete undone: what it took away comes back (the earliest
+            // of a batch's: the state before any of it).
+            if (meta?.kind === "delete") {
+                const found = meta.fileIds.flatMap((id) => {
+                    const l = lostRef.current.get(id);
+                    return l ? [l] : [];
+                });
+                meta.fileIds.forEach((id) => lostRef.current.delete(id));
+                if (applied.error || applied.direction !== "undo" || found.length === 0) return;
+                const lost = found.reduce((x, y) => (y.n < x.n ? y : x));
+                undoStackRef.current = lost.undoStack;
+                const withPair = found.filter((l) => l.pair).sort((x, y) => x.n - y.n)[0];
+                if (!withPair?.pair) return;
+                const rows = await window.api.getFilesByIds(withPair.pair.map((f) => f.id));
+                const byId = new Map(rows.map((f) => [f.id, f]));
+                const a = byId.get(withPair.pair[0].id);
+                const b = byId.get(withPair.pair[1].id);
+                if (!a || !b || a.status !== "active" || b.status !== "active") return;
+                const restored: [DbFile, DbFile] = [a, b];
+                prefetchedRef.current = null;
+                // The pair that replaced it goes to the front of the replay,
+                // as after undoing a pick.
+                const now = pairRef.current;
+                if (now && pairKey(now) !== pairKey(restored)) {
+                    replayRef.current = [
+                        {
+                            pair: now,
+                            kingId: kingRef.current?.file.id ?? null,
+                            placingId: placementRef.current?.file.id ?? null,
+                            scope: scopeRef.current,
+                        },
+                        ...replayRef.current,
+                    ].slice(0, REPLAY_LIMIT);
+                }
+                // The crown back as it was (streak too), with its fresh record.
+                let k = withPair.king;
+                if (k) {
+                    const kingFile = byId.get(k.file.id) ?? restored.find((f) => f.id === k!.file.id);
+                    k = kingFile ? { ...k, file: kingFile } : k;
+                }
+                recentChallengersRef.current = withPair.recentChallengers;
+                kingRef.current = k;
+                setKing(k);
+                const p = withPair.placement;
+                const placedFile = p ? restored.find((f) => f.id === p.file.id) : undefined;
+                setPlacement(p && placedFile ? { ...p, file: placedFile } : p);
+                if (p) bump();
+                setFocus(withPair.focus);
+                setPair(restored);
+                return;
+            }
             const ids =
                 meta?.kind === "compare"
                     ? [meta.winnerId, meta.loserId]
