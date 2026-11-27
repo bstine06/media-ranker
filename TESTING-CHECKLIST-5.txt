@@ -542,3 +542,22 @@ swap at the end.
 [ ] Paused: 3 forward, 1 reverse (held: fast, then normal that way)
 [ ] In reverse: the mirror image (hold 1 fast; tap 3 pause; hold 3 forward)
 [ ] 6 does nothing in Sweep now; "1 / 3 move all lanes" setting still works
+
+── 33. Sweep on the media layer (UNTESTED) ───────────────────────────────
+   Claude's dev-mode scratch run 2026-11-27 (10 files, 3 lanes, 18 checks
+   pass): every tile is the file's one player, one focused (the pointer's);
+   E steps it while the lanes stop; R reshapes the tile at once; G: lanes
+   stop dead, Sweep dims to 0.06, other tiles pause, the same video flies
+   to the file view (~25 frames); Esc: it flies back, then the lanes go on
+   and the tiles play again; no file in two tiles, no empty tiles; no
+   console errors.
+[ ] Sweep looks and moves as before (1 to 3 lanes, + / −, F, H)
+[ ] Click a tile: toggles the tag, as before; right click / Tab: the picker
+[ ] The pointer follows the mouse over the tiles; edge zones speed lanes
+[ ] X: every video on screen heard, softer together; off: just the pointer's
+[ ] R on a tile: turns and takes its new shape at once (no 0.9 s wait)
+[ ] G / Esc: as above; the tag pointer stays above the flying video while
+    it fades
+[ ] A small library (fewer files than the lanes hold): no file shows twice;
+    a lane shows its end card ("No more files") until a file is free, then
+    carries on
