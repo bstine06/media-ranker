@@ -1,5 +1,7 @@
-// The media layer: one player per file, owned here (app level) instead of by
-// the views, and moved between places instead of copied.
+// The media layer: one player per file in each view (Browse, Compare,
+// Sweep, Pass… see MediaScope), owned here (app level) instead of by the
+// views, and moved between places in that view instead of copied. A view in
+// the background keeps its own player, and never takes the one on screen.
 //
 // A view renders a <MediaSpot file=…/>: a box saying "this file goes here".
 // The file's player sits inside that box, like any part of the view: it moves,
@@ -80,6 +82,9 @@ export interface TileShape {
 
 interface SpotState {
     file: DbFile;
+    /** The view it's in (see MediaScope): a file's player is shared only
+     *  by the spots of one view. */
+    scope: string;
     el: HTMLElement | null;
     player: SpotPlayer;
     /** When the player comes here from another spot (a newer claim, or the
@@ -112,6 +117,29 @@ interface LayerApi {
 }
 
 const LayerContext = createContext<LayerApi | null>(null);
+
+/** The view the spots below are in. Each view has its own player for a file
+ *  (Compare in the background keeps its own, paused, and never takes the
+ *  one Browse is showing); flights stay inside a view. */
+const ScopeContext = createContext("app");
+
+export function MediaScope({ name, children }: { name: string; children: ReactNode }): JSX.Element {
+    return <ScopeContext.Provider value={name}>{children}</ScopeContext.Provider>;
+}
+
+/** The view the calling component is in (see MediaScope). */
+export function useMediaScope(): string {
+    return useContext(ScopeContext);
+}
+
+/** A CSS selector for the player of file `fileId` in view `scope`. */
+export function playerSelector(scope: string, fileId: number): string {
+    return `[data-layer-player="${fileId}"][data-layer-scope="${scope}"]`;
+}
+
+/** A player: one per file per view. */
+type PlayerKey = string;
+const keyOf = (s: { scope: string; file: { id: number } }): PlayerKey => `${s.scope}:${s.file.id}`;
 /** The box above flying players (see useLiftAbove). */
 const LiftContext = createContext<HTMLElement | null>(null);
 
@@ -144,31 +172,31 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     const leaving = useRef(new Map<number, Leaving>());
     // Files whose player is up and has shown something (it may be moving to
     // another spot: no need to wait for it again).
-    const readyFiles = useRef(new Set<number>());
-    // Deleted files: fading out (with the spot they were shown at) …
-    const fading = useRef(new Map<number, Spot>());
+    const readyFiles = useRef(new Set<PlayerKey>());
+    // Deleted files' players: fading out (with the spot they were shown at) …
+    const fading = useRef(new Map<PlayerKey, Spot>());
     // Players let go onto a plain picture (leaveTo), on their way there.
-    const departing = useRef(new Map<number, { spot: Spot; to: TileShape | null }>());
+    const departing = useRef(new Map<PlayerKey, { spot: Spot; to: TileShape | null }>());
     // … and, until no spot names them any more, never shown again.
     const deleted = useRef(new Set<number>());
     const [, setTick] = useState(0);
     const changed = useCallback(() => setTick((t) => t + 1), []);
     // Each file's player box (see the top), and where boxes float.
-    const boxes = useRef(new Map<number, HTMLDivElement>());
+    const boxes = useRef(new Map<PlayerKey, HTMLDivElement>());
     const floatRef = useRef<HTMLDivElement>(null);
     const [liftEl, setLiftEl] = useState<HTMLDivElement | null>(null);
     // A player's box is kept while its player is up. (Development's strict
     // mode unmounts and remounts every component once as a test: the box
     // has to come back with it.)
-    const keepBox = (fileId: number, b: HTMLDivElement | null): void => {
-        if (b) boxes.current.set(fileId, b);
-        else boxes.current.delete(fileId);
+    const keepBox = (key: PlayerKey, b: HTMLDivElement | null): void => {
+        if (b) boxes.current.set(key, b);
+        else boxes.current.delete(key);
     };
-    const boxFor = (fileId: number): HTMLDivElement => {
-        let b = boxes.current.get(fileId);
+    const boxFor = (key: PlayerKey): HTMLDivElement => {
+        let b = boxes.current.get(key);
         if (!b) {
             b = document.createElement("div");
-            boxes.current.set(fileId, b);
+            boxes.current.set(key, b);
         }
         return b;
     };
@@ -184,7 +212,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     // bring the same file back later).
     const forget = useCallback(() => {
         for (const id of deleted.current) {
-            if (fading.current.has(id)) continue;
+            if ([...fading.current.values()].some((s) => s.file.id === id)) continue;
             const named = [...spots.current.values(), ...[...leaving.current.values()].map((l) => l.spot)].some(
                 (x) => x.file.id === id,
             );
@@ -212,7 +240,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     const api = useMemo<LayerApi>(
         () => ({
             claim: (id, state) => {
-                departing.current.delete(state.file.id);
+                departing.current.delete(keyOf(state));
                 spots.current.set(id, { ...state, id, order: nextOrder++ });
                 changed();
             },
@@ -229,7 +257,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                     // covers until the new one is ready. A file that already
                     // has a player showing (it was on another spot) needs no
                     // waiting for.
-                    const alreadyShowing = readyFiles.current.has(state.file.id);
+                    const alreadyShowing = readyFiles.current.has(keyOf(state));
                     leaving.current.set(id, { spotId: id, spot: s, ready: alreadyShowing });
                     spots.current.set(id, { ...state, id, order: nextOrder++ });
                     if (alreadyShowing) newReady(id);
@@ -243,17 +271,17 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 liftFrom(s?.el);
                 liftFrom(leaving.current.get(id)?.spot.el);
                 const had = spots.current.delete(id);
-                // Nothing else wants the file: onto its plain picture.
-                // (A claim in a view that's hidden, e.g. Compare's card while
-                // Browse shows, doesn't count: nobody would see it there.)
+                // Nothing else in its view wants the file: onto its plain
+                // picture. (A claim that's hidden doesn't count: nobody would
+                // see it there.)
                 const seen = (x: Spot) => !!x.el && x.el.getClientRects().length > 0;
                 if (
                     s?.leaveTo &&
                     !deleted.current.has(s.file.id) &&
-                    ![...spots.current.values()].some((x) => x.file.id === s.file.id && seen(x))
+                    ![...spots.current.values()].some((x) => keyOf(x) === keyOf(s) && seen(x))
                 ) {
                     const to = s.leaveTo();
-                    if (to !== undefined) departing.current.set(s.file.id, { spot: s, to });
+                    if (to !== undefined) departing.current.set(keyOf(s), { spot: s, to });
                 }
                 const covering = leaving.current.delete(id);
                 forget();
@@ -267,22 +295,23 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     useEffect(
         () =>
             window.api.onMediaRemoved(({ relativePath }) => {
-                const at = new Map<number, Spot>();
+                // (Each view's player of it, where that view shows it.)
+                const at = new Map<PlayerKey, Spot>();
                 for (const s of spots.current.values()) {
                     if (s.file.path !== relativePath) continue;
-                    const o = at.get(s.file.id);
-                    if (!o || s.order > o.order) at.set(s.file.id, s);
+                    const o = at.get(keyOf(s));
+                    if (!o || s.order > o.order) at.set(keyOf(s), s);
                 }
                 for (const [spotId, l] of leaving.current) {
                     if (l.spot.file.path !== relativePath) continue;
-                    if (!at.has(l.spot.file.id)) at.set(l.spot.file.id, l.spot);
+                    if (!at.has(keyOf(l.spot))) at.set(keyOf(l.spot), l.spot);
                     // Covering for a spot's new file: no longer.
                     leaving.current.delete(spotId);
                 }
                 if (at.size === 0) return;
-                for (const [fileId, spot] of at) {
-                    deleted.current.add(fileId);
-                    fading.current.set(fileId, spot);
+                for (const [key, spot] of at) {
+                    deleted.current.add(spot.file.id);
+                    fading.current.set(key, spot);
                 }
                 // Groups that were waiting on a deleted file's cover only.
                 const groups = new Set([...leaving.current.values()].map((l) => l.spot.group).filter(Boolean));
@@ -295,32 +324,32 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
         [changed],
     );
     const departed = useCallback(
-        (fileId: number) => {
-            if (departing.current.delete(fileId)) changed();
+        (key: PlayerKey) => {
+            if (departing.current.delete(key)) changed();
         },
         [changed],
     );
     const faded = useCallback(
-        (fileId: number) => {
-            fading.current.delete(fileId);
+        (key: PlayerKey) => {
+            fading.current.delete(key);
             forget();
             changed();
         },
         [changed, forget],
     );
 
-    // Each file's player goes to its newest claim. A spot's old file (it
-    // changed file) keeps its player, the same one, on top until the new one
-    // is ready: same key, so nothing is torn down.
-    const shown = new Map<number, { spot: Spot; leavingFrom: number | null }>();
+    // Each player (a file in a view) goes to its newest claim in that view.
+    // A spot's old file (it changed file) keeps its player, the same one, on
+    // top until the new one is ready: same key, so nothing is torn down.
+    const shown = new Map<PlayerKey, { spot: Spot; leavingFrom: number | null }>();
     for (const s of spots.current.values()) {
         if (deleted.current.has(s.file.id)) continue;
-        const o = shown.get(s.file.id);
-        if (!o || s.order > o.spot.order) shown.set(s.file.id, { spot: s, leavingFrom: null });
+        const o = shown.get(keyOf(s));
+        if (!o || s.order > o.spot.order) shown.set(keyOf(s), { spot: s, leavingFrom: null });
     }
     for (const l of leaving.current.values()) {
         if (deleted.current.has(l.spot.file.id)) continue;
-        if (!shown.has(l.spot.file.id)) shown.set(l.spot.file.id, { spot: l.spot, leavingFrom: l.spotId });
+        if (!shown.has(keyOf(l.spot))) shown.set(keyOf(l.spot), { spot: l.spot, leavingFrom: l.spotId });
     }
 
     return (
@@ -332,19 +361,19 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
             <div ref={floatRef} data-media-float className="pointer-events-none fixed inset-0" style={{ zIndex: FLOAT_Z }} />
             <div ref={setLiftEl} data-media-lift className="pointer-events-none fixed inset-0" style={{ zIndex: FLOAT_Z + 1 }} />
             <div data-media-layer className="pointer-events-none">
-                {/* Keyed by file: a player stays the same one whatever it does
+                {/* Keyed by player (file + view): a player stays the same one whatever it does
                     (moves, covers, fades). Each renders into its own box. */}
                 {[
-                    // On its way onto a tile: that first (a hidden view's
-                    // claim gets it once it has landed).
-                    ...[...shown.entries()].filter(([fileId]) => !departing.current.has(fileId)).map(([fileId, { spot, leavingFrom }]) => ({
-                        fileId,
+                    // On its way onto a tile: that first (a hidden claim in
+                    // its view gets it once it has landed).
+                    ...[...shown.entries()].filter(([key]) => !departing.current.has(key)).map(([key, { spot, leavingFrom }]) => ({
+                        key,
                         el: (
                             <LayerPlayer
-                                key={fileId}
-                                box={boxFor(fileId)}
+                                key={key}
+                                box={boxFor(key)}
                                 float={floatRef}
-                                keep={(b) => keepBox(fileId, b)}
+                                keep={(b) => keepBox(key, b)}
                                 spot={spot}
                                 leaving={leavingFrom !== null}
                                 readyFiles={readyFiles.current}
@@ -354,37 +383,37 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                         ),
                     })),
                     ...[...departing.current.entries()]
-                        .map(([fileId, { spot, to }]) => ({
-                            fileId,
+                        .map(([key, { spot, to }]) => ({
+                            key,
                             el: (
                                 <LayerPlayer
-                                    key={fileId}
-                                    box={boxFor(fileId)}
+                                    key={key}
+                                    box={boxFor(key)}
                                     float={floatRef}
-                                    keep={(b) => keepBox(fileId, b)}
+                                    keep={(b) => keepBox(key, b)}
                                     spot={spot}
                                     leaving={false}
                                     departTo={{ to }}
                                     readyFiles={readyFiles.current}
                                     onShown={() => {}}
-                                    onLeft={() => departed(fileId)}
+                                    onLeft={() => departed(key)}
                                 />
                             ),
                         })),
-                    ...[...fading.current.entries()].map(([fileId, spot]) => ({
-                        fileId,
+                    ...[...fading.current.entries()].map(([key, spot]) => ({
+                        key,
                         el: (
                             <LayerPlayer
-                                key={fileId}
-                                box={boxFor(fileId)}
+                                key={key}
+                                box={boxFor(key)}
                                 float={floatRef}
-                                keep={(b) => keepBox(fileId, b)}
+                                keep={(b) => keepBox(key, b)}
                                 spot={spot}
                                 leaving={false}
                                 gone
                                 readyFiles={readyFiles.current}
                                 onShown={() => {}}
-                                onLeft={() => faded(fileId)}
+                                onLeft={() => faded(key)}
                             />
                         ),
                     })),
@@ -536,8 +565,8 @@ function LayerPlayer({
     /** Let go onto a plain picture (see SpotState.leaveTo): it shrinks onto
      *  it and goes (null: nowhere to go, it fades), then onLeft. */
     departTo?: { to: TileShape | null };
-    /** Kept up to date: this file is in it while its player has shown something. */
-    readyFiles: Set<number>;
+    /** Kept up to date: this player is in it while it has shown something. */
+    readyFiles: Set<PlayerKey>;
     onShown: () => void;
     onLeft: () => void;
 }): JSX.Element {
@@ -619,12 +648,13 @@ function LayerPlayer({
     const onShownRef = useRef(onShown);
     onShownRef.current = onShown;
     const fileId = spot.file.id;
+    const playerKey = keyOf(spot);
     const ready = useCallback(() => {
-        readyFiles.add(fileId);
+        readyFiles.add(playerKey);
         onShownRef.current();
         onReadyRef.current?.();
-    }, [readyFiles, fileId]);
-    useEffect(() => () => void readyFiles.delete(fileId), [readyFiles, fileId]);
+    }, [readyFiles, playerKey]);
+    useEffect(() => () => void readyFiles.delete(playerKey), [readyFiles, playerKey]);
     // The media's shape, as the player reported it on loading (it reports
     // it only then).
     const aspectRef = useRef<number | null>(null);
@@ -641,7 +671,7 @@ function LayerPlayer({
     useEffect(() => {
         if (leaving || gone || departing) return;
         if (aspectRef.current !== null) onAspectRef.current?.(aspectRef.current);
-        if (readyFiles.has(fileId)) onReadyRef.current?.();
+        if (readyFiles.has(playerKey)) onReadyRef.current?.();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [spot.id]);
     const onLeftRef = useRef(onLeft);
@@ -689,6 +719,7 @@ function LayerPlayer({
         else delete box.dataset.layerDeparting;
         if (leaving || gone || departing) delete box.dataset.layerPlayer;
         else box.dataset.layerPlayer = String(fileId);
+        box.dataset.layerScope = spot.scope;
         // On top of the spot's new player while covering or fading.
         // Otherwise no level of its own: it stacks in page order, so the
         // view's pieces laid after its spot (Pass's no-ring) stay on top.
@@ -904,10 +935,11 @@ export function MediaSpot({
 }): JSX.Element {
     const api = useContext(LayerContext);
     if (!api) throw new Error("MediaSpot outside MediaLayerProvider");
+    const scope = useContext(ScopeContext);
     const ref = useRef<HTMLDivElement>(null);
     const id = useRef(0);
     if (id.current === 0) id.current = nextSpotId++;
-    const state = (): SpotState => ({ file, el: ref.current, player, arriveMs, group, arriveFrom, leaveTo });
+    const state = (): SpotState => ({ file, scope, el: ref.current, player, arriveMs, group, arriveFrom, leaveTo });
     // Claimed when it appears, let go when it goes.
     useLayoutEffect(() => {
         api.claim(id.current, state());

@@ -9,7 +9,7 @@ import ThumbnailImage from "@renderer/shared/components/ThumbnailImage";
 import { formatFileSize } from "@renderer/lib/media";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { MediaSlide } from "./MediaSlide";
-import { MediaSpot, type TileShape } from "@renderer/media/MediaLayer";
+import { MediaSpot, playerSelector, useMediaScope, type TileShape } from "@renderer/media/MediaLayer";
 import ConfirmDialog from "./ConfirmDialog";
 import { CrownIcon } from "./icons/CrownIcon";
 import { TrashIcon } from "./icons/TrashIcon";
@@ -98,11 +98,12 @@ export default function ScrollView({
     // As a spot, the player arrives under a mouse that may not move (G with
     // the mouse on the card): no mouse-enter, so whether it's over the
     // player is checked.
+    const mediaScope = useMediaScope();
     const pointer = usePointerTarget(
         currentFile,
         active,
         inspect
-            ? () => !!currentFile && !!document.querySelector(`[data-layer-player="${currentFile.id}"]`)?.matches(":hover")
+            ? () => !!currentFile && !!document.querySelector(playerSelector(mediaScope, currentFile.id))?.matches(":hover")
             : undefined,
     );
 

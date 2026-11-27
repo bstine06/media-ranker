@@ -19,6 +19,7 @@ import { PendingDock } from "./components/PendingDock";
 import SingleFileView from "./components/SingleFileView";
 import { usePendingChange } from "./contexts/PendingChangeContext";
 import { isTyping } from "./lib/keys";
+import { MediaScope } from "./media/MediaLayer";
 
 export default function App(): JSX.Element {
     const [view, setView] = useState<View>("browse");
@@ -208,10 +209,12 @@ export default function App(): JSX.Element {
                                 : "hidden"
                         }
                     >
+                        <MediaScope name="browse">
                         <BrowseView
                             setView={setView}
                             active={shown === "browse"}
                         />
+                        </MediaScope>
                     </div>
                     <div
                         className={
@@ -220,10 +223,12 @@ export default function App(): JSX.Element {
                                 : "hidden"
                         }
                     >
+                        <MediaScope name="compare">
                         <CompareView
                             active={shown === "compare"}
                             setView={setView}
                         />
+                        </MediaScope>
                     </div>
                     <div
                         className={
@@ -232,12 +237,14 @@ export default function App(): JSX.Element {
                                 : "hidden"
                         }
                     >
+                        <MediaScope name="sweep">
                         <SweepView
                             active={shown === "sweep"}
                             setView={setView}
                             immersive={immersive}
                             setImmersive={setImmersive}
                         />
+                        </MediaScope>
                     </div>
                     <div
                         className={
@@ -246,12 +253,14 @@ export default function App(): JSX.Element {
                                 : "hidden"
                         }
                     >
+                        <MediaScope name="pass">
                         <PassView
                             active={shown === "pass"}
                             setView={setView}
                             immersive={immersive}
                             setImmersive={setImmersive}
                         />
+                        </MediaScope>
                     </div>
                     <div
                         className={
@@ -267,6 +276,7 @@ export default function App(): JSX.Element {
                     </div>
                     {openFile && (
                         <div className="flex flex-1 flex-col overflow-hidden">
+                            <MediaScope name="panel">
                             <SingleFileView
                                 key={openFile.id}
                                 file={openFile}
@@ -277,11 +287,13 @@ export default function App(): JSX.Element {
                                 }}
                                 onClose={() => setOpenFile(null)}
                             />
+                            </MediaScope>
                         </div>
                     )}
                 </main>
                 {!immersive &&
                     (docked ? (
+                        <MediaScope name="dock">
                         <PendingDock
                             onOpenFolder={(path) => {
                                 setOpenFile(null);
@@ -290,6 +302,7 @@ export default function App(): JSX.Element {
                                 setView("browse");
                             }}
                         />
+                        </MediaScope>
                     ) : (
                         <HistoryDrawer />
                     ))}

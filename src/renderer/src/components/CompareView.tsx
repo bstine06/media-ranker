@@ -13,7 +13,7 @@ import type {
 } from "../shared/types/types";
 import { toMediaUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
-import { MediaSpot } from "@renderer/media/MediaLayer";
+import { MediaSpot, playerSelector, useMediaScope } from "@renderer/media/MediaLayer";
 import { Liftable } from "@renderer/media/Liftable";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
 import { useTags } from "@renderer/contexts/TagsContext";
@@ -125,9 +125,10 @@ export default function CompareView({
     const cardsRef = useRef<HTMLDivElement>(null);
     // A side's player: drawn by the media layer (over the card's spot), one
     // per file.
+    const mediaScope = useMediaScope();
     const sideRoot = (side: Side): Element | null => {
         const f = pairRef.current?.[side === "a" ? 0 : 1];
-        return f ? document.querySelector(`[data-layer-player="${f.id}"]`) : null;
+        return f ? document.querySelector(playerSelector(mediaScope, f.id)) : null;
     };
     const sideVideo = (side: Side): HTMLVideoElement | null => shownVideo(sideRoot(side));
     const openInspect = useCallback((side: Side) => {
