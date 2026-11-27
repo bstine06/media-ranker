@@ -32,3 +32,15 @@ Tick each box as you go. Note anything odd next to the item.
     feel like it)
 [ ] Q / E step back / forward on the focused video (Compare's focused side,
     the file view, Pass's current tile); P plays / pauses (V no longer does)
+
+
+── 3. R in Browse (UNTESTED) ─────────────────────────────────────────────
+[ ] Hover a tile with the zoom up, R: the zoom turns (with the turning
+    animation) and takes the new shape at once (a wide video turned
+    sideways: a tall zoom); the tile under it turns too
+[ ] R R R R: each press turns it again; back upright after four
+[ ] R on a tile before its zoom shows, and with hover zoom off in
+    Settings: the tile turns
+[ ] List view: R on the row under the mouse turns it
+[ ] ⌘Z after R in Browse: turns it back, one press at a time
+[ ] R with the mouse off any tile: nothing happens

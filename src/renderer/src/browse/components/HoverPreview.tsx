@@ -42,8 +42,14 @@ export default function HoverPreview({
     return () => window.removeEventListener('mousemove', handleMouseMove)
   }, [file.content_hash])
 
-  // The media's own shape, unturned: the box's size as drawn.
-  const handleAspect = (aspect: number) => onNaturalSize(...turnedSize(rotation, aspect * 1000, 1000))
+  // The media's own shape, unturned; the box takes it turned, and again
+  // whenever the turn changes (R while it shows).
+  const [aspect, setAspect] = useState<number | null>(null)
+  const handleAspect = (a: number) => setAspect(a)
+  useEffect(() => {
+    if (aspect !== null) onNaturalSize(...turnedSize(rotation, aspect * 1000, 1000))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aspect, rotation])
 
   return createPortal(
     <>

@@ -236,8 +236,10 @@ export default function BrowseView({
     }, [activeFolder, activeFilter, showUnsorted]);
 
     // G: the tile (or row) under the mouse in the file view, as in Sweep,
-    // Pass and Compare; G again, or Esc, closes it. Not while picking a
-    // folder picture. (An open tag picker keeps Esc for itself.)
+    // Pass and Compare; G again, or Esc, closes it. R: turns the tile (or
+    // row) under the mouse, zoomed or not (one undo step per press). Not
+    // while picking a folder picture. (An open tag picker keeps Esc for
+    // itself.)
     useEffect(() => {
         if (!active || editingMetadata) return;
         const onKey = (e: KeyboardEvent) => {
@@ -249,11 +251,17 @@ export default function BrowseView({
                 closeFileView();
                 return;
             }
-            if (e.code !== "KeyG") return;
+            if (e.code !== "KeyG" && e.code !== "KeyR") return;
             const el = document.querySelector<HTMLElement>("[data-browse-index]:hover");
             if (!el) return;
             e.preventDefault();
-            openFileView(Number(el.dataset.browseIndex));
+            const index = Number(el.dataset.browseIndex);
+            if (e.code === "KeyR") {
+                const file = sortedFilesRef.current[index];
+                if (file) window.api.turnFile(file.id).catch((err: unknown) => console.error("Rotate failed:", err));
+                return;
+            }
+            openFileView(index);
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
