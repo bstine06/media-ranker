@@ -561,3 +561,24 @@ swap at the end.
 [ ] A small library (fewer files than the lanes hold): no file shows twice;
     a lane shows its end card ("No more files") until a file is free, then
     carries on
+
+── 34. Hover zoom and Browse's new file view (UNTESTED) ──────────────────
+   Claude's dev-mode scratch run 2026-11-27 (21 checks, passing twice in a
+   row; Compare / Pass / Sweep runs still pass): the zoom is the file's one
+   player, focused (E steps it, bar shows, P, hold 4); G with a zoom flies
+   it to the file view; Browse stays, dimmed; 3 / 1 step; Esc after a step
+   lands on that file's tile (crop closing); G with no zoom grows from the
+   tile (crop opening, thumbnail as loading picture), videos and pictures;
+   list view the same; no console errors.
+[ ] Hover a video tile: the zoom plays with sound; Q / E, P, hold 4 work on
+    it; its bar shows while scrubbing / fast-forwarding
+[ ] G (or click) with the zoom up: the zoom's video flies into the file
+    view without restarting; the grid dims behind
+[ ] G right away (no zoom yet) or with hover zoom turned off: the file grows
+    out of its tile, the cropped edges opening up; no black frame first
+[ ] 3 / 1 step right / left, one file at a time (no ▲▼, no wheel stepping)
+[ ] Esc / G / Back: it shrinks back into the tile, edges cropping in; a
+    video fades into the tile's still picture; after stepping, it lands on
+    the new file's tile, the grid scrolled to it if needed
+[ ] List view: the same from a row's thumbnail
+[ ] The "scroll time" setting is gone from Settings
