@@ -545,6 +545,35 @@ function SweepStrip({
     useLayoutEffect(() => {
         placePointerRef.current();
     }, [lifted]);
+    // While a file view is up the mouse is over it, not the strip: the
+    // pointer keeps its place (see mouseleave), and where the mouse goes is
+    // noted. Closing: if it moved, the pointer goes to it (its lane too);
+    // if not, it stays where it was before.
+    const liftedRef = useRef(lifted);
+    liftedRef.current = lifted;
+    const movedTo = useRef<{ x: number; y: number; sx: number; sy: number } | null>(null);
+    useEffect(() => {
+        if (!lifted) return;
+        movedTo.current = null;
+        const start = lastScreen.current;
+        const onMove = (e: MouseEvent) => {
+            if (start && start.x === e.screenX && start.y === e.screenY) return;
+            movedTo.current = { x: e.clientX, y: e.clientY, sx: e.screenX, sy: e.screenY };
+        };
+        window.addEventListener("mousemove", onMove);
+        return () => {
+            window.removeEventListener("mousemove", onMove);
+            const m = movedTo.current;
+            const rect = boxRef.current?.getBoundingClientRect();
+            if (!m || !rect) return;
+            const inside = m.x >= rect.left && m.x < rect.right && m.y >= rect.top && m.y < rect.bottom;
+            mouseX.current = inside ? m.x - rect.left : null;
+            mouseY.current = inside ? m.y - rect.top : null;
+            lastScreen.current = inside ? { x: m.sx, y: m.sy } : null;
+            laneOffset.current = 0;
+            placePointerRef.current();
+        };
+    }, [lifted]);
     // Fewer lanes: the shift wraps to fit, and the pointer follows.
     useEffect(() => {
         laneOffset.current %= laneCount;
@@ -938,7 +967,9 @@ function SweepStrip({
                 else applyEdge(null, 0, []);
         },
         mouseleave: () => {
-                if (pickingRef.current) return;
+                // A file view coming up over the strip isn't the mouse
+                // leaving: the pointer keeps its place (see movedTo).
+                if (pickingRef.current || liftedRef.current) return;
                 mouseX.current = null;
                 mouseY.current = null;
                 lastScreen.current = null;
