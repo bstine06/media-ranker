@@ -12,6 +12,26 @@ export interface FolderNode {
     children: FolderNode[];
 }
 
+// One IPC listener per channel, passing each message on to every callback
+// subscribed to it. (A listener per subscriber would trip Electron's "more
+// than 10 listeners" warning as soon as a view shows more than 10 things that
+// listen, e.g. thumbnails following media:updated.) Returns the unsubscribe.
+type IpcHandler = (event: Electron.IpcRendererEvent, ...args: any[]) => void;
+const subscribers = new Map<string, Set<IpcHandler>>();
+function listen(channel: string, handler: IpcHandler): () => void {
+    let set = subscribers.get(channel);
+    if (!set) {
+        const created = new Set<IpcHandler>();
+        set = created;
+        subscribers.set(channel, created);
+        // A copy: one callback may unsubscribe others while it runs (as
+        // Electron's own listeners would still all be called).
+        ipcRenderer.on(channel, (event, ...args) => [...created].forEach((h) => h(event, ...args)));
+    }
+    set.add(handler);
+    return () => void subscribers.get(channel)?.delete(handler);
+}
+
 const api = {
     // ── Utility ────────────────────────────────────────────────────────────
     ping: (): Promise<string> => ipcRenderer.invoke("ping"),
@@ -26,15 +46,13 @@ const api = {
             _event: unknown,
             data: { message: string, progress?: [number, number] },
         ) => callback(data);
-        ipcRenderer.on("process:message-sent", handler);
-        return () => ipcRenderer.removeListener("process:message-sent", handler);
+        return listen("process:message-sent", handler);
     },
 
     setFullscreen: (on: boolean): Promise<void> => ipcRenderer.invoke("set-fullscreen", on),
     onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
         const listener = (_: any, isFullscreen: boolean) => callback(isFullscreen);
-        ipcRenderer.on('fullscreen-status', listener);
-        return () => ipcRenderer.removeListener('fullscreen-status', listener);
+        return listen("fullscreen-status", listener);
     },
     
 
@@ -60,8 +78,7 @@ const api = {
     // Background catch-up scan at launch (see get-root-path).
     onLibraryScanStarted: (callback: () => void) => {
         const handler = () => callback();
-        ipcRenderer.on("library:scan-started", handler);
-        return () => ipcRenderer.removeListener("library:scan-started", handler);
+        return listen("library:scan-started", handler);
     },
     onLibraryScanned: (
         callback: (result: { scanned: number; added: number } | null) => void,
@@ -70,8 +87,7 @@ const api = {
             _event: unknown,
             result: { scanned: number; added: number } | null,
         ) => callback(result);
-        ipcRenderer.on("library:scanned", handler);
-        return () => ipcRenderer.removeListener("library:scanned", handler);
+        return listen("library:scanned", handler);
     },
 
     // ── Folders & files ────────────────────────────────────────────────────
@@ -211,15 +227,13 @@ const api = {
             _event: unknown,
             data: { relativePath: string; hash: string; mediaType: string },
         ) => callback(data);
-        ipcRenderer.on("media:added", handler);
-        return () => ipcRenderer.removeListener("media:added", handler); // returns cleanup fn
+        return listen("media:added", handler); // returns cleanup fn
     },
 
     onMediaRemoved: (callback: (file: { relativePath: string }) => void) => {
         const handler = (_event: unknown, data: { relativePath: string }) =>
             callback(data);
-        ipcRenderer.on("media:removed", handler);
-        return () => ipcRenderer.removeListener("media:removed", handler);
+        return listen("media:removed", handler);
     },
 
     onMediaRenamed: (
@@ -239,8 +253,7 @@ const api = {
                 mediaType: string;
             },
         ) => callback(data);
-        ipcRenderer.on("media:renamed", handler);
-        return () => ipcRenderer.removeListener("media:renamed", handler);
+        return listen("media:renamed", handler);
     },
 
     // A file changed in place (baked / replaced / turned); `file` is its
@@ -252,8 +265,7 @@ const api = {
             _event: unknown,
             data: { relativePath: string; file: DbFile | undefined },
         ) => callback(data);
-        ipcRenderer.on("media:updated", handler);
-        return () => ipcRenderer.removeListener("media:updated", handler);
+        return listen("media:updated", handler);
     },
 
     onFolderRenamed: (
@@ -266,8 +278,7 @@ const api = {
             _event: unknown,
             data: { oldRelativePath: string; relativePath: string },
         ) => callback(data);
-        ipcRenderer.on("folder:renamed", handler);
-        return () => ipcRenderer.removeListener("folder:renamed", handler);
+        return listen("folder:renamed", handler);
     },
 
     folderDeletePreview: (
@@ -288,15 +299,13 @@ const api = {
     onFolderRemoved: (callback: (data: { relativePath: string }) => void) => {
         const handler = (_event: unknown, data: { relativePath: string }) =>
             callback(data);
-        ipcRenderer.on("folder:removed", handler);
-        return () => ipcRenderer.removeListener("folder:removed", handler);
+        return listen("folder:removed", handler);
     },
 
     onFolderAdded: (callback: (data: { relativePath: string }) => void) => {
         const handler = (_event: unknown, data: { relativePath: string }) =>
             callback(data);
-        ipcRenderer.on("folder:added", handler);
-        return () => ipcRenderer.removeListener("folder:added", handler);
+        return listen("folder:added", handler);
     },
 
     // ── Tags ───────────────────────────────────────────────────────────────
@@ -534,46 +543,38 @@ const api = {
         ipcRenderer.invoke("history:record-selection", before, after),
     onHistoryChanged: (callback: (items: HistoryItem[]) => void) => {
         const handler = (_e: unknown, items: HistoryItem[]) => callback(items);
-        ipcRenderer.on("history:changed", handler);
-        return () => ipcRenderer.removeListener("history:changed", handler);
+        return listen("history:changed", handler);
     },
     onHistoryWaiting: (callback: () => void) => {
         const handler = () => callback();
-        ipcRenderer.on("history:waiting", handler);
-        return () => ipcRenderer.removeListener("history:waiting", handler);
+        return listen("history:waiting", handler);
     },
     /** The watcher saw a new file and is reading it (then -done). */
     onMediaIncoming: (callback: (e: { relativePath: string }) => void) => {
         const handler = (_e: unknown, d: { relativePath: string }) => callback(d);
-        ipcRenderer.on("media:incoming", handler);
-        return () => ipcRenderer.removeListener("media:incoming", handler);
+        return listen("media:incoming", handler);
     },
     onMediaIncomingDone: (callback: (e: { relativePath: string }) => void) => {
         const handler = (_e: unknown, d: { relativePath: string }) => callback(d);
-        ipcRenderer.on("media:incoming-done", handler);
-        return () => ipcRenderer.removeListener("media:incoming-done", handler);
+        return listen("media:incoming-done", handler);
     },
     onLibraryChanged: (callback: () => void) => {
         const handler = () => callback();
-        ipcRenderer.on("library:changed", handler);
-        return () => ipcRenderer.removeListener("library:changed", handler);
+        return listen("library:changed", handler);
     },
     onHistoryApplied: (callback: (applied: HistoryApplied) => void) => {
         const handler = (_e: unknown, applied: HistoryApplied) => callback(applied);
-        ipcRenderer.on("history:applied", handler);
-        return () => ipcRenderer.removeListener("history:applied", handler);
+        return listen("history:applied", handler);
     },
     /** Edit ▸ Undo / Redo (⌘Z, ⇧⌘Z) from the app menu. */
     onHistoryKey: (callback: (action: "undo" | "redo") => void) => {
         const handler = (_e: unknown, action: "undo" | "redo") => callback(action);
-        ipcRenderer.on("history:key", handler);
-        return () => ipcRenderer.removeListener("history:key", handler);
+        return listen("history:key", handler);
     },
 
     onRanksChanged: (callback: () => void) => {
         const handler = () => callback();
-        ipcRenderer.on("ranks:changed", handler);
-        return () => ipcRenderer.removeListener("ranks:changed", handler);
+        return listen("ranks:changed", handler);
     },
     countMissingFiles: (): Promise<number> =>
         ipcRenderer.invoke("count-missing-files"),
