@@ -49,13 +49,29 @@ Tick each box as you go. Note anything odd next to the item.
 ── 4. Quick 1 / 3 in the file view (UNTESTED) ────────────────────────────
    A press during a slide now jumps that slide to its end and starts the
    next at once (it used to be ignored).
-[ ] Browse's file view: tap 3 quickly several times: it moves one file per
+[y] Browse's file view: tap 3 quickly several times: it moves one file per
     press, as fast as you press, and stops when you stop (nothing keeps
     sliding afterwards)
-[ ] The same backwards with 1, and mixing 1 and 3
-[ ] A single press still glides as before
-[ ] After quick stepping: the file on screen plays (video) and is heard;
+[y] The same backwards with 1, and mixing 1 and 3
+[y] A single press still glides as before
+[y] After quick stepping: the file on screen plays (video) and is heard;
     the tag pointer, R and G act on that file; Esc lands on its tile
-[ ] The same in the file view from Compare, Sweep and Pass, and a file
+[n] The same in the file view from Compare, Sweep and Pass, and a file
     opened from a list
-[ ] Delete in the file view, then ⌘Z: the file still slides back in
+
+these dont make sense. there is no case where a file opened from other views would have neighbors to scroll through.
+
+[n] Delete in the file view, then ⌘Z: the file still slides back in
+
+damn we were so close. no, deleting a file and then undoing it does not allow the media to display properly. there is a slide back in to view animation but we just get blank spot instead of the media returning.
+
+furthermore, a file seen in sweep, then gone to browse to delete it, then back to sweep, we get a persistent black placeholder that doesnt go away where the media once was. I'm sure that sweep currently only handles media deletes gracefully when it is the one doing them. And in compare, if we see media there, and then we go delete it in browse view and undo it, the compare matchup is gone when we get back (this is linked to a similar bug about undo not bringing a compare matchup back). 
+
+
+── 5. Undo a delete: the file shows again (UNTESTED) ─────────────────────
+[ ] Browse's file view: Delete, then ⌘Z: the file slides back in and shows
+    (picture and video; a video plays and is heard)
+[ ] Delete, then ⌘Z straight away (during the fade): it shows
+[ ] Delete in Browse a file that's also on a Compare card or in a Sweep
+    lane, ⌘Z, then go to that view: does it show there? (Note what you see;
+    the Sweep placeholder and Compare's lost matchup are the next fixes)
