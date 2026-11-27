@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { INSPECT_EASE, INSPECT_MS, INSPECT_OUT_MS } from "@renderer/lib/inspect";
+import { INSPECT_EASE, INSPECT_MS, INSPECT_OUT_MS, LANDING_PAD_MS } from "@renderer/lib/inspect";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
@@ -135,7 +135,9 @@ export default function ScrollView({
         setChromeShown(false);
         // The spot goes (see the render), so the player flies back by
         // itself; done once it has landed.
-        const t = setTimeout(() => insp.onClosed(), INSPECT_OUT_MS);
+        // Done once it's in its spot again (not when its flight's time is
+        // up: it's still floating then, above Compare's pieces).
+        const t = setTimeout(() => insp.onClosed(), INSPECT_OUT_MS + LANDING_PAD_MS + 20);
         return () => clearTimeout(t);
     }, [closing]);
     // In and out take different times (going back is quicker).

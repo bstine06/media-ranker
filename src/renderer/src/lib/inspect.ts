@@ -7,6 +7,10 @@ export const INSPECT_MS = 220;
 /** …and to go back (quicker: leaving should feel snappy). */
 export const INSPECT_OUT_MS = 170;
 export const INSPECT_EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+/** A flying player is put into its spot this long after its flight's
+ *  time (the animation surely done). A view waiting for the landing waits
+ *  the flight's time plus this, plus a frame. */
+export const LANDING_PAD_MS = 50;
 
 /** The shown video in `root` (not a version hand-off's cover), or null. */
 export function shownVideo(root: Element | null): HTMLVideoElement | null {

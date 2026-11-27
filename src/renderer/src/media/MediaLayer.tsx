@@ -39,7 +39,7 @@ import { createPortal } from "react-dom";
 import type { DbFile } from "@renderer/shared/types/types";
 import { MediaPlayer, type MediaControls } from "@renderer/components/MediaPlayer";
 import { useFolders } from "@renderer/contexts/FolderContext";
-import { INSPECT_EASE, flightCss, flyTo, pictureRect } from "@renderer/lib/inspect";
+import { INSPECT_EASE, LANDING_PAD_MS, flightCss, flyTo, pictureRect } from "@renderer/lib/inspect";
 
 /** How a spot wants the player to behave while it has it. */
 export interface SpotPlayer {
@@ -583,7 +583,7 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
         const t = setTimeout(() => {
             stop.current();
             if (el.isConnected) seat(b, el);
-        }, ms + 50);
+        }, ms + LANDING_PAD_MS);
         stop.current = () => {
             clearTimeout(t);
             cleanups.forEach((c) => c());
