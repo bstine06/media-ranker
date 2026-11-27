@@ -15,7 +15,6 @@ import type {
 } from "../shared/types/types";
 import { toMediaUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
-import { type MediaControls } from "./MediaPlayer";
 import { MediaSpot, useLiftAbove } from "@renderer/media/MediaLayer";
 import { createPortal } from "react-dom";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
@@ -197,8 +196,6 @@ export default function CompareView({
 
     const undoStackRef = useRef<UndoEntry[]>([]);
     const pairShownAtRef = useRef(0);
-    const controlsA = useRef<MediaControls | null>(null);
-    const controlsB = useRef<MediaControls | null>(null);
     // Each card's rotate-left, for R on the focused side.
     const rotateA = useRef<(() => void) | null>(null);
     const rotateB = useRef<(() => void) | null>(null);
@@ -926,9 +923,6 @@ export default function CompareView({
             // sidebar's collection boxes) or button shouldn't swallow hotkeys.
             if (isTyping()) return;
 
-            const controls =
-                focus === "a" ? controlsA.current : controlsB.current;
-
             // Physical keys, so the left-hand layout holds on any keyboard
             // layout. The scheme is in lib/keys.ts.
             switch (e.code) {
@@ -973,20 +967,6 @@ export default function CompareView({
                     else crown(file, focus);
                     break;
                 }
-                case "KeyQ":
-                case "KeyE":
-                case "ArrowLeft":
-                case "ArrowRight":
-                    e.preventDefault();
-                    controls?.step(
-                        e.code === "KeyQ" || e.code === "ArrowLeft" ? -1 : 1,
-                    );
-                    break;
-                case "KeyV":
-                    e.preventDefault();
-                    if (e.repeat) return;
-                    controls?.togglePlay();
-                    break;
                 case "KeyG":
                     // G: the focused side in the file view, as in Sweep and Pass.
                     e.preventDefault();
@@ -1113,7 +1093,6 @@ export default function CompareView({
                         audible={(compareBothAudio || focus === "a") && audibleDuringInspect("a")}
                         hudLifted={!!inspect}
                         liftFade={liftFade}
-                        controlsRef={controlsA}
                         rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
                         onPick={() => handlePick("a")}
@@ -1141,7 +1120,6 @@ export default function CompareView({
                         audible={(compareBothAudio || focus === "b") && audibleDuringInspect("b")}
                         hudLifted={!!inspect}
                         liftFade={liftFade}
-                        controlsRef={controlsB}
                         rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
                         onPick={() => handlePick("b")}
@@ -1188,7 +1166,6 @@ function CompareCard({
     disabled,
     focused,
     audible,
-    controlsRef,
     rotateRef,
     onFocus,
     onPick,
@@ -1214,7 +1191,6 @@ function CompareCard({
     disabled: boolean;
     focused: boolean;
     audible: boolean;
-    controlsRef: React.MutableRefObject<MediaControls | null>;
     /** Filled with this card's rotate-left (R on the focused side). */
     rotateRef: React.MutableRefObject<(() => void) | null>;
     onFocus: () => void;
@@ -1318,7 +1294,9 @@ function CompareCard({
                         onMouseMove: handleMouseMove,
                         clickToPauseEnabled: false,
                         keyboardEnabled: false,
-                        controlsRef,
+                        // The focused side answers Q / E, 4, P and shows its
+                        // bar (the player's own keys).
+                        focused: focused && !disabled,
                         rotation: file.rotation,
                     }}
                 />

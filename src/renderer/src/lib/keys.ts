@@ -3,8 +3,9 @@
 //   2 / ↓      confirm (Compare: focused side wins) or next file
 //   W / ↑      previous (Compare: undo the last pick)
 //   1 / 3      Compare: focus the left / right side
-//   Q / ←      rewind          E / →  fast forward
-//   V          play / pause    R      rotate left    K  king (crown / Compare)
+//   Q / ←      step back       E / →  step forward   (the focused video)
+//   P          play / pause    hold 4 fast-forward   (lib/fastForward)
+//   R          rotate left     K      king (crown / Compare)
 // Space, Tab / Shift+Tab, T, ` and H belong to the tag pointer everywhere
 // it is (contexts/TagPointerContext). Compare has no pointer: there Space
 // picks the focused side (like 2) and Tab does nothing.

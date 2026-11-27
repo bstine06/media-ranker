@@ -12,6 +12,10 @@ import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { attach, detach, setAudible, setMasterVolume } from "@renderer/lib/audioMix";
 import { isTyping } from "@renderer/lib/keys";
+import { fastForwardHeld, onFastForward } from "@renderer/lib/fastForward";
+
+/** How near the bottom of the focused player the mouse brings its bar up. */
+const BAR_ZONE_PX = 90;
 
 /** How far ahead of the old version a video's new version (baked / replaced) starts,
  *  to cover the time its seek takes while the old one keeps playing. */
@@ -63,6 +67,12 @@ interface MediaPlayerProps {
     /** Sound through the app's mixer (lib/audioMix): muted / the Settings
      *  volume become its gain there and the master's. Read on mount. */
     mixed?: boolean;
+    /** The focused media of its view (Compare's focused side, the file view):
+     *  only the focused player answers the playback keys (Q / E scrub, hold
+     *  4 fast-forward, P play / pause) and shows its bar on the mouse nearing
+     *  its bottom. Unset: focused while keyboardEnabled and it's live (heard,
+     *  or hovered). */
+    focused?: boolean;
 }
 
 export function MediaPlayer({
@@ -84,6 +94,7 @@ export function MediaPlayer({
     seeThrough = false,
     barFitsPicture = false,
     mixed = false,
+    focused,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     // The video's own shape (width / height), once known.
@@ -442,30 +453,66 @@ export function MediaPlayer({
         };
     }, [controlsRef, isVideo, togglePlay, step]);
 
-    // keyboard
+    // ── Playback keys and the bar ──
+    const isFocused = focused ?? (keyboardEnabled && !disabled && (!muted || isHovered));
+    const live = isFocused && isVideo && !disabled;
+    // The bar shows for a moment after a key scrub.
+    const [poked, setPoked] = useState(0);
     useEffect(() => {
-        if (!keyboardEnabled) return;
+        if (!poked) return;
+        const t = setTimeout(() => setPoked(0), 1200);
+        return () => clearTimeout(t);
+    }, [poked]);
+    useEffect(() => {
+        if (!live) return;
         const onKey = (e: KeyboardEvent) => {
-            // For TikTok view: work when not disabled and not muted
-            // For other views: work when hovered (which makes muted=false)
-            if (disabled || (muted && !isHovered) || !isVideo) return;
-
             if (e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
-
-            // V play/pause, Q / ← rewind, E / → fast forward (lib/keys.ts).
-            if (e.code === "KeyV") {
+            if (document.querySelector("[data-modal]")) return;
+            // P play / pause, Q / ← back, E / → forward (lib/keys.ts); hold 4
+            // fast-forward (lib/fastForward).
+            if (e.code === "KeyP") {
                 e.preventDefault();
                 if (!e.repeat) togglePlay();
-            }
-
-            if (["KeyQ", "KeyE", "ArrowLeft", "ArrowRight"].includes(e.code)) {
+            } else if (["KeyQ", "KeyE", "ArrowLeft", "ArrowRight"].includes(e.code)) {
                 e.preventDefault();
                 step(e.code === "KeyQ" || e.code === "ArrowLeft" ? -1 : 1);
+                setPoked(Date.now());
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [keyboardEnabled, togglePlay, step, disabled, muted, isHovered, isVideo]);
+    }, [live, togglePlay, step]);
+    // Hold 4: faster while focused (the factor is Pass's speed setting).
+    const { passFfFactor } = useSettings();
+    const [ffHeld, setFfHeld] = useState(fastForwardHeld);
+    useEffect(() => onFastForward(setFfHeld), []);
+    const ffOn = live && ffHeld;
+    useEffect(() => {
+        const v = videoEl;
+        if (!v) return;
+        v.playbackRate = ffOn ? passFfFactor : 1;
+    }, [ffOn, passFfFactor, videoEl]);
+    // The mouse near the bottom of the focused player.
+    const [nearBottom, setNearBottom] = useState(false);
+    useEffect(() => {
+        if (!live) {
+            setNearBottom(false);
+            return;
+        }
+        const onMove = (e: MouseEvent) => {
+            const r = containerRef.current?.getBoundingClientRect();
+            const inside = !!r && e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom;
+            setNearBottom(inside && e.clientY > r!.bottom - BAR_ZONE_PX);
+        };
+        const onLeave = () => setNearBottom(false);
+        window.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseleave", onLeave);
+        return () => {
+            window.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseleave", onLeave);
+        };
+    }, [live]);
+    const barShown = isVideo && (scrubbing || ffOn || (live && (nearBottom || poked > 0)));
 
     return (
         <div
@@ -638,7 +685,7 @@ export function MediaPlayer({
                 <div data-hud-frame className="absolute bottom-0 h-[26px]" style={barFrame}>
                 <div
                     data-hud
-                    className="absolute inset-0 flex items-center group/controls"
+                    className={`absolute inset-0 flex items-center transition-opacity duration-150 ${barShown ? "opacity-100" : "pointer-events-none opacity-0"}`}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/5">
@@ -673,12 +720,12 @@ export function MediaPlayer({
                     </div>
                     <button
                         onClick={togglePlay}
-                        className="relative mb-1.5 ml-2 flex items-center justify-center w-5 h-5 rounded text-white/0 group-hover/controls:text-white/60 hover:!text-white/90 transition-colors text-xs"
+                        className="relative mb-1.5 ml-2 flex items-center justify-center w-5 h-5 rounded text-white/60 hover:!text-white/90 transition-colors text-xs"
                     >
                         {playing ? "⏸" : "▶"}
                     </button>
                     <span
-                        className="relative mb-1.5 ml-auto mr-2 text-white/0 group-hover/controls:text-white/60 transition-colors tabular-nums"
+                        className="relative mb-1.5 ml-auto mr-2 text-white/60 tabular-nums"
                         style={{ fontSize: "10px" }}
                     >
                         {formatTime(currentTime)} / {formatTime(duration)}

@@ -312,6 +312,7 @@ export default function ScrollView({
                                         player={{
                                             disabled: !active,
                                             muted: false,
+                                            focused: active,
                                             seeThrough: true,
                                             rotation: slotFiles[slot]!.rotation,
                                             className: pointer.cursorClass,

@@ -63,6 +63,9 @@ export interface SpotPlayer {
      *  pick up again on return (the default), or keep playing silently (a
      *  lane, like Pass's). */
     whenAway?: "pause" | "silence";
+    /** The focused media of its view: answers the playback keys and shows
+     *  its bar (see MediaPlayer). */
+    focused?: boolean;
 }
 
 interface SpotState {
@@ -359,6 +362,7 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
             rotation={p.rotation}
             seeThrough={p.seeThrough}
             barFitsPicture={p.barFitsPicture}
+            focused={!!p.focused}
             // Every layer player's sound goes through the app's mixer.
             mixed
         />
