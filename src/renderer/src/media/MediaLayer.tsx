@@ -118,6 +118,13 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     // Each file's player box (see the top), and where boxes float.
     const boxes = useRef(new Map<number, HTMLDivElement>());
     const floatRef = useRef<HTMLDivElement>(null);
+    // A player's box is kept while its player is up. (Development's strict
+    // mode unmounts and remounts every component once as a test: the box
+    // has to come back with it.)
+    const keepBox = (fileId: number, b: HTMLDivElement | null): void => {
+        if (b) boxes.current.set(fileId, b);
+        else boxes.current.delete(fileId);
+    };
     const boxFor = (fileId: number): HTMLDivElement => {
         let b = boxes.current.get(fileId);
         if (!b) {
@@ -274,7 +281,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                                 key={fileId}
                                 box={boxFor(fileId)}
                                 float={floatRef}
-                                onGone={() => boxes.current.delete(fileId)}
+                                keep={(b) => keepBox(fileId, b)}
                                 spot={spot}
                                 leaving={leavingFrom !== null}
                                 readyFiles={readyFiles.current}
@@ -290,7 +297,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                                 key={fileId}
                                 box={boxFor(fileId)}
                                 float={floatRef}
-                                onGone={() => boxes.current.delete(fileId)}
+                                keep={(b) => keepBox(fileId, b)}
                                 spot={spot}
                                 leaving={false}
                                 gone
@@ -370,7 +377,7 @@ function seat(box: HTMLDivElement, el: HTMLElement): void {
 function LayerPlayer({
     box,
     float,
-    onGone,
+    keep,
     spot,
     leaving,
     gone = false,
@@ -381,8 +388,8 @@ function LayerPlayer({
     /** Its own box (see the top), rendered into and moved around. */
     box: HTMLDivElement;
     float: MutableRefObject<HTMLDivElement | null>;
-    /** It's going for good: its box is dropped. */
-    onGone: () => void;
+    /** Its box is in use (null: dropped, the player is gone). */
+    keep: (box: HTMLDivElement | null) => void;
     spot: Spot;
     leaving: boolean;
     /** Its file was deleted: it stays where it is and fades out (sound
@@ -396,15 +403,15 @@ function LayerPlayer({
     // Into its spot (flying there if it comes from another one). Deleted: it
     // stays where it is.
     useFlight(spot, box, float, gone);
-    const onGoneRef = useRef(onGone);
-    onGoneRef.current = onGone;
-    useLayoutEffect(
-        () => () => {
+    const keepRef = useRef(keep);
+    keepRef.current = keep;
+    useLayoutEffect(() => {
+        keepRef.current(box);
+        return () => {
             box.remove();
-            onGoneRef.current();
-        },
-        [box],
-    );
+            keepRef.current(null);
+        };
+    }, [box]);
     const onReadyRef = useRef(spot.player.onReady);
     onReadyRef.current = spot.player.onReady;
     const onShownRef = useRef(onShown);
@@ -481,6 +488,11 @@ function LayerPlayer({
 function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDivElement | null>, gone: boolean): void {
     const lastSpot = useRef<number | null>(null);
     const stop = useRef<() => void>(() => {});
+    // The spot it's flying to, until it lands.
+    const flyingTo = useRef<number | null>(null);
+    // Every render: it may have been lifted out of its spot in the meantime
+    // (a spot letting go and claiming again, as development's strict mode
+    // does), so it's put back wherever it isn't where it belongs.
     useLayoutEffect(() => {
         if (gone) {
             // Stays where it is (floating, if its spot is going).
@@ -496,9 +508,9 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
         const flies = prev !== null && prev !== spot.id && b.isConnected && ms > 0;
         if (!flies) {
             // Mid-flight to this same spot: let it land.
-            if (prev === spot.id && b.parentElement === fl) return;
+            if (flyingTo.current === spot.id) return;
             stop.current();
-            seat(b, el);
+            if (b.parentElement !== el || b.style.position !== "absolute") seat(b, el);
             return;
         }
         const pictureEl = b.querySelector<HTMLElement>("[data-picture]");
@@ -551,17 +563,19 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
                 for (const p of ["transition", "left", "top", "width", "height", "right", "bottom"] as const) hud.style[p] = "";
             });
         }
+        flyingTo.current = spot.id;
         // Landed: inside the spot.
         const t = setTimeout(() => {
             stop.current();
-            if (spot.el?.isConnected) seat(b, spot.el);
+            if (el.isConnected) seat(b, el);
         }, ms + 50);
         stop.current = () => {
             clearTimeout(t);
             cleanups.forEach((c) => c());
+            flyingTo.current = null;
             stop.current = () => {};
         };
-    }, [spot.id, spot.el, spot.arriveMs, b, float, gone]);
+    });
     useLayoutEffect(() => () => stop.current(), []);
 }
 

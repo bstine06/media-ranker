@@ -175,6 +175,9 @@ export default function CompareView({
         const otherVideo = sideVideo(i.side === "a" ? "b" : "a");
         resumeOtherSide.current = otherVideo && !otherVideo.paused ? (i.side === "a" ? "b" : "a") : null;
         otherVideo?.pause();
+        // Marked at once: a second call (development's strict mode runs it
+        // twice) would find the other side paused and forget it was playing.
+        inspectRef.current = { ...i, shown: true };
         setInspect((s) => (s && !s.shown ? { ...s, shown: true } : s));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
