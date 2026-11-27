@@ -83,6 +83,7 @@ export default function SweepView({
         toggleSweepSkipAnswered,
     } = useSettings();
     const { openLobby } = usePass();
+
     const { tag, reroll, pickingRef, hidden } = useTagPointer();
     const { crown } = useKingOfHill();
 
@@ -370,7 +371,27 @@ function SweepStrip({
     setVisible: (v: { loaded: number[]; near: number[] }) => void;
     onCompare: (file: DbFile) => void;
 }): JSX.Element {
-    const { sweepVarispeed, sweepAllLanes, sweepScrubHold, sweepAllAudio, toggleSweepAllAudio } = useSettings();
+    const { sweepVarispeed, sweepAllLanes, sweepScrubHold, sweepAllAudio, toggleSweepAllAudio, pauseWhenUnfocused } = useSettings();
+    // "Pause when unfocused" on and the app not in front: every lane holds
+    // still (no new videos sailing in meanwhile), and goes on at its speed
+    // on coming back.
+    const [away, setAwayState] = useState(false);
+    useEffect(() => {
+        if (!pauseWhenUnfocused) {
+            setAwayState(false);
+            return;
+        }
+        setAwayState(!document.hasFocus());
+        const onBlur = () => setAwayState(true);
+        const onFocus = () => setAwayState(false);
+        window.addEventListener("blur", onBlur);
+        window.addEventListener("focus", onFocus);
+        return () => {
+            window.removeEventListener("blur", onBlur);
+            window.removeEventListener("focus", onFocus);
+        };
+    }, [pauseWhenUnfocused]);
+
     const {
         picking,
         pickingRef,
@@ -1039,7 +1060,7 @@ function SweepStrip({
                         fetchFile={fetchFile}
                         motion={motion[i] ?? CRUISE}
                         speedMult={laneSpeed(i)}
-                        holdStill={turningLane === i}
+                        holdStill={turningLane === i || away}
                         wheelSpeed={wheelSpeed}
                         velocities={velocities}
                         edgeDepths={edgeDepths}
