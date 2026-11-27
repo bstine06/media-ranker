@@ -87,6 +87,17 @@ interface LayerApi {
 }
 
 const LayerContext = createContext<LayerApi | null>(null);
+/** The box above flying players (see useLiftAbove). */
+const LiftContext = createContext<HTMLElement | null>(null);
+
+/**
+ * Where a view can put pieces that must stay above a player flying past
+ * (Compare's card top during a flight to the file view and back): a box
+ * above the float container, below dialogs. Null until it's mounted.
+ */
+export function useLiftAbove(): HTMLElement | null {
+    return useContext(LiftContext);
+}
 
 let nextSpotId = 1;
 let nextOrder = 1;
@@ -118,6 +129,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     // Each file's player box (see the top), and where boxes float.
     const boxes = useRef(new Map<number, HTMLDivElement>());
     const floatRef = useRef<HTMLDivElement>(null);
+    const [liftEl, setLiftEl] = useState<HTMLDivElement | null>(null);
     // A player's box is kept while its player is up. (Development's strict
     // mode unmounts and remounts every component once as a test: the box
     // has to come back with it.)
@@ -266,10 +278,12 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
 
     return (
         <LayerContext.Provider value={api}>
+        <LiftContext.Provider value={liftEl}>
             {children}
             {/* Players flying, or fading after their spot went: above the
                 views, below dialogs. */}
             <div ref={floatRef} data-media-float className="pointer-events-none fixed inset-0" style={{ zIndex: FLOAT_Z }} />
+            <div ref={setLiftEl} data-media-lift className="pointer-events-none fixed inset-0" style={{ zIndex: FLOAT_Z + 1 }} />
             <div data-media-layer className="pointer-events-none">
                 {/* Keyed by file: a player stays the same one whatever it does
                     (moves, covers, fades). Each renders into its own box. */}
@@ -309,13 +323,14 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                     })),
                 ].map((x) => x.el)}
             </div>
+        </LiftContext.Provider>
         </LayerContext.Provider>
     );
 }
 
 /** Players flying or fading above the app: above the views, below dialogs
  *  (z-40 and up). */
-const FLOAT_Z = 36;
+const FLOAT_Z = 36; // and the lift box above it: 37
 
 function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.Element | null {
     const { rootPath } = useFolders();

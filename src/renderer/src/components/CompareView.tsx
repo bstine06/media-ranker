@@ -1,8 +1,10 @@
 import {
     useEffect,
+    useLayoutEffect,
     useState,
     useCallback,
     useRef,
+    type ReactNode,
 } from "react";
 import type {
     DbFile,
@@ -14,7 +16,8 @@ import type {
 import { toMediaUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
 import { type MediaControls } from "./MediaPlayer";
-import { MediaSpot } from "@renderer/media/MediaLayer";
+import { MediaSpot, useLiftAbove } from "@renderer/media/MediaLayer";
+import { createPortal } from "react-dom";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -1048,6 +1051,12 @@ export default function CompareView({
 
     const [a, b] = pair;
 
+    // A file view is up: the cards' top pieces are lifted above the player
+    // flying past, fading out as Compare dims and back in on the way home.
+    const liftFade = inspect
+        ? { opacity: inspect.shown && !inspect.closing ? 0 : 1, ms: inspect.closing ? INSPECT_OUT_MS : INSPECT_MS }
+        : null;
+
     // "Placing 3/10" on the file being placed (hidden while a king holds).
     const placingLabel = (f: DbFile): string | undefined =>
         placing && !king && placing.file.id === f.id
@@ -1103,6 +1112,7 @@ export default function CompareView({
                         focused={focus === "a"}
                         audible={(compareBothAudio || focus === "a") && audibleDuringInspect("a")}
                         hudLifted={!!inspect}
+                        liftFade={liftFade}
                         controlsRef={controlsA}
                         rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
@@ -1130,6 +1140,7 @@ export default function CompareView({
                         focused={focus === "b"}
                         audible={(compareBothAudio || focus === "b") && audibleDuringInspect("b")}
                         hudLifted={!!inspect}
+                        liftFade={liftFade}
                         controlsRef={controlsB}
                         rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
@@ -1189,10 +1200,14 @@ function CompareCard({
     onCrown,
     onUncrown,
     hudLifted,
+    liftFade,
 }: {
     /** A file view is up over Compare: no hover bar, and the player
      *  flies home when it comes back. */
     hudLifted: boolean;
+    /** While a file view is up: the top pieces sit above the flying player
+     *  (the lift box), at this opacity. */
+    liftFade: { opacity: number; ms: number } | null;
     file: DbFile;
     side: Side;
     rootPath: string;
@@ -1256,17 +1271,38 @@ function CompareCard({
         };
     }, [disabled, hudLifted]);
 
+    // The top pieces: after the spot, so they sit above the player; while a
+    // file view is up, in the lift box instead (above the player flying
+    // past, see liftFade).
+    const lift = useLiftAbove();
+    const mediaRef = useRef<HTMLDivElement>(null);
+    const cardTop = (
+        <CardTop
+            file={file}
+            focused={focused && !disabled}
+            showBar={showBar}
+            libraryRank={libraryRank}
+            placingLabel={placingLabel}
+            isKing={isKing}
+            streak={streak}
+            onInspectFile={onInspectFile}
+            onCrown={onCrown}
+            onUncrown={onUncrown}
+            rotateLeft={rotateLeft}
+            onGoToFolder={onGoToFolder}
+        />
+    );
+
     // The media is a spot: the media layer puts this file's player in it
     // (and, on a new file, keeps the old one on top until the new one has a
-    // frame, so the cut never passes through black). The top pieces come
-    // after it, so they sit above the player.
+    // frame, so the cut never passes through black).
     return (
         <div
             ref={cardRef}
             data-side={side}
             className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
         >
-            <div className="relative min-h-0 flex-1">
+            <div ref={mediaRef} className="relative min-h-0 flex-1">
                 <MediaSpot
                     file={file}
                     className="absolute inset-0"
@@ -1286,21 +1322,57 @@ function CompareCard({
                         rotation: file.rotation,
                     }}
                 />
-                <CardTop
-                    file={file}
-                    focused={focused && !disabled}
-                    showBar={showBar}
-                    libraryRank={libraryRank}
-                    placingLabel={placingLabel}
-                    isKing={isKing}
-                    streak={streak}
-                    onInspectFile={onInspectFile}
-                    onCrown={onCrown}
-                    onUncrown={onUncrown}
-                    rotateLeft={rotateLeft}
-                    onGoToFolder={onGoToFolder}
-                />
+                {liftFade && lift
+                    ? createPortal(
+                          <LiftedOver over={mediaRef} fade={liftFade}>
+                              {cardTop}
+                          </LiftedOver>,
+                          lift,
+                      )
+                    : cardTop}
             </div>
+        </div>
+    );
+}
+
+/** Pieces drawn in the lift box, laid exactly over `over`; never take the
+ *  mouse (a file view is up). */
+function LiftedOver({
+    over,
+    fade,
+    children,
+}: {
+    over: React.RefObject<HTMLElement>;
+    fade: { opacity: number; ms: number };
+    children: ReactNode;
+}): JSX.Element {
+    const [r, setR] = useState<DOMRect | null>(() => over.current?.getBoundingClientRect() ?? null);
+    useLayoutEffect(() => {
+        const el = over.current;
+        if (!el) return;
+        const measure = () => setR(el.getBoundingClientRect());
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        window.addEventListener("resize", measure);
+        return () => {
+            ro.disconnect();
+            window.removeEventListener("resize", measure);
+        };
+    }, [over]);
+    return (
+        <div
+            className="pointer-events-none fixed overflow-hidden [&_*]:!pointer-events-none"
+            style={{
+                left: r?.left ?? 0,
+                top: r?.top ?? 0,
+                width: r?.width ?? 0,
+                height: r?.height ?? 0,
+                opacity: fade.opacity,
+                transition: `opacity ${fade.ms}ms ease-out`,
+            }}
+        >
+            {children}
         </div>
     );
 }
