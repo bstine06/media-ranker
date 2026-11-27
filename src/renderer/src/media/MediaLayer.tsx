@@ -1,22 +1,24 @@
 // The media layer: one player per file, owned here (app level) instead of by
 // the views, and moved between places instead of copied.
 //
-// A view renders a <MediaSpot file=…/>: an empty box saying "this file goes
-// here". The layer keeps the file's player exactly over that box. Several
-// spots may claim the same file (a Compare card, then the file view opening
-// on it): the newest claim gets the player; when it lets go, the player goes
-// back to the one before. A spot without the player is just an empty box.
+// A view renders a <MediaSpot file=…/>: a box saying "this file goes here".
+// The file's player sits inside that box, like any part of the view: it moves,
+// is cut off and stacks with the view by itself. Several spots may claim the
+// same file (a Compare card, then the file view opening on it): the newest
+// claim gets the player; when it lets go, the player goes back to the one
+// before. A spot without the player is just an empty box.
 //
-// Players live in the layer the whole time (fixed, over their spot), so a
-// video is never torn down when it changes places.
+// Each player is rendered (a React portal) into a box of its own, and that
+// box is what moves: from one spot into another in one go, which keeps a
+// video playing (it's never out of the page, so it never pauses or reloads).
+// Only while flying between spots, or fading out after its spot went, does
+// the box float above the app (the float container).
 //
 // A spot can also carry:
 // - an overlay: the view's own pieces that sit on top of the media (Compare's
 //   focus line, rank, hover bar…), drawn above the player, pinned to the spot;
-// - a fade: the player and overlay's opacity (a view dimming itself);
-// - overlayOnTop: its overlay stays above every player even while the spot
-//   is dimmed (the view hides the pieces itself), so a player flying off
-//   never covers them as they fade.
+// - a fade: the overlay's opacity (a view dimming itself);
+// - overlayOnTop: its overlay stays on top even while the spot is dimmed.
 // When a spot changes file, the old player stays on top until the new one
 // has something to show, so a swap never passes through black.
 // A file deleted (in the app or outside it): its player fades out where it
@@ -36,6 +38,7 @@ import {
     type MutableRefObject,
     type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import type { DbFile } from "@renderer/shared/types/types";
 import { MediaPlayer, type MediaControls } from "@renderer/components/MediaPlayer";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -125,6 +128,25 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     const deleted = useRef(new Set<number>());
     const [, setTick] = useState(0);
     const changed = useCallback(() => setTick((t) => t + 1), []);
+    // Each file's player box (see the top), and where boxes float.
+    const boxes = useRef(new Map<number, HTMLDivElement>());
+    const floatRef = useRef<HTMLDivElement>(null);
+    const boxFor = (fileId: number): HTMLDivElement => {
+        let b = boxes.current.get(fileId);
+        if (!b) {
+            b = document.createElement("div");
+            boxes.current.set(fileId, b);
+        }
+        return b;
+    };
+    // A spot going away: the boxes inside it float where they are first, so
+    // they never leave the page with it (a video taken out of the page
+    // pauses). Called before React takes the spot's element out.
+    const liftFrom = useCallback((el: HTMLElement | null | undefined) => {
+        const float = floatRef.current;
+        if (!el || !float) return;
+        for (const b of boxes.current.values()) if (el.contains(b)) floatAt(b, float);
+    }, []);
     // A deleted file stops being one once nothing names it (an undo can
     // bring the same file back later).
     const forget = useCallback(() => {
@@ -183,13 +205,15 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 changed();
             },
             release: (id) => {
+                liftFrom(spots.current.get(id)?.el);
+                liftFrom(leaving.current.get(id)?.spot.el);
                 const had = spots.current.delete(id);
                 const covering = leaving.current.delete(id);
                 forget();
                 if (had || covering) changed();
             },
         }),
-        [changed, newReady, forget],
+        [changed, newReady, forget, liftFrom],
     );
 
     // A file deleted: its player stays where it's shown now and fades out.
@@ -249,20 +273,21 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     return (
         <LayerContext.Provider value={api}>
             {children}
-            {/* No box of its own: each player and overlay is placed (fixed) and
-                stacked by itself among the views (see LAYER_Z), so a view can
-                sit between players in the background and the active ones. */}
+            {/* Players flying, or fading after their spot went: above the
+                views, below dialogs. */}
+            <div ref={floatRef} data-media-float className="pointer-events-none fixed inset-0" style={{ zIndex: LAYER_Z.float }} />
             <div data-media-layer className="pointer-events-none">
-                {/* One list, keyed by file and kept in file order: a deleted
-                    file's player stays the same element in the same place in
-                    the page (a moved element would lose its fade), so it
-                    fades where it is. */}
+                {/* Keyed by file: a player stays the same one whatever it does
+                    (moves, covers, fades). Each renders into its own box. */}
                 {[
                     ...[...shown.entries()].map(([fileId, { spot, leavingFrom }]) => ({
                         fileId,
                         el: (
                             <LayerPlayer
                                 key={fileId}
+                                box={boxFor(fileId)}
+                                float={floatRef}
+                                onGone={() => boxes.current.delete(fileId)}
                                 spot={spot}
                                 leaving={leavingFrom !== null}
                                 readyFiles={readyFiles.current}
@@ -276,6 +301,9 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                         el: (
                             <LayerPlayer
                                 key={fileId}
+                                box={boxFor(fileId)}
+                                float={floatRef}
+                                onGone={() => boxes.current.delete(fileId)}
                                 spot={spot}
                                 leaving={false}
                                 gone
@@ -285,9 +313,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                             />
                         ),
                     })),
-                ]
-                    .sort((x, y) => x.fileId - y.fileId)
-                    .map((x) => x.el)}
+                ].map((x) => x.el)}
                 {[...spots.current.values()]
                     .filter((s) => s.overlay)
                     .map((s) => (
@@ -341,6 +367,8 @@ export const LAYER_Z = {
     active: 30,
     leaving: 31,
     activeOverlay: 35,
+    /** Players flying between spots, or fading after their spot went. */
+    float: 36,
 } as const;
 const inBackground = (spot: Spot): boolean => (spot.fade?.opacity ?? 1) < 1;
 
@@ -376,12 +404,40 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
     );
 }
 
+/** Float `box` above the app exactly where it is now on screen. */
+function floatAt(box: HTMLDivElement, float: HTMLElement): void {
+    const r = box.getBoundingClientRect();
+    if (box.parentElement !== float) float.appendChild(box);
+    Object.assign(box.style, {
+        position: "fixed",
+        inset: "auto",
+        left: `${r.left}px`,
+        top: `${r.top}px`,
+        width: `${r.width}px`,
+        height: `${r.height}px`,
+    } satisfies CSSProperties);
+    // Its style as it is now counts as the start of any change that follows
+    // (a moved element otherwise starts over: a fade would just jump).
+    void getComputedStyle(box).opacity;
+}
+
+/** Put `box` inside `el`, filling it. */
+function seat(box: HTMLDivElement, el: HTMLElement): void {
+    if (box.parentElement !== el) el.appendChild(box);
+    // Cleared first: `inset` sets left / top too.
+    Object.assign(box.style, { width: "", height: "", left: "", top: "" });
+    Object.assign(box.style, { position: "absolute", inset: "0px" } satisfies CSSProperties);
+}
+
 /**
- * A file's player over its spot. `leaving`: its spot has moved on to another
- * file; it stays on top, not interactive, until the new one is ready (or a
- * moment has passed), then goes.
+ * A file's player, inside its spot. `leaving`: its spot has moved on to
+ * another file; it stays on top, not interactive, until the new one is ready
+ * (or a moment has passed), then goes.
  */
 function LayerPlayer({
+    box,
+    float,
+    onGone,
     spot,
     leaving,
     gone = false,
@@ -389,6 +445,11 @@ function LayerPlayer({
     onShown,
     onLeft,
 }: {
+    /** Its own box (see the top), rendered into and moved around. */
+    box: HTMLDivElement;
+    float: MutableRefObject<HTMLDivElement | null>;
+    /** It's going for good: its box is dropped. */
+    onGone: () => void;
     spot: Spot;
     leaving: boolean;
     /** Its file was deleted: it stays where it is and fades out (sound
@@ -399,11 +460,18 @@ function LayerPlayer({
     onShown: () => void;
     onLeft: () => void;
 }): JSX.Element {
-    const box = useRef<HTMLDivElement | null>(null);
-    // Before following the new spot: a player changing spots flies there.
-    useFlight(spot, box);
-    // Deleted: stays where it was last placed.
-    useFollow(gone ? null : spot.el, box);
+    // Into its spot (flying there if it comes from another one). Deleted: it
+    // stays where it is.
+    useFlight(spot, box, float, gone);
+    const onGoneRef = useRef(onGone);
+    onGoneRef.current = onGone;
+    useLayoutEffect(
+        () => () => {
+            box.remove();
+            onGoneRef.current();
+        },
+        [box],
+    );
     const onReadyRef = useRef(spot.player.onReady);
     onReadyRef.current = spot.player.onReady;
     const onShownRef = useRef(onShown);
@@ -425,7 +493,7 @@ function LayerPlayer({
     // Deleted: the sound fades with the picture, then it stops.
     useEffect(() => {
         if (!gone) return;
-        const videos = [...(box.current?.querySelectorAll("video") ?? [])];
+        const videos = [...box.querySelectorAll("video")];
         const from = videos.map((v) => v.volume);
         const t0 = performance.now();
         let raf = 0;
@@ -441,30 +509,30 @@ function LayerPlayer({
             cancelAnimationFrame(raf);
             clearTimeout(t);
         };
-    }, [gone]);
+    }, [gone, box]);
     const player =
         leaving || gone
             ? { ...spot.player, onClick: undefined, controlsRef: undefined, keyboardEnabled: false, onReady: undefined }
             : spot.player;
+    // The box's own look, set on it directly (it isn't rendered by React).
     // Dimmed (its view in the background): the mouse goes past it.
     const inert = leaving || gone || (spot.fade?.opacity ?? 1) < 1;
-    return (
-        <div
-            ref={box}
-            data-layer-player={leaving || gone ? undefined : spot.file.id}
-            data-layer-leaving={leaving ? spot.file.id : undefined}
-            data-layer-gone={gone ? spot.file.id : undefined}
-            className={`fixed ${inert ? "pointer-events-none" : "pointer-events-auto"} ${player.className ?? ""}`}
-            style={{
-                ...(gone
-                    ? { opacity: 0, transition: `opacity ${GONE_MS}ms ease-out` }
-                    : fadeStyle(spot.fade)),
-                zIndex: leaving || gone ? LAYER_Z.leaving : inBackground(spot) ? LAYER_Z.background : LAYER_Z.active,
-            }}
-        >
-            <Player spot={{ ...spot, player }} onReady={leaving || gone ? undefined : ready} />
-        </div>
-    );
+    useLayoutEffect(() => {
+        box.className = `${inert ? "pointer-events-none" : "pointer-events-auto"} ${player.className ?? ""}`;
+        if (gone) box.dataset.layerGone = String(fileId);
+        else delete box.dataset.layerGone;
+        if (leaving) box.dataset.layerLeaving = String(fileId);
+        else delete box.dataset.layerLeaving;
+        if (leaving || gone) delete box.dataset.layerPlayer;
+        else box.dataset.layerPlayer = String(fileId);
+        // On top of the spot's new player while covering or fading.
+        box.style.zIndex = leaving || gone ? "2" : "1";
+        if (gone) {
+            box.style.transition = `opacity ${GONE_MS}ms ease-out`;
+            box.style.opacity = "0";
+        }
+    });
+    return createPortal(<Player spot={{ ...spot, player }} onReady={leaving || gone ? undefined : ready} />, box);
 }
 
 /** A spot's overlay: above every player, pinned to the spot. */
@@ -486,32 +554,47 @@ function SpotOverlay({ spot }: { spot: Spot }): JSX.Element {
 }
 
 /**
- * A player changing spots (a newer claim on its file, or the newer one
- * letting go) flies to the new one, if that spot asks for it (arriveMs).
- * The player's box goes straight to the new spot. Inside it, the picture is
- * moved by a transform from where it was on screen, easing to nothing (one
- * smooth curve); the controls strip is moved by layout from where it was to
- * its place, on the same curve, so it's laid out right (not scaled) all the
- * way. Nothing is copied: it's the same element, still playing.
+ * Keeps the player's box in its spot. Coming from another spot (a newer claim
+ * on its file, or the newer one letting go), it flies there if the spot asks
+ * for it (arriveMs): the box floats above the app over the new spot. Inside
+ * it, the picture is moved by a transform from where it was on screen,
+ * easing to nothing (one smooth curve); the controls strip is moved by layout
+ * from where it was to its place, on the same curve, so it's laid out right
+ * (not scaled) all the way. Then it's put inside the spot. Nothing is
+ * copied: it's the same element, still playing.
  */
-function useFlight(spot: Spot, box: MutableRefObject<HTMLDivElement | null>): void {
+function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDivElement | null>, gone: boolean): void {
     const lastSpot = useRef<number | null>(null);
     const stop = useRef<() => void>(() => {});
     useLayoutEffect(() => {
+        if (gone) {
+            // Stays where it is (floating, if its spot is going).
+            stop.current();
+            return;
+        }
         const prev = lastSpot.current;
         lastSpot.current = spot.id;
-        const b = box.current;
         const el = spot.el;
+        const fl = float.current;
+        if (!el || !fl) return;
         const ms = spot.arriveMs ?? 0;
-        if (prev === null || prev === spot.id || !b || !el || ms <= 0) return;
-        stop.current();
+        const flies = prev !== null && prev !== spot.id && b.isConnected && ms > 0;
+        if (!flies) {
+            // Mid-flight to this same spot: let it land.
+            if (prev === spot.id && b.parentElement === fl) return;
+            stop.current();
+            seat(b, el);
+            return;
+        }
         const pictureEl = b.querySelector<HTMLElement>("[data-picture]");
         const root = pictureEl?.parentElement as HTMLElement | null;
         const hud = b.querySelector<HTMLElement>("[data-hud]");
-        // Where it is now (still over the old spot).
+        // Where it is now (over the old spot, or partway along a flight).
         const fromPic = pictureRect(b);
         const fromBar = hud?.getBoundingClientRect() ?? null;
-        // To the new spot.
+        stop.current();
+        // Float over the new spot.
+        floatAt(b, fl);
         const r = el.getBoundingClientRect();
         Object.assign(b.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
         const ease = `${ms}ms ${INSPECT_EASE}`;
@@ -553,13 +636,17 @@ function useFlight(spot: Spot, box: MutableRefObject<HTMLDivElement | null>): vo
                 for (const p of ["transition", "left", "top", "width", "height", "right", "bottom"] as const) hud.style[p] = "";
             });
         }
-        const t = setTimeout(() => stop.current(), ms + 50);
+        // Landed: inside the spot.
+        const t = setTimeout(() => {
+            stop.current();
+            if (spot.el?.isConnected) seat(b, spot.el);
+        }, ms + 50);
         stop.current = () => {
             clearTimeout(t);
             cleanups.forEach((c) => c());
             stop.current = () => {};
         };
-    }, [spot.id, spot.el, spot.arriveMs, box]);
+    }, [spot.id, spot.el, spot.arriveMs, b, float, gone]);
     useLayoutEffect(() => () => stop.current(), []);
 }
 
