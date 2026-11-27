@@ -745,9 +745,6 @@ function PassTile({
                     clickToPauseEnabled: false,
                     keyboardEnabled: false,
                     rotation: item.file.rotation,
-                    // A lane: keeps playing, silently, while the window is
-                    // in the background.
-                    whenAway: "silence",
                     onAspect: (aspect) => onShape(id, aspect),
                 }}
             />

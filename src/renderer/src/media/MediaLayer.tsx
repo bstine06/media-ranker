@@ -59,10 +59,6 @@ export interface SpotPlayer {
     barFitsPicture?: boolean;
     /** Extra classes on the player's box (e.g. the tag pointer hiding the cursor). */
     className?: string;
-    /** The window losing focus (with "pause when unfocused" on): pause and
-     *  pick up again on return (the default), or keep playing silently (a
-     *  lane, like Pass's). */
-    whenAway?: "pause" | "silence";
     /** The focused media of its view: answers the playback keys and shows
      *  its bar (see MediaPlayer). */
     focused?: boolean;
@@ -493,8 +489,6 @@ function LayerPlayer({
         else delete box.dataset.layerLeaving;
         if (leaving || gone) delete box.dataset.layerPlayer;
         else box.dataset.layerPlayer = String(fileId);
-        // What it does when the window loses focus (see SettingsContext).
-        box.dataset.whenAway = player.whenAway ?? "pause";
         // On top of the spot's new player while covering or fading.
         // Otherwise no level of its own: it stacks in page order, so the
         // view's pieces laid after its spot (Pass's no-ring) stay on top.
