@@ -343,7 +343,10 @@ export function MediaPlayer({
         if (!videoRef.current) return;
         if (lastDisabledRef.current === disabled) return;
         lastDisabledRef.current = disabled;
-        disabled ? videoRef.current.pause() : videoRef.current.play();
+        // (A play() cut short by a pause, e.g. a lane tile scrolling out of
+        // range, rejects: harmless.)
+        if (disabled) videoRef.current.pause();
+        else videoRef.current.play().catch(() => {});
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [disabled]);
 
