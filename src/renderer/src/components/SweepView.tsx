@@ -1532,6 +1532,7 @@ function StripLane({
                         inspected={inspectedId === it.file.id}
                         returning={inspectedId != null}
                         play={active && i >= playing[0] && i <= playing[1]}
+                        near={i >= playing[0] && i <= playing[1]}
                         seen={active && i >= onScreen[0] && i <= onScreen[1]}
                         flash={flashes[it.key]}
                         height={height}
@@ -1621,6 +1622,7 @@ function StripTile({
     inspected,
     returning,
     play,
+    near,
     seen,
     flash,
     height,
@@ -1644,6 +1646,9 @@ function StripTile({
     returning: boolean;
     /** On screen or about to be: videos play; otherwise they're paused. */
     play: boolean;
+    /** On screen or about to be, playing or not (the sweep can be still,
+     *  under the file view). */
+    near: boolean;
     /** Some of it on screen: with X, heard. */
     seen: boolean;
     /** The tag was just added ("on"), was already on and a second press
@@ -1682,6 +1687,9 @@ function StripTile({
                 file={item.file}
                 className="absolute inset-0"
                 arriveMs={returning && inspected ? INSPECT_OUT_MS : 0}
+                // A small library repeats files: the copy on screen (or about
+                // to be) has the player, not a newer one loaded ahead.
+                onScreen={near || inspected}
                 player={{
                     disabled: !(play || inspected),
                     muted: !audible,
