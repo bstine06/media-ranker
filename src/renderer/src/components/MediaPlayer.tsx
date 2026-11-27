@@ -178,22 +178,26 @@ export function MediaPlayer({
     }
     const turnsNow = angleRef.current.turns;
     const animateTurn = performance.now() - angleRef.current.at < 250;
+    // Sized in the picture box's own units (it's a size container): a
+    // sideways layer is as wide as the box is tall and the other way round,
+    // centred and turned about its middle. So it follows the box at once as
+    // the box changes, even in the middle of a turn (a Sweep tile easing to
+    // its new shape), instead of being measured and catching up after.
     const turnStyle = (turns: number, animate: boolean): React.CSSProperties => {
-        const sideways = Math.abs(turns % 2) === 1 && box.width > 0;
+        const sideways = Math.abs(turns % 2) === 1;
         const t = "200ms ease-out";
         return {
-            width: sideways ? box.height : "100%",
-            height: sideways ? box.width : "100%",
-            left: sideways ? (box.width - box.height) / 2 : 0,
-            top: sideways ? (box.height - box.width) / 2 : 0,
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            width: sideways ? "100cqh" : "100cqw",
+            height: sideways ? "100cqw" : "100cqh",
             // Tailwind's base styles cap <video> at max-width: 100%, which
             // would squash a sideways layer in a tall, narrow box (Compare).
             maxWidth: "none",
             maxHeight: "none",
-            transform: turns ? `rotate(${-90 * turns}deg)` : undefined,
-            transition: animate
-                ? `transform ${t}, width ${t}, height ${t}, left ${t}, top ${t}`
-                : "none",
+            transform: `translate(-50%, -50%) rotate(${-90 * turns}deg)`,
+            transition: animate ? `transform ${t}, width ${t}, height ${t}` : "none",
         };
     };
 
@@ -549,7 +553,7 @@ export function MediaPlayer({
             {/* The picture, on its own so the media layer can move it apart
                 from the controls strip (src/renderer/src/media). Same box as
                 the player. */}
-            <div data-picture className="absolute inset-0">
+            <div data-picture className="absolute inset-0" style={{ containerType: "size" }}>
             {isVideo ? (
                 // Keyed list, so the outgoing version is the same element it
                 // was a moment ago (not remounted) while it covers the swap.

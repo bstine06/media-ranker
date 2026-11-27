@@ -318,6 +318,8 @@ const CRUISE: LaneMotion = { dir: 1, boost: false };
 /** The opposite direction key held this long after its pause: fast the
  *  other way. */
 const TURN_HOLD_MS = 200;
+/** R holds the pointer's lane still until this long after the last press. */
+const TURN_PAUSE_MS = 500;
 
 /** What a lane hands the strip so it can update the lane's files. */
 interface LaneHandle {
@@ -694,9 +696,19 @@ function SweepStrip({
         });
     }, [replaceItemFile]);
 
+    // Turning holds the pointer's lane still (at once): it goes again
+    // TURN_PAUSE_MS after the last R, as it was.
+    const [turningLane, setTurningLane] = useState<number | null>(null);
+    const turnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => {
+        if (turnTimer.current) clearTimeout(turnTimer.current);
+    }, []);
     const rotateLeft = useCallback(() => {
         const item = activeItem;
         if (!item) return;
+        setTurningLane(pointerLaneRef.current);
+        if (turnTimer.current) clearTimeout(turnTimer.current);
+        turnTimer.current = setTimeout(() => setTurningLane(null), TURN_PAUSE_MS);
         window.api.turnFile(item.file.id).catch((err: unknown) => console.error("Rotate failed:", err));
     }, [activeItem]);
 
@@ -995,6 +1007,7 @@ function SweepStrip({
                         fetchFile={fetchFile}
                         motion={motion[i] ?? CRUISE}
                         speedMult={laneSpeed(i)}
+                        holdStill={turningLane === i}
                         wheelSpeed={wheelSpeed}
                         velocities={velocities}
                         edgeDepths={edgeDepths}
@@ -1064,6 +1077,7 @@ function StripLane({
     fetchFile,
     motion,
     speedMult,
+    holdStill,
     wheelSpeed,
     velocities,
     edgeDepths,
@@ -1095,6 +1109,8 @@ function StripLane({
     motion: LaneMotion;
     /** Varispeed: this lane's speed against the set speed. */
     speedMult: number;
+    /** A file in it is being turned (R): held still. */
+    holdStill: boolean;
     wheelSpeed: React.MutableRefObject<number>;
     velocities: React.MutableRefObject<number[]>;
     edgeDepths: React.MutableRefObject<number[]>;
@@ -1441,7 +1457,7 @@ function StripLane({
                 boostLevel.current = 1;
             }
             const cruise = wheelSpeed.current * speedMult;
-            const target = motion.dir * cruise * boostLevel.current;
+            const target = holdStill ? 0 : motion.dir * cruise * boostLevel.current;
             const v = velocities.current[index];
             const scrubbing = scrubbingRef.current;
             // Snappy into and out of fast forward; gentle for everything else.
@@ -1494,6 +1510,7 @@ function StripLane({
                 !motion.boost &&
                 depth === 0 &&
                 !scrubbing &&
+                !holdStill &&
                 velocities.current[index] > 0 &&
                 document.hasFocus();
             const marks = tripMinX.current;
@@ -1548,7 +1565,7 @@ function StripLane({
         raf = requestAnimationFrame(frame);
         return () => cancelAnimationFrame(raf);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [active, motion.dir, motion.boost, speedMult, width, widthOf, topUp]);
+    }, [active, motion.dir, motion.boost, holdStill, speedMult, width, widthOf, topUp]);
 
     return (
         <div className="relative min-h-0 flex-1 overflow-hidden">
