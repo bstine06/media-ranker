@@ -105,3 +105,18 @@ sweep seemed to handle this well with no extra fix, youre welcome to take a clos
 [y] Not crowned: no crown at all on either side
 [y] G opens the file view, R turns the focused side, as before
 [y] G and back with a crowned side: the crown and streak fade out and back
+
+
+── 9. Compare: undoing a delete brings the matchup back (UNTESTED) ───────
+[ ] Compare → G → Delete → ⌘Z: the same matchup is back, same sides,
+    same focused side; pick: the pair that replaced it comes next
+[ ] A file on a Compare card deleted in Browse, ⌘Z, back to Compare: that
+    matchup is back
+[ ] The crowned file deleted (with a streak), ⌘Z: crowned again, same
+    streak
+[ ] A file being placed ("Placing 3/10") deleted, ⌘Z: placing again,
+    same count
+[ ] After that ⌘Z, ⌘Z again: earlier picks still come back as before
+[ ] ⇧⌘Z (redo the delete): it goes again, the other side stays, a new
+    opponent comes in, as on a delete
+[ ] A delete of a file NOT on screen, ⌘Z: the matchup on screen stays
