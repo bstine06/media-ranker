@@ -1165,12 +1165,26 @@ function StripLane({
         new Map<string, { item: StripItem; prevKey: number | null; nextKey: number | null }>(),
     );
 
+    // A tile under the pointer changing shape (turned with R) keeps the
+    // same spot of it under the pointer: while its width eases to the new
+    // shape, the row is shifted by the change (see the animation).
+    const turnAnchor = useRef<{ key: number; f: number; lastW: number; until: number } | null>(null);
     const replaceItemFile = useCallback((file: DbFile) => {
-        if (!itemsRef.current.some((it) => it.file.id === file.id)) return;
-        const next = itemsRef.current.map((it) => (it.file.id === file.id ? { ...it, file } : it));
+        const list = itemsRef.current;
+        const at = list.findIndex((it) => it.file.id === file.id);
+        if (at < 0) return;
+        if (isSideways(file.rotation) !== isSideways(list[at].file.rotation)) {
+            const left = offset.current + list.slice(0, at).reduce((w, it) => w + widthOf(it), 0);
+            const w = widthOf(list[at]);
+            const pointer = mouseX.current ?? width * POINTER_AT;
+            if (pointer >= left && pointer < left + w) {
+                turnAnchor.current = { key: list[at].key, f: (pointer - left) / w, lastW: w, until: performance.now() + 600 };
+            }
+        }
+        const next = list.map((it) => (it.file.id === file.id ? { ...it, file } : it));
         itemsRef.current = next;
         setItems(next);
-    }, []);
+    }, [widthOf, width]);
     // A removed file's tile goes. Tiles left of the pointer stay put (the
     // row shifts to make up for it); one under or right of the pointer
     // closes up, so the next tile takes its place.
@@ -1437,13 +1451,31 @@ function StripLane({
                 : motion.boost || depth > 0 || pickingRef.current || Math.abs(v) > cruise * 1.5
                   ? 12
                   : 4;
-            velocities.current[index] = v + (target - v) * Math.min(1, dt * ease);
+            // Stopping, starting and turning round happen at once (no
+            // ease); speed changes in one direction still ease.
+            velocities.current[index] =
+                target === 0 || v === 0 || Math.sign(target) !== Math.sign(v)
+                    ? target
+                    : v + (target - v) * Math.min(1, dt * ease);
             offset.current -= velocities.current[index] * dt;
             // Ended: the row can't run past its end card (it stops with the
             // card at the right edge).
             if (endedRef.current) {
                 const total = itemsRef.current.reduce((w, it) => w + widthOf(it), 0) + Math.min(height, width);
                 offset.current = Math.max(offset.current, Math.min(0, width - total));
+            }
+            // A turned tile under the pointer: shift by its width's change so
+            // far (its left edge stays, so the spot under the pointer would
+            // otherwise slide off).
+            const anchor = turnAnchor.current;
+            if (anchor) {
+                const el = rowRef.current?.querySelector<HTMLElement>(`[data-tile-key="${anchor.key}"]`);
+                if (!el || now > anchor.until) turnAnchor.current = null;
+                else {
+                    const w = el.getBoundingClientRect().width;
+                    offset.current += anchor.f * (anchor.lastW - w);
+                    anchor.lastW = w;
+                }
             }
             if (rowRef.current) rowRef.current.style.transform = `translateX(${offset.current}px)`;
 
@@ -1666,6 +1698,7 @@ function StripTile({
 
     return (
         <div
+            data-tile-key={item.key}
             className="relative h-full shrink-0 overflow-hidden"
             // A new shape (R) eases in: the left edge stays and the files to
             // the right slide along. (The turn itself snaps.) A lane resize
