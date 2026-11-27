@@ -215,8 +215,7 @@ export default function ScrollView({
             </div>
         );
 
-    // The pieces that sit on the media: in place, or (as a spot) the
-    // spot's overlay, drawn by the media layer above the player.
+    // The pieces that sit on the media (above the player, as a spot too).
     const backBar = onClose && (
         <div className="absolute top-3 left-0 right-0 z-20" style={chromeStyle}>
             <button
@@ -267,7 +266,7 @@ export default function ScrollView({
 
     return (
         <div className="relative flex min-h-0 flex-1">
-            {!asSpot && backBar}
+            {backBar}
             <div
                 className="relative flex min-h-0 flex-1 flex-col"
             >
@@ -276,7 +275,7 @@ export default function ScrollView({
                     onWheel={handleWheel}
                     {...pointer.handlers}
                 >
-                    {!asSpot && <MediaFlash flash={pointer.flash} />}
+                    <MediaFlash flash={pointer.flash} />
                     {([0, 1] as const).map((slot) => (
                         <div
                             key={slot}
@@ -290,7 +289,10 @@ export default function ScrollView({
                             {slotFiles[slot] && asSpot && slot === frontSlot && slotFiles[slot]!.id === initialFile?.id ? (
                                 // The same player as the view it came from,
                                 // flown here by the media layer; gone while
-                                // closing, so it flies back.
+                                // closing, so it flies back. (Its mouse
+                                // handlers go on the player: it's rendered
+                                // by the layer, so React events from it don't
+                                // pass through this view.)
                                 !closing && (
                                     <MediaSpot
                                         file={slotFiles[slot]!}
@@ -306,14 +308,6 @@ export default function ScrollView({
                                             onMouseLeave: pointer.handlers.onMouseLeave,
                                             onContextMenu: pointer.handlers.onContextMenu,
                                         }}
-                                        // On the media, above the player.
-                                        overlay={
-                                            <>
-                                                {backBar}
-                                                <MediaFlash flash={pointer.flash} />
-                                                {arrows}
-                                            </>
-                                        }
                                     />
                                 )
                             ) : slotFiles[slot] && (
@@ -330,7 +324,7 @@ export default function ScrollView({
                     ))}
                 </div>
 
-                {!asSpot && arrows}
+                {arrows}
             </div>
 
             {/* Draggable divider */}

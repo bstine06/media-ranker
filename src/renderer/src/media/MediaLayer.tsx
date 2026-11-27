@@ -14,11 +14,8 @@
 // Only while flying between spots, or fading out after its spot went, does
 // the box float above the app (the float container).
 //
-// A spot can also carry:
-// - an overlay: the view's own pieces that sit on top of the media (Compare's
-//   focus line, rank, hover bar…), drawn above the player, pinned to the spot;
-// - a fade: the overlay's opacity (a view dimming itself);
-// - overlayOnTop: its overlay stays on top even while the spot is dimmed.
+// The view's own pieces on the media (Compare's focus line, rank, the file
+// view's Back) are just the view's, laid after the spot so they sit above it.
 // When a spot changes file, the old player stays on top until the new one
 // has something to show, so a swap never passes through black.
 // A file deleted (in the app or outside it): its player fades out where it
@@ -64,20 +61,10 @@ export interface SpotPlayer {
     className?: string;
 }
 
-/** The player and overlay's opacity, and how fast it changes. */
-export interface SpotFade {
-    opacity: number;
-    ms: number;
-}
-
 interface SpotState {
     file: DbFile;
     el: HTMLElement | null;
     player: SpotPlayer;
-    overlay?: ReactNode;
-    fade?: SpotFade;
-    /** Its overlay above every player even while dimmed (see the top). */
-    overlayOnTop?: boolean;
     /** When the player comes here from another spot (a newer claim, or the
      *  newer one letting go), it flies here over this long; 0: it just
      *  appears (the default). */
@@ -275,7 +262,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
             {children}
             {/* Players flying, or fading after their spot went: above the
                 views, below dialogs. */}
-            <div ref={floatRef} data-media-float className="pointer-events-none fixed inset-0" style={{ zIndex: LAYER_Z.float }} />
+            <div ref={floatRef} data-media-float className="pointer-events-none fixed inset-0" style={{ zIndex: FLOAT_Z }} />
             <div data-media-layer className="pointer-events-none">
                 {/* Keyed by file: a player stays the same one whatever it does
                     (moves, covers, fades). Each renders into its own box. */}
@@ -314,68 +301,14 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                         ),
                     })),
                 ].map((x) => x.el)}
-                {[...spots.current.values()]
-                    .filter((s) => s.overlay)
-                    .map((s) => (
-                        <SpotOverlay key={`overlay-${s.id}`} spot={s} />
-                    ))}
             </div>
         </LayerContext.Provider>
     );
 }
 
-/** Keeps `box` exactly over `el` (checked every frame: a spot can move without
- *  changing size, e.g. the sidebar being dragged). */
-function useFollow(el: HTMLElement | null, box: MutableRefObject<HTMLDivElement | null>): void {
-    useLayoutEffect(() => {
-        if (!el) return;
-        let raf = 0;
-        let last = "";
-        const place = () => {
-            const b = box.current;
-            if (b) {
-                const r = el.getBoundingClientRect();
-                const key = `${r.left},${r.top},${r.width},${r.height}`;
-                if (key !== last) {
-                    last = key;
-                    Object.assign(b.style, {
-                        left: `${r.left}px`,
-                        top: `${r.top}px`,
-                        width: `${r.width}px`,
-                        height: `${r.height}px`,
-                    } satisfies CSSProperties);
-                }
-            }
-            raf = requestAnimationFrame(place);
-        };
-        place();
-        return () => cancelAnimationFrame(raf);
-    }, [el, box]);
-}
-
-/**
- * Stacking among the views. A view that goes over another one (the file view
- * over Compare) sits at FILE_VIEW: above the players its view below put in
- * the background, below the active player, whose own overlay (the file
- * view's buttons on the media) is above it. Dialogs (z-40+) stay on top.
- */
-export const LAYER_Z = {
-    background: 10,
-    backgroundOverlay: 11,
-    /** A view laid over another one (Compare's file view). */
-    overView: 20,
-    active: 30,
-    leaving: 31,
-    activeOverlay: 35,
-    /** Players flying between spots, or fading after their spot went. */
-    float: 36,
-} as const;
-const inBackground = (spot: Spot): boolean => (spot.fade?.opacity ?? 1) < 1;
-
-const fadeStyle = (fade: SpotFade | undefined): CSSProperties => ({
-    opacity: fade?.opacity ?? 1,
-    transition: fade ? `opacity ${fade.ms}ms ease-out` : undefined,
-});
+/** Players flying or fading above the app: above the views, below dialogs
+ *  (z-40 and up). */
+const FLOAT_Z = 36;
 
 function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.Element | null {
     const { rootPath } = useFolders();
@@ -515,8 +448,8 @@ function LayerPlayer({
             ? { ...spot.player, onClick: undefined, controlsRef: undefined, keyboardEnabled: false, onReady: undefined }
             : spot.player;
     // The box's own look, set on it directly (it isn't rendered by React).
-    // Dimmed (its view in the background): the mouse goes past it.
-    const inert = leaving || gone || (spot.fade?.opacity ?? 1) < 1;
+    // Covering or fading: the mouse goes past it.
+    const inert = leaving || gone;
     useLayoutEffect(() => {
         box.className = `${inert ? "pointer-events-none" : "pointer-events-auto"} ${player.className ?? ""}`;
         if (gone) box.dataset.layerGone = String(fileId);
@@ -533,24 +466,6 @@ function LayerPlayer({
         }
     });
     return createPortal(<Player spot={{ ...spot, player }} onReady={leaving || gone ? undefined : ready} />, box);
-}
-
-/** A spot's overlay: above every player, pinned to the spot. */
-function SpotOverlay({ spot }: { spot: Spot }): JSX.Element {
-    const box = useRef<HTMLDivElement | null>(null);
-    useFollow(spot.el, box);
-    // Dimmed: its buttons ignore the mouse too (they'd sit over another view).
-    const dimmed = (spot.fade?.opacity ?? 1) < 1;
-    return (
-        <div
-            ref={box}
-            data-spot-overlay
-            className="pointer-events-none fixed"
-            style={{ ...fadeStyle(spot.fade), zIndex: dimmed && !spot.overlayOnTop ? LAYER_Z.backgroundOverlay : LAYER_Z.activeOverlay }}
-        >
-            <div className={`relative h-full w-full ${dimmed ? "[&_*]:!pointer-events-none" : ""}`}>{spot.overlay}</div>
-        </div>
-    );
 }
 
 /**
@@ -658,9 +573,6 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
 export function MediaSpot({
     file,
     player = {},
-    overlay,
-    fade,
-    overlayOnTop,
     arriveMs,
     group,
     className,
@@ -668,10 +580,6 @@ export function MediaSpot({
 }: {
     file: DbFile;
     player?: SpotPlayer;
-    overlay?: ReactNode;
-    fade?: SpotFade;
-    /** Its overlay above every player even while dimmed. */
-    overlayOnTop?: boolean;
     /** Fly here over this long when the player comes from another spot. */
     arriveMs?: number;
     /** Spots that change file together (see SpotState.group). */
@@ -684,7 +592,7 @@ export function MediaSpot({
     const ref = useRef<HTMLDivElement>(null);
     const id = useRef(0);
     if (id.current === 0) id.current = nextSpotId++;
-    const state = (): SpotState => ({ file, el: ref.current, player, overlay, fade, overlayOnTop, arriveMs, group });
+    const state = (): SpotState => ({ file, el: ref.current, player, arriveMs, group });
     // Claimed when it appears, let go when it goes.
     useLayoutEffect(() => {
         api.claim(id.current, state());

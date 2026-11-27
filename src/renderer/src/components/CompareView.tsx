@@ -14,7 +14,7 @@ import type {
 import { toMediaUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
 import { type MediaControls } from "./MediaPlayer";
-import { LAYER_Z, MediaSpot, type SpotFade } from "@renderer/media/MediaLayer";
+import { MediaSpot } from "@renderer/media/MediaLayer";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -1044,12 +1044,6 @@ export default function CompareView({
     }
 
     const [a, b] = pair;
-    // The cards' media and top pieces are drawn by the media layer, not inside
-    // the dimmed page below: they're told to fade with it.
-    const mediaFade: SpotFade = {
-        opacity: inspect?.shown && !inspect.closing ? 0.06 : 1,
-        ms: inspect?.closing ? INSPECT_OUT_MS : INSPECT_MS,
-    };
 
     // "Placing 3/10" on the file being placed (hidden while a king holds).
     const placingLabel = (f: DbFile): string | undefined =>
@@ -1106,7 +1100,6 @@ export default function CompareView({
                         focused={focus === "a"}
                         audible={(compareBothAudio || focus === "a") && audibleDuringInspect("a")}
                         hudLifted={!!inspect}
-                        fade={mediaFade}
                         controlsRef={controlsA}
                         rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
@@ -1134,7 +1127,6 @@ export default function CompareView({
                         focused={focus === "b"}
                         audible={(compareBothAudio || focus === "b") && audibleDuringInspect("b")}
                         hudLifted={!!inspect}
-                        fade={mediaFade}
                         controlsRef={controlsB}
                         rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
@@ -1156,9 +1148,8 @@ export default function CompareView({
             </div>
         </div>
             {inspect && (
-                // Between Compare's players (in the background) and the active
-                // player in the media layer (see LAYER_Z).
-                <div className="absolute inset-0 flex flex-col" style={{ zIndex: LAYER_Z.overView }}>
+                // Over Compare (dimmed underneath).
+                <div className="absolute inset-0 z-20 flex flex-col">
                     <SingleFileView
                         onClose={closeInspect}
                         file={inspect.file}
@@ -1195,14 +1186,10 @@ function CompareCard({
     onCrown,
     onUncrown,
     hudLifted,
-    fade,
 }: {
     /** A file view is up over Compare: no hover bar, and the player
      *  flies home when it comes back. */
     hudLifted: boolean;
-    /** Compare dimming itself (a file view is up): the media and its top
-     *  pieces fade with it (they're drawn by the media layer). */
-    fade: SpotFade;
     file: DbFile;
     side: Side;
     rootPath: string;
@@ -1266,10 +1253,10 @@ function CompareCard({
         };
     }, [disabled, hudLifted]);
 
-    // The media is a spot: the media layer draws this file's player over it
+    // The media is a spot: the media layer puts this file's player in it
     // (and, on a new file, keeps the old one on top until the new one has a
-    // frame, so the cut never passes through black). The top pieces ride
-    // along as the spot's overlay, above the player.
+    // frame, so the cut never passes through black). The top pieces come
+    // after it, so they sit above the player.
     return (
         <div
             ref={cardRef}
@@ -1280,10 +1267,6 @@ function CompareCard({
                 <MediaSpot
                     file={file}
                     className="absolute inset-0"
-                    fade={fade}
-                    // The top pieces stay above the player flying off to
-                    // the file view (and back) while they fade.
-                    overlayOnTop
                     // Its player back from the file view: it flies home (not
                     // on an ordinary pick, where a file may change sides).
                     arriveMs={hudLifted ? INSPECT_OUT_MS : 0}
@@ -1299,23 +1282,20 @@ function CompareCard({
                         controlsRef,
                         rotation: file.rotation,
                     }}
-                    overlay={
-                        <CardTop
-                            file={file}
-                            focused={focused && !disabled}
-                            showBar={showBar}
-                            libraryRank={libraryRank}
-                            placingLabel={placingLabel}
-                            isKing={isKing}
-                            streak={streak}
-                            fade={fade}
-                            onInspectFile={onInspectFile}
-                            onCrown={onCrown}
-                            onUncrown={onUncrown}
-                            rotateLeft={rotateLeft}
-                            onGoToFolder={onGoToFolder}
-                        />
-                    }
+                />
+                <CardTop
+                    file={file}
+                    focused={focused && !disabled}
+                    showBar={showBar}
+                    libraryRank={libraryRank}
+                    placingLabel={placingLabel}
+                    isKing={isKing}
+                    streak={streak}
+                    onInspectFile={onInspectFile}
+                    onCrown={onCrown}
+                    onUncrown={onUncrown}
+                    rotateLeft={rotateLeft}
+                    onGoToFolder={onGoToFolder}
                 />
             </div>
         </div>
@@ -1326,8 +1306,7 @@ function CompareCard({
  * The top of a Compare card: the focus line, and the info row (name and
  * scores, rank, placing, crown, rotate, folder). The rank, placing label,
  * the king's crown and the focus line are always on; the rest shows on
- * hover. `fade`: Compare dimming (a file view is up); the pieces go
- * all the way out, since they sit above the file view meanwhile.
+ * hover.
  */
 function CardTop({
     file,
@@ -1337,7 +1316,6 @@ function CardTop({
     placingLabel,
     isKing,
     streak,
-    fade,
     onInspectFile,
     onCrown,
     onUncrown,
@@ -1351,7 +1329,6 @@ function CardTop({
     placingLabel?: string;
     isKing: boolean;
     streak: number;
-    fade?: SpotFade;
     onInspectFile?: (file: DbFile) => void;
     onCrown?: () => void;
     onUncrown?: () => void;
@@ -1361,12 +1338,8 @@ function CardTop({
     const hover =
         showBar ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none";
     const live = "pointer-events-auto";
-    const dimmed = !!fade && fade.opacity < 1;
     return (
-        <div
-            className="pointer-events-none absolute inset-0"
-            style={fade && { opacity: dimmed ? 0 : 1, transition: `opacity ${fade.ms}ms ease-out` }}
-        >
+        <div className="pointer-events-none absolute inset-0">
             {/* Focus marker: a thin line across the top of the focused side. */}
             <div
                 className={`pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-white/80 transition-opacity duration-100 ${focused ? "opacity-100" : "opacity-0"}`}
