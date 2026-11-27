@@ -77,10 +77,6 @@ interface SpotState {
     /** Spots that change file together (Compare's two sides): their old
      *  players all go at once, when every new one is ready. */
     group?: string;
-    /** On screen (or about to be): wins the file's player over newer
-     *  claims that aren't. For a view that can show one file in several
-     *  places, only one of them near the screen (Sweep's repeats). */
-    onScreen?: boolean;
 }
 
 interface Spot extends SpotState {
@@ -110,11 +106,6 @@ export function useLiftAbove(): HTMLElement | null {
 
 let nextSpotId = 1;
 let nextOrder = 1;
-
-/** Which of two claims on a file has its player: one on screen over one
- *  that isn't (see SpotState.onScreen), else the newest. */
-const outranks = (a: Spot, b: Spot): boolean =>
-    (a.onScreen ?? true) !== (b.onScreen ?? true) ? (a.onScreen ?? true) : a.order > b.order;
 
 /** How long a deleted file's player takes to fade out where it is. */
 export const GONE_MS = 200;
@@ -244,7 +235,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 for (const s of spots.current.values()) {
                     if (s.file.path !== relativePath) continue;
                     const o = at.get(s.file.id);
-                    if (!o || outranks(s, o)) at.set(s.file.id, s);
+                    if (!o || s.order > o.order) at.set(s.file.id, s);
                 }
                 for (const [spotId, l] of leaving.current) {
                     if (l.spot.file.path !== relativePath) continue;
@@ -283,7 +274,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     for (const s of spots.current.values()) {
         if (deleted.current.has(s.file.id)) continue;
         const o = shown.get(s.file.id);
-        if (!o || outranks(s, o.spot)) shown.set(s.file.id, { spot: s, leavingFrom: null });
+        if (!o || s.order > o.spot.order) shown.set(s.file.id, { spot: s, leavingFrom: null });
     }
     for (const l of leaving.current.values()) {
         if (deleted.current.has(l.spot.file.id)) continue;
@@ -624,7 +615,6 @@ export function MediaSpot({
     player = {},
     arriveMs,
     group,
-    onScreen,
     className,
     style,
 }: {
@@ -634,8 +624,6 @@ export function MediaSpot({
     arriveMs?: number;
     /** Spots that change file together (see SpotState.group). */
     group?: string;
-    /** On screen or about to be (see SpotState.onScreen). */
-    onScreen?: boolean;
     className?: string;
     style?: CSSProperties;
 }): JSX.Element {
@@ -644,7 +632,7 @@ export function MediaSpot({
     const ref = useRef<HTMLDivElement>(null);
     const id = useRef(0);
     if (id.current === 0) id.current = nextSpotId++;
-    const state = (): SpotState => ({ file, el: ref.current, player, arriveMs, group, onScreen });
+    const state = (): SpotState => ({ file, el: ref.current, player, arriveMs, group });
     // Claimed when it appears, let go when it goes.
     useLayoutEffect(() => {
         api.claim(id.current, state());
