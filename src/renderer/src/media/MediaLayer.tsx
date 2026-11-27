@@ -625,11 +625,22 @@ function LayerPlayer({
         onReadyRef.current?.();
     }, [readyFiles, fileId]);
     useEffect(() => () => void readyFiles.delete(fileId), [readyFiles, fileId]);
+    // The media's shape, as the player reported it on loading (it reports
+    // it only then).
+    const aspectRef = useRef<number | null>(null);
+    const onAspectRef = useRef(spot.player.onAspect);
+    onAspectRef.current = spot.player.onAspect;
+    const reportAspect = useCallback((a: number) => {
+        aspectRef.current = a;
+        onAspectRef.current?.(a);
+    }, []);
     // Moved into a new spot already showing something (it was up in another
-    // view): it won't load again, so the new spot hears it's ready now (a
-    // hover zoom stays see-through until then).
+    // view): it won't load again, so the new spot hears now that it's ready
+    // (a hover zoom stays see-through until then) and the media's shape (a
+    // hover zoom takes its shape from it).
     useEffect(() => {
         if (leaving || gone || departing) return;
+        if (aspectRef.current !== null) onAspectRef.current?.(aspectRef.current);
         if (readyFiles.has(fileId)) onReadyRef.current?.();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [spot.id]);
@@ -662,8 +673,8 @@ function LayerPlayer({
     }, [gone, box]);
     const player =
         leaving || gone
-            ? { ...spot.player, onClick: undefined, controlsRef: undefined, keyboardEnabled: false, onReady: undefined }
-            : spot.player;
+            ? { ...spot.player, onClick: undefined, controlsRef: undefined, keyboardEnabled: false, onReady: undefined, onAspect: reportAspect }
+            : { ...spot.player, onAspect: reportAspect };
     // The box's own look, set on it directly (it isn't rendered by React).
     // Covering, fading or leaving, or a spot that never takes it: the mouse
     // goes past it.
