@@ -88,7 +88,16 @@ export default function ScrollView({
 
     // The tag pointer works over the file on screen.
     useTagPointerSurface(active);
-    const pointer = usePointerTarget(currentFile, active);
+    // As a spot, the player arrives under a mouse that may not move (G with
+    // the mouse on the card): no mouse-enter, so whether it's over the
+    // player is checked.
+    const pointer = usePointerTarget(
+        currentFile,
+        active,
+        inspect
+            ? () => !!currentFile && !!document.querySelector(`[data-layer-player="${currentFile.id}"]`)?.matches(":hover")
+            : undefined,
+    );
 
     const libraryRank = useLibraryRank(currentFile?.id ?? -1);
     const rankedTotal = useRankedTotal();

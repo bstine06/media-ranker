@@ -257,6 +257,10 @@ export function usePointerCursorClass(active: boolean): string {
 export function usePointerTarget(
     file: DbFile | null,
     active: boolean,
+    /** Whether the mouse is over the media right now. For media that can
+     *  arrive under a still mouse (a player flown into the file view), which
+     *  gets no mouse-enter: checked when the target or `active` changes. */
+    isOver?: () => boolean,
 ): {
     handlers: {
         onMouseEnter: () => void;
@@ -278,7 +282,10 @@ export function usePointerTarget(
         [file],
     );
     const current = useRef<PointerTarget | null>(null);
+    const isOverRef = useRef(isOver);
+    isOverRef.current = isOver;
     useEffect(() => {
+        if (!hovered.current && isOverRef.current?.()) hovered.current = true;
         const prev = current.current;
         if (hovered.current && active && target) {
             current.current = target;
