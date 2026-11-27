@@ -319,7 +319,7 @@ const CRUISE: LaneMotion = { dir: 1, boost: false };
  *  other way. */
 const TURN_HOLD_MS = 200;
 /** R holds the pointer's lane still until this long after the last press. */
-const TURN_PAUSE_MS = 500;
+const TURN_PAUSE_MS = 900;
 
 /** What a lane hands the strip so it can update the lane's files. */
 interface LaneHandle {

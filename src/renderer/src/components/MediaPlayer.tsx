@@ -14,6 +14,11 @@ import { attach, detach, setAudible, setMasterVolume } from "@renderer/lib/audio
 import { isTyping } from "@renderer/lib/keys";
 import { fastForwardHeld, onFastForward } from "@renderer/lib/fastForward";
 
+/** A turn's length; then a moment more of following the box (a Sweep tile
+ *  easing to its new shape takes a little longer). */
+const TURN_MS = 200;
+const TURN_SETTLE_MS = 150;
+
 /** How near the bottom of the focused player the mouse brings its bar up. */
 const BAR_ZONE_PX = 90;
 
@@ -161,23 +166,63 @@ export function MediaPlayer({
     // The transition stays on for the length of the turn, so a re-render in
     // the middle (anything) doesn't cut it short; after that, size changes
     // (a resize) follow at once.
-    const angleRef = useRef({ url: fullUrl, rotation, turns: rotation, at: 0 });
+    const angleRef = useRef({ url: fullUrl, rotation, turns: rotation, from: rotation, at: 0 });
     {
         const a = angleRef.current;
         if (a.url !== fullUrl) {
-            angleRef.current = { url: fullUrl, rotation, turns: rotation, at: 0 };
+            angleRef.current = { url: fullUrl, rotation, turns: rotation, from: rotation, at: 0 };
         } else if (a.rotation !== rotation) {
             const step = (((rotation - a.rotation) % 4) + 4) % 4;
             angleRef.current = {
                 url: fullUrl,
                 rotation,
                 turns: a.turns + (step === 3 ? -1 : step),
+                from: a.turns,
                 at: performance.now(),
             };
         }
     }
     const turnsNow = angleRef.current.turns;
-    const animateTurn = performance.now() - angleRef.current.at < 250;
+    // Mid-turn, the turning layers are drawn frame by frame (see below), not
+    // by their style.
+    const animateTurn = performance.now() - angleRef.current.at < TURN_MS + TURN_SETTLE_MS;
+    const [, setTurnDone] = useState(0);
+    // A turn: each frame, the layer's angle and size go from where it was to
+    // where it's going on one eased curve, sizes measured live from the
+    // picture box (a Sweep tile is easing to its new shape at the same time:
+    // the browser's own transition would aim for a size that's stale by the
+    // end and snap). Then the style's box-relative sizes take over, equal by
+    // then.
+    const turnAt = angleRef.current.at;
+    useLayoutEffect(() => {
+        if (!turnAt) return;
+        const { from, turns: to } = angleRef.current;
+        let raf = 0;
+        const frame = () => {
+            const pic = containerRef.current?.querySelector<HTMLElement>("[data-picture]");
+            const els = containerRef.current?.querySelectorAll<HTMLElement>("[data-turning]") ?? [];
+            const k = Math.min(1, (performance.now() - turnAt) / TURN_MS);
+            const e = 1 - (1 - k) ** 3;
+            if (pic) {
+                const W = pic.clientWidth;
+                const H = pic.clientHeight;
+                const dims = (t: number): [number, number] => (Math.abs(t % 2) === 1 ? [H, W] : [W, H]);
+                const [w0, h0] = dims(from);
+                const [w1, h1] = dims(to);
+                const turns = from + (to - from) * e;
+                els.forEach((el) => {
+                    el.style.width = `${w0 + (w1 - w0) * e}px`;
+                    el.style.height = `${h0 + (h1 - h0) * e}px`;
+                    el.style.transform = `translate(-50%, -50%) rotate(${-90 * turns}deg)`;
+                });
+            }
+            if (performance.now() - turnAt < TURN_MS + TURN_SETTLE_MS) raf = requestAnimationFrame(frame);
+            else setTurnDone((n) => n + 1);
+        };
+        // The first frame now, before the paint (the style no longer sizes it).
+        frame();
+        return () => cancelAnimationFrame(raf);
+    }, [turnAt]);
     // Sized in the picture box's own units (it's a size container): a
     // sideways layer is as wide as the box is tall and the other way round,
     // centred and turned about its middle. So it follows the box at once as
@@ -185,7 +230,8 @@ export function MediaPlayer({
     // its new shape), instead of being measured and catching up after.
     const turnStyle = (turns: number, animate: boolean): React.CSSProperties => {
         const sideways = Math.abs(turns % 2) === 1;
-        const t = "200ms ease-out";
+        // Turning: size and angle are set each frame (see above).
+        if (animate) return { position: "absolute", left: "50%", top: "50%", maxWidth: "none", maxHeight: "none" };
         return {
             position: "absolute",
             left: "50%",
@@ -197,7 +243,6 @@ export function MediaPlayer({
             maxWidth: "none",
             maxHeight: "none",
             transform: `translate(-50%, -50%) rotate(${-90 * turns}deg)`,
-            transition: animate ? `transform ${t}, width ${t}, height ${t}` : "none",
         };
     };
 
@@ -582,6 +627,7 @@ export function MediaPlayer({
                         src={fullUrl}
                         className="absolute object-contain"
                         style={turnStyle(turnsNow, animateTurn)}
+                        data-turning={animateTurn ? "" : undefined}
                         // In the mix: muted is its gain there instead.
                         // (Silent until it's in, so nothing plays past it.)
                         muted={inMix ? false : muted || (mixedRef.current && !mixFailed)}
@@ -629,6 +675,7 @@ export function MediaPlayer({
                 <div
                     className={`absolute ${seeThrough ? "" : "bg-black"}`}
                     style={turnStyle(turnsNow, animateTurn)}
+                    data-turning={animateTurn ? "" : undefined}
                     onClick={guardClick(() => handleClick())}
                     {...dragOutProps}
                 >
