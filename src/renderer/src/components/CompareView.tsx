@@ -21,8 +21,6 @@ import { useFolders } from "@renderer/contexts/FolderContext";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { TagPill } from "./TagPill";
 import { CrownIcon } from "./icons/CrownIcon";
-import { FolderIcon } from "./icons/FolderIcon";
-import { RotateIcon } from "./icons/RotateIcon";
 import { useRotation } from "@renderer/hooks/useRotation";
 import { useLibraryRank } from "@renderer/contexts/RankContext";
 import {
@@ -47,7 +45,6 @@ type Side = "a" | "b";
 const PICK_LOCKOUT_MS = 175;
 
 // The info bar slides in when the cursor is within this many px of a card's top.
-const INFO_BAR_ZONE_PX = 88;
 
 // Matchups remembered for undo (⌘Z): undoing a pick puts it back on screen.
 const UNDO_LIMIT = 200;
@@ -224,7 +221,7 @@ export default function CompareView({
         placementRef.current = st;
         setPlacing(st);
     };
-    const { rootPath, folderPrefixes, setActiveFolder } = useFolders();
+    const { rootPath, folderPrefixes } = useFolders();
     // Both sides draw from the sidebar's ticked collections (the shared
     // selection). Kept per side because a king's challengers, refits and
     // placement still think in sides.
@@ -1095,19 +1092,10 @@ export default function CompareView({
                         rotateRef={rotateA}
                         onFocus={() => setFocus("a")}
                         onPick={() => handlePick("a")}
-                        onInspectFile={() => {
-                            openInspect("a");
-                        }}
                         isKing={king?.file.id === a.id}
                         placingLabel={placingLabel(a)}
                         streak={king?.streak ?? 0}
-                        onCrown={() => crown(a, "a")}
                         onUncrown={endKing}
-                        onGoToFolder={() => {
-                            const folderName = a.path.split("/")[0];
-                            setActiveFolder(folderName);
-                            setView("browse");
-                        }}
                     />
                     <div className="w-px shrink-0 bg-neutral-800" />
                     <CompareCard
@@ -1122,19 +1110,10 @@ export default function CompareView({
                         rotateRef={rotateB}
                         onFocus={() => setFocus("b")}
                         onPick={() => handlePick("b")}
-                        onInspectFile={() => {
-                            openInspect("b");
-                        }}
                         isKing={king?.file.id === b.id}
                         placingLabel={placingLabel(b)}
                         streak={king?.streak ?? 0}
-                        onCrown={() => crown(b, "b")}
                         onUncrown={endKing}
-                        onGoToFolder={() => {
-                            const folderName = b.path.split("/")[0];
-                            setActiveFolder(folderName);
-                            setView("browse");
-                        }}
                     />
             </div>
         </div>
@@ -1168,18 +1147,15 @@ function CompareCard({
     rotateRef,
     onFocus,
     onPick,
-    onInspectFile,
-    onGoToFolder,
     isKing,
     placingLabel,
     streak,
-    onCrown,
     onUncrown,
     hudLifted,
     liftFade,
 }: {
-    /** A file view is up over Compare: no hover bar, and the player
-     *  flies home when it comes back. */
+    /** A file view is up over Compare: the player flies home when it
+     *  comes back. */
     hudLifted: boolean;
     /** While a file view is up: the top pieces sit above the flying player
      *  (the lift box), at this opacity. */
@@ -1194,13 +1170,10 @@ function CompareCard({
     rotateRef: React.MutableRefObject<(() => void) | null>;
     onFocus: () => void;
     onPick: () => void;
-    onInspectFile: (file: DbFile) => void;
-    onGoToFolder: (folderPath: string) => void;
     isKing: boolean;
     /** Shown while this file is going through placement matches. */
     placingLabel?: string;
     streak: number;
-    onCrown: () => void;
     onUncrown: () => void;
 }): JSX.Element {
     const { rotateLeft } = useRotation(file);
@@ -1221,49 +1194,18 @@ function CompareCard({
         [focused, onFocus],
     );
 
-    // The info bar shows while the mouse is near the card's top. Read off the
-    // mouse's position (the media and the bar itself are drawn by the media
-    // layer, above the card, so the card doesn't get the mouse).
-    const [showBar, setShowBar] = useState(false);
-    const cardRef = useRef<HTMLDivElement>(null);
-    // Not while a file view is up over Compare (Compare's in the background).
-    useEffect(() => {
-        if (disabled || hudLifted) {
-            setShowBar(false);
-            return;
-        }
-        const onMove = (e: MouseEvent) => {
-            const r = cardRef.current?.getBoundingClientRect();
-            const inside = !!r && e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom;
-            setShowBar(inside && e.clientY - r!.top < INFO_BAR_ZONE_PX);
-        };
-        const onLeave = () => setShowBar(false);
-        window.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseleave", onLeave);
-        return () => {
-            window.removeEventListener("mousemove", onMove);
-            document.removeEventListener("mouseleave", onLeave);
-        };
-    }, [disabled, hudLifted]);
-
     // The top pieces: after the spot, so they sit above the player; while a
     // file view is up, in the lift box instead (above the player flying
     // past, see liftFade).
     const mediaRef = useRef<HTMLDivElement>(null);
     const cardTop = (
         <CardTop
-            file={file}
             focused={focused && !disabled}
-            showBar={showBar}
             libraryRank={libraryRank}
             placingLabel={placingLabel}
             isKing={isKing}
             streak={streak}
-            onInspectFile={onInspectFile}
-            onCrown={onCrown}
             onUncrown={onUncrown}
-            rotateLeft={rotateLeft}
-            onGoToFolder={onGoToFolder}
         />
     );
 
@@ -1272,7 +1214,6 @@ function CompareCard({
     // frame, so the cut never passes through black).
     return (
         <div
-            ref={cardRef}
             data-side={side}
             className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
         >
@@ -1307,126 +1248,62 @@ function CompareCard({
 }
 
 /**
- * The top of a Compare card: the focus line, and the info row (name and
- * scores, rank, placing, crown, rotate, folder). The rank, placing label,
- * the king's crown and the focus line are always on; the rest shows on
- * hover.
+ * The top of a Compare card: the focus line, the library rank, the
+ * placing label, and the king's crown with its streak. No info bar: the
+ * name and the rest are in the file view (G); K crowns, R turns.
  */
 function CardTop({
-    file,
     focused,
-    showBar,
     libraryRank,
     placingLabel,
     isKing,
     streak,
-    onInspectFile,
-    onCrown,
     onUncrown,
-    rotateLeft,
-    onGoToFolder,
 }: {
-    file: DbFile;
     focused: boolean;
-    showBar: boolean;
     libraryRank: string | null | undefined;
     placingLabel?: string;
     isKing: boolean;
     streak: number;
-    onInspectFile?: (file: DbFile) => void;
-    onCrown?: () => void;
     onUncrown?: () => void;
-    rotateLeft?: () => void;
-    onGoToFolder?: (folderPath: string) => void;
 }): JSX.Element {
-    const hover =
-        showBar ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none";
-    const live = "pointer-events-auto";
     return (
         <div className="pointer-events-none absolute inset-0">
             {/* Focus marker: a thin line across the top of the focused side. */}
             <div
                 className={`pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-white/80 transition-opacity duration-100 ${focused ? "opacity-100" : "opacity-0"}`}
             />
-
-            {/* Info bar: overlays the top of the media while hovered. */}
-            <div
-                className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-150 ${showBar ? "opacity-100" : "opacity-0"}`}
-            />
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-2 px-3 pt-2.5">
-                <div
-                    className={`min-w-0 flex-1 transition-opacity duration-150 ${hover}`}
-                >
-                    <p
-                        className="cursor-pointer truncate text-sm font-medium text-white/90 drop-shadow hover:text-white transition-colors"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onInspectFile?.(file);
-                        }}
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-end gap-0.5 px-3 pt-2.5">
+                {libraryRank && (
+                    <span
+                        className="mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/80 drop-shadow"
+                        title="Place in the whole library"
                     >
-                        {file.filename}
-                    </p>
-                    <p className="text-xs text-white/60 drop-shadow">
-                        {Math.round(file.elo_score)} pts ·{" "}
-                        {file.comparison_count} comparisons
-                        {isKing && streak > 0 && ` · ${streak} in a row`}
-                    </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                    {/* Library rank stays visible, like the king's crown. */}
-                    {libraryRank && (
-                        <span
-                            className={`mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/80 drop-shadow`}
-                            title="Place in the whole library"
-                        >
-                            {libraryRank}
-                        </span>
-                    )}
-                    {placingLabel && (
-                        <span
-                            className={`${live} mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white/80 drop-shadow`}
-                            title="New file: kept on screen until it has had its placement matches"
-                        >
-                            {placingLabel}
-                        </span>
-                    )}
-                    {/* The king's crown stays visible even with the bar hidden. */}
+                        {libraryRank}
+                    </span>
+                )}
+                {placingLabel && (
+                    <span
+                        className="pointer-events-auto mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white/80 drop-shadow"
+                        title="New file: kept on screen until it has had its placement matches"
+                    >
+                        {placingLabel}
+                    </span>
+                )}
+                {/* The king's crown, with its streak (wins in a row). */}
+                {isKing && (
                     <button
-                        className={`rounded-md p-1.5 drop-shadow transition-all duration-150 ${
-                            isKing
-                                ? `${live} opacity-100 text-amber-300 hover:text-amber-200`
-                                : `${hover} text-white/60 hover:text-white`
-                        }`}
-                        title={isKing ? "Stop keeping on screen (K)" : "Keep on screen (K)"}
+                        className="pointer-events-auto flex items-center gap-1 rounded-md p-1.5 text-amber-300 drop-shadow transition-colors hover:text-amber-200"
+                        title={streak > 0 ? `${streak} in a row. Stop keeping on screen (K)` : "Stop keeping on screen (K)"}
                         onClick={(e) => {
                             e.stopPropagation();
-                            if (isKing) onUncrown?.();
-                            else onCrown?.();
+                            onUncrown?.();
                         }}
                     >
                         <CrownIcon className="h-4 w-4" />
+                        {streak > 0 && <span className="text-xs font-medium tabular-nums">×{streak}</span>}
                     </button>
-                    <button
-                        className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${hover}`}
-                        title="Rotate left (R)"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            rotateLeft?.();
-                        }}
-                    >
-                        <RotateIcon className="h-4 w-4" />
-                    </button>
-                    <button
-                        className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${hover}`}
-                        title="Go to folder"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onGoToFolder?.(file.path.split("/")[0]);
-                        }}
-                    >
-                        <FolderIcon className="h-4 w-4" />
-                    </button>
-                </div>
+                )}
             </div>
         </div>
     );
