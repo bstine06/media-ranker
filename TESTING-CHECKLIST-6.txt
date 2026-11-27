@@ -1,0 +1,154 @@
+MEDIA RANKER — TEST CHECKLIST 6
+Branch feature/untested
+
+Only the items left open in checklist 5 (2026-11-27). Everything else
+there has been ticked by you or checked in Claude's scratch runs.
+Sections keep their checklist 5 numbers. Where Claude's run already
+checked part of an item, only the unchecked part is listed here.
+
+Tick each box as you go. Note anything odd next to the item.
+
+
+── 15. Compare: delete from the file view, then ⌘Z ──────────────────────
+[ ] OPEN QUESTION (2026-11-25, still to discuss): Compare → G → Delete →
+    ⌘Z brings the file back but not the matchup it was in. Should it
+    bring the matchup back, the way undoing a pick does?
+
+yes
+
+
+── 19. File view from Compare ────────────────────────────────────────────
+[y] Tag pointer over the media (Space / Tab) and right click for the
+    picker. (Click to pause and scrubbing already checked.)
+
+
+── 21–24. Rotation as a setting ──────────────────────────────────────────
+[y] The file view from Browse / the side panel: R turns it; scroll away and
+    back: still turned
+
+we cant rotate a hoverzoom!
+
+[ y] The card's rotate button on Compare turns the side like R
+
+we can get rid of this rotate button on compare, in fact im even thinking about scrapping the entire info bar up top but willing to discuss. other views dont have it so its like maybe g is the way to get to that info. the only thing that would need to persist is the crown but that doesnt need to appear on hover, we can toggle it with k already.
+
+[y] A file used as a folder picture: turned in the file view's side panel
+    and in the folder's info (the sidebar is already checked)
+
+i found a pretty unacceptable bug that has nothing to do with rotation. A file that is displaying on a compare card, or a file view, or in sweep, becomes unviewable in browse view. the only place it doesnt cause a problem is in a pass, and i think thats because a pass unmounts as soon as you leave the pass view. The whole 1-player per file thing is almost certainly causing this issue
+
+[y] The pending-changes list (Manage): turned thumbnails
+[y] Unturned files everywhere look exactly as before
+[y] Pass: a turned video is heard (plays and scrubs: already checked)
+[y] Sweep / Pass with nothing turned: tiles exactly as before
+[y] The Edits row's rotate button in the file view opened from the side
+    panel (Browse and Compare: already checked)
+
+
+── 25–27. Bake and the delete fade ───────────────────────────────────────
+[y] A baked JPEG opens turned in Finder / Preview
+[ ] A baked MP4 / MOV opens turned in QuickTime (try a big one too)
+lazy to try a big one
+[y] Compare → G → Delete on a PLAYING video: its sound fades out, no
+    cut-off pop
+
+
+── 29. Players inside their spots ────────────────────────────────────────
+[y] The flight over the card's crown / rank / focus line: on G the
+    player flies over them as Compare dims; on Esc the card's player
+    covers its whole card while flying home, so the crown and focus line
+    show again only as it lands. Does it look acceptable?
+[~] Resizing the window or dragging the sidebar / tag panel edge with
+    Compare up: the videos stay exactly in their cards, no lag behind
+    (this is the "smooth resize" backlog item)
+
+there is lag. unclear if its always been there. totally acceptable lag for now
+
+[y] Compare as before: picks, hover bar, click to pick, R, K, both sides
+    switching together
+
+
+── 30. Players: mixer, keys, bar ─────────────────────────────────────────
+[y] Compare and the file view sound as before (focused side heard, X for
+    both, volume setting), incl. right after launch before any key press
+[y] With "pause when unfocused" on: Compare and the file view pause when
+    the app loses focus and pick up again on return (as before); Pass keeps
+    playing silently
+
+pass doesnt keep playing silently, it pauses, but thats what i wanted so its all good. we should have sweep lanes pause their horizontal movement when pause when unfocused is on. There's a bug in sweep with the pause when unfocused, that new videos sailing into frame will start playing, but that will be a non-issue that we needn't address if we just pause the sweep lanes while unfocused and the app has that setting enabled.
+
+[ ] Q / E step back / forward on the focused video (Compare's focused side,
+    the file view, Pass's current tile); P plays / pauses (V no longer does)
+[y] Hold 4: the focused video plays faster (Pass's speed setting), in
+    Compare, the file view and Pass; letting go: normal speed; in Pass,
+    stepping to another file while 4 is held keeps it fast
+[y] The bar (playhead, ▶, time) shows only on the focused video when the
+    mouse is near its bottom, for a moment after Q / E, and while dragging
+    the playhead or holding 4; no thin line otherwise
+
+
+── 31. Pass on the media layer ───────────────────────────────────────────
+[y] Pass looks as before: tiles, neighbours slightly dimmed, the red no-ring
+    and badges, the tag pointer following the mouse, stepping glides
+[y] Only the current tile is heard; the others play silently
+[y] G: Pass dims and stays, the current tile's video flies into the file
+    view still playing (no restart); Esc / G: it flies back into its tile
+    and Pass brightens; other tiles pause meanwhile and play again
+[y] The no-ring / badges and the pointer stay above the flying video while
+    they fade (no blink)
+[~] A very wide file (panorama) in Pass: shown whole, black above and below
+dont have one of these. lazy to test. im sure it would work though because making the app window thinner than 16:9 horizontal content creates these black bars and scales the content as needed to show the whole thing at once
+
+── 32. Sweep keys ────────────────────────────────────────────────────────
+[y] 5 / 6 slower / faster (4 no longer changes speed)
+[y] Going forward: hold 3 = fast, back to normal on letting go; tap 1 =
+    pause at once; hold 1 = pause, then fast reverse, then normal reverse
+[y] Paused: 3 forward, 1 reverse (held: fast, then normal that way)
+[y] In reverse: the mirror image (hold 1 fast; tap 3 pause; hold 3 forward)
+
+the hold-to-change-directions happens a bit too fast for me and it becomes a little confusing. idk what the timer is but we can probably double it at least
+
+[y] 6 does nothing in Sweep now; "1 / 3 move all lanes" setting still works
+
+
+── 33. Sweep on the media layer ──────────────────────────────────────────
+[y] Sweep looks and moves as before (1 to 3 lanes, + / −, F, H)
+[y] Click a tile: toggles the tag, as before; right click / Tab: the picker
+[y] The pointer follows the mouse over the tiles; edge zones speed lanes
+[y] X: every video on screen heard, softer together; off: just the pointer's
+[y] R on a tile: turns and takes its new shape at once (no 0.9 s wait)
+[y] G / Esc: Sweep dims, the video flies to the file view and back; the
+    tag pointer stays above the flying video while it fades
+[y] A small library (fewer files than the lanes hold): no file shows twice;
+    a lane shows its end card ("No more files") until a file is free, then
+    carries on
+
+
+── 34. Hover zoom and Browse's new file view ─────────────────────────────
+[y] Hover a video tile: the zoom plays with sound; Q / E, P, hold 4 work on
+    it; its bar shows while scrubbing / fast-forwarding
+[y] G (or click) with the zoom up: the zoom's video flies into the file
+    view without restarting; the grid dims behind
+[y] G right away (no zoom yet) or with hover zoom turned off: the file grows
+    out of its tile, the cropped edges opening up; no black frame first
+[y] 3 / 1 step right / left, one file at a time (no ▲▼, no wheel stepping)
+
+it can be a bit unresponsive. it seems to ignore a new 1/3 keypress while the animation from the previous one is still happening, we should tighten this up so you can quickly navigate through a list with 1/3
+
+[g] Esc / G / Back: it shrinks back into the tile, edges cropping in; a
+    video fades into the tile's still picture; after stepping, it lands on
+    the new file's tile, the grid scrolled to it if needed
+[g] List view: the same from a row's thumbnail
+[g] The "scroll time" setting is gone from Settings
+
+
+── 35. Files shown in another view, in Browse (UNTESTED) ─────────────────
+   Fix for: a file on a Compare card / in Sweep / a file view never showed
+   in Browse's hover zoom, and Browse's file view showed it only once.
+[ ] Hover zoom on a file that's on a Compare card (fresh start too): it
+    shows and plays
+[ ] Same for a file showing in Sweep
+[ ] Browse's file view (G) on that file, close, open it again: it shows
+    both times (picture and video)
+[ ] Back to Compare after that: the card looks normal (not see-through, not
+    shrunk or cropped)

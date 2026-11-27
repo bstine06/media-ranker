@@ -1,6 +1,8 @@
 MEDIA RANKER — TEST CHECKLIST 5
 Branch feature/untested
 
+>>> OPEN ITEMS MOVED TO TESTING-CHECKLIST-6.txt (2026-11-27) <<<
+
 What's still untested from checklist 4 (2026-11-25). Everything else
 there (sections 4-13) was checked in Claude's scratch run on 2026-11-24.
 Sections keep their checklist 4 numbers.
