@@ -14,7 +14,9 @@
 // - an overlay: the view's own pieces that sit on top of the media (Compare's
 //   focus line, rank, hover bar…), drawn above the player, pinned to the spot;
 // - a fade: the player and overlay's opacity (a view dimming itself);
-// - hidePlayer: the player hidden (still playing), its overlay not.
+// - overlayOnTop: its overlay stays above every player even while the spot
+//   is dimmed (the view hides the pieces itself), so a player flying off
+//   never covers them as they fade.
 // When a spot changes file, the old player stays on top until the new one
 // has something to show, so a swap never passes through black.
 // A file deleted (in the app or outside it): its player fades out where it
@@ -71,7 +73,8 @@ interface SpotState {
     player: SpotPlayer;
     overlay?: ReactNode;
     fade?: SpotFade;
-    hidePlayer?: boolean;
+    /** Its overlay above every player even while dimmed (see the top). */
+    overlayOnTop?: boolean;
     /** When the player comes here from another spot (a newer claim, or the
      *  newer one letting go), it flies here over this long; 0: it just
      *  appears (the default). */
@@ -341,10 +344,10 @@ export const LAYER_Z = {
 } as const;
 const inBackground = (spot: Spot): boolean => (spot.fade?.opacity ?? 1) < 1;
 
-const fadeStyle = (fade: SpotFade | undefined, hidden = false): CSSProperties =>
-    hidden
-        ? { opacity: 0, transition: "none" }
-        : { opacity: fade?.opacity ?? 1, transition: fade ? `opacity ${fade.ms}ms ease-out` : undefined };
+const fadeStyle = (fade: SpotFade | undefined): CSSProperties => ({
+    opacity: fade?.opacity ?? 1,
+    transition: fade ? `opacity ${fade.ms}ms ease-out` : undefined,
+});
 
 function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.Element | null {
     const { rootPath } = useFolders();
@@ -443,8 +446,8 @@ function LayerPlayer({
         leaving || gone
             ? { ...spot.player, onClick: undefined, controlsRef: undefined, keyboardEnabled: false, onReady: undefined }
             : spot.player;
-    // Dimmed (its view in the background) or hidden: the mouse goes past it.
-    const inert = leaving || gone || spot.hidePlayer || (spot.fade?.opacity ?? 1) < 1;
+    // Dimmed (its view in the background): the mouse goes past it.
+    const inert = leaving || gone || (spot.fade?.opacity ?? 1) < 1;
     return (
         <div
             ref={box}
@@ -455,7 +458,7 @@ function LayerPlayer({
             style={{
                 ...(gone
                     ? { opacity: 0, transition: `opacity ${GONE_MS}ms ease-out` }
-                    : fadeStyle(spot.fade, spot.hidePlayer)),
+                    : fadeStyle(spot.fade)),
                 zIndex: leaving || gone ? LAYER_Z.leaving : inBackground(spot) ? LAYER_Z.background : LAYER_Z.active,
             }}
         >
@@ -475,7 +478,7 @@ function SpotOverlay({ spot }: { spot: Spot }): JSX.Element {
             ref={box}
             data-spot-overlay
             className="pointer-events-none fixed"
-            style={{ ...fadeStyle(spot.fade), zIndex: dimmed ? LAYER_Z.backgroundOverlay : LAYER_Z.activeOverlay }}
+            style={{ ...fadeStyle(spot.fade), zIndex: dimmed && !spot.overlayOnTop ? LAYER_Z.backgroundOverlay : LAYER_Z.activeOverlay }}
         >
             <div className={`relative h-full w-full ${dimmed ? "[&_*]:!pointer-events-none" : ""}`}>{spot.overlay}</div>
         </div>
@@ -570,7 +573,7 @@ export function MediaSpot({
     player = {},
     overlay,
     fade,
-    hidePlayer,
+    overlayOnTop,
     arriveMs,
     group,
     className,
@@ -580,7 +583,8 @@ export function MediaSpot({
     player?: SpotPlayer;
     overlay?: ReactNode;
     fade?: SpotFade;
-    hidePlayer?: boolean;
+    /** Its overlay above every player even while dimmed. */
+    overlayOnTop?: boolean;
     /** Fly here over this long when the player comes from another spot. */
     arriveMs?: number;
     /** Spots that change file together (see SpotState.group). */
@@ -593,7 +597,7 @@ export function MediaSpot({
     const ref = useRef<HTMLDivElement>(null);
     const id = useRef(0);
     if (id.current === 0) id.current = nextSpotId++;
-    const state = (): SpotState => ({ file, el: ref.current, player, overlay, fade, hidePlayer, arriveMs, group });
+    const state = (): SpotState => ({ file, el: ref.current, player, overlay, fade, overlayOnTop, arriveMs, group });
     // Claimed when it appears, let go when it goes.
     useLayoutEffect(() => {
         api.claim(id.current, state());

@@ -1,19 +1,5 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-    INSPECT_EASE,
-    INSPECT_MS,
-    INSPECT_OUT_MS,
-    AT_REST,
-    Flight,
-    PlayState,
-    barRect,
-    barUnder,
-    flightCss,
-    flyBar,
-    flyTo,
-    pictureRect,
-    playStateIn,
-} from "@renderer/lib/inspect";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { INSPECT_EASE, INSPECT_MS, INSPECT_OUT_MS } from "@renderer/lib/inspect";
 import { DbFile } from "@renderer/shared/types/types";
 import { SlotResolver, useScrollSlots } from "@renderer/hooks/useScrollSlots";
 import { TagPanel } from "./TagPanel";
@@ -35,28 +21,17 @@ import { MediaFlash } from "./TagPointer";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useEdgeResize } from "@renderer/hooks/useEdgeResize";
 
-/** Opened as an inspection: the picture grows from where it was on screen
- *  and, on closing, goes back there (see lib/inspect.ts). */
+/** Opened as an inspection: the media area is a spot of the media layer,
+ *  so the very player of the view it came from flies here, and back on
+ *  closing. */
 export interface InspectProps {
-    /** The picture's rect where it was opened from; null: just appear. */
-    from: DOMRect | null;
-    /** Where that view draws a video's playhead strip; null: it draws
-     *  none (the strip then starts along the picture's bottom edge). */
-    fromBar: DOMRect | null;
-    /** A video's play state there, so it carries on here. */
-    startAt: PlayState | null;
-    /** Set to close: go back to `to` (the strip to `toBar`, or the
-     *  picture's bottom edge), or fade out if `to` is null. */
-    closing: { to: DOMRect | null; toBar: DOMRect | null } | null;
-    /** Done closing, with the video's play state at that moment. */
-    onClosed: (state: PlayState | null) => void;
-    /** It's showing (starting to grow in): the view underneath can hide
-     *  its own copy now, so there's only ever one on screen. */
+    /** Set to close: the spot goes, so the player flies back (or, deleted,
+     *  has already faded out). */
+    closing: boolean;
+    /** Done closing (the player has landed). */
+    onClosed: () => void;
+    /** It's showing: the view underneath can dim. */
     onShown?: () => void;
-    /** The media is a spot of the media layer (the very player of the view
-     *  it came from flies here and back); the rest above is for the older,
-     *  two-copy way, until it's gone. */
-    asSpot?: boolean;
 }
 
 export default function ScrollView({
@@ -132,121 +107,27 @@ export default function ScrollView({
     const sidebarWidth = panelResize.width;
     const [showConfirm, setShowConfirm] = useState(false);
 
-    // ── Inspection: grow in, go back ──
-    // The media area itself moves: a transform puts the picture over where
-    // it came from and eases to nothing. The media has no black behind it
-    // here (see-through), so only the picture shows over the dimmed view.
-    // The buttons and panel fade in alongside. Done straight on the
-    // element, so React's renders never get in the way mid-move.
-    const areaRef = useRef<HTMLDivElement>(null);
+    // ── Inspection ──
+    // The player is the view underneath's, flown here by the media layer;
+    // the buttons and panel come in alongside and go out on closing.
     const [chromeShown, setChromeShown] = useState(!inspect);
     const inspectRef = useRef(inspect);
     inspectRef.current = inspect;
-    const flewIn = useRef(false);
-    const moveArea = (from: Flight, to: Flight, ms: number) => {
-        const area = areaRef.current;
-        if (!area) return;
-        area.style.transformOrigin = "0 0";
-        area.style.transition = "none";
-        area.style.transform = flightCss(from);
-        area.style.opacity = "1";
-        void area.offsetWidth; // start from there
-        area.style.transition = `transform ${ms}ms ${INSPECT_EASE}`;
-        area.style.transform = flightCss(to);
-    };
-    // A video's playhead strip isn't scaled with the picture: it goes on its
-    // own from where the other view draws it to its place here (and back),
-    // on the same progress (see flyBar).
-    const stopBar = useRef<() => void>(() => {});
-    const startBar = (area: HTMLElement, areaRest: DOMRect, fromF: Flight, toF: Flight, from: DOMRect | null, to: DOMRect | null, hold: boolean, ms: number) => {
-        stopBar.current();
-        stopBar.current = from && to ? flyBar(area, areaRest, fromF, toF, from, to, hold, ms) : () => {};
-    };
-    useEffect(() => () => stopBar.current(), []);
-    const asSpot = !!inspect?.asSpot;
-    // As a spot: the player is already there and flies itself; the chrome
-    // comes in at once and the view underneath is told it's showing.
+    const asSpot = !!inspect;
     useLayoutEffect(() => {
-        if (!asSpot || flewIn.current) return;
-        flewIn.current = true;
+        if (!inspectRef.current) return;
         setChromeShown(true);
-        inspectRef.current?.onShown?.();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-    // Hidden until there's a picture to measure (it starts where it was).
-    // Not once it's grown in: a picture can be ready before this runs a
-    // second time (React re-runs effects on mount in development).
-    useLayoutEffect(() => {
-        if (asSpot) return;
-        if (inspect?.from && areaRef.current && !flewIn.current) areaRef.current.style.opacity = "0";
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-    const growIn = useCallback(() => {
-        const insp = inspectRef.current;
-        if (flewIn.current || !insp) return;
-        flewIn.current = true;
-        setChromeShown(true);
-        insp.onShown?.();
-        const area = areaRef.current;
-        const pic = pictureRect(area);
-        if (!area || !insp.from || !pic) {
-            if (area) area.style.opacity = "1";
-            return;
-        }
-        const areaRest = area.getBoundingClientRect();
-        const flight = flyTo(areaRest, pic, insp.from);
-        const bar = barRect(area);
-        if (bar) {
-            startBar(area, areaRest, flight, AT_REST, insp.fromBar ?? barUnder(insp.from, bar.height), bar, false, INSPECT_MS);
-        }
-        moveArea(flight, AT_REST, INSPECT_MS);
-        setTimeout(() => {
-            if (inspectRef.current?.closing) return;
-            area.style.transition = "";
-            area.style.transform = "";
-        }, INSPECT_MS + 50);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-    // A slow load doesn't hold it up for long. (A video waits for its jump
-    // to the handed-over moment, so it gets longer.)
-    useEffect(() => {
-        if (!inspect || asSpot) return;
-        const t = setTimeout(growIn, inspect.startAt ? 500 : 150);
-        return () => clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        inspectRef.current.onShown?.();
     }, []);
     const closing = !!inspect?.closing;
     useEffect(() => {
         const insp = inspectRef.current;
         if (!insp?.closing) return;
-        flewIn.current = true;
         setChromeShown(false);
-        if (asSpot) {
-            // The spot goes (see the render), so the player flies back by
-            // itself; done once it has landed.
-            const t = setTimeout(() => insp.onClosed(null), INSPECT_OUT_MS);
-            return () => clearTimeout(t);
-        }
-        const area = areaRef.current;
-        const to = insp.closing.to;
-        const pic = pictureRect(area);
-        if (area && to && pic) {
-            stopBar.current();
-            const areaRest = area.getBoundingClientRect();
-            const flight = flyTo(areaRest, pic, to);
-            const bar = barRect(area);
-            if (bar) {
-                startBar(area, areaRest, AT_REST, flight, bar, insp.closing.toBar ?? barUnder(to, bar.height), true, INSPECT_OUT_MS);
-            }
-            moveArea(AT_REST, flight, INSPECT_OUT_MS);
-        } else if (area) {
-            area.style.transition = `opacity ${INSPECT_OUT_MS}ms ease-out`;
-            area.style.opacity = "0";
-        }
-        // The video keeps playing on the way back: hand over where it got to.
-        const t = setTimeout(() => insp.onClosed(playStateIn(area)), INSPECT_OUT_MS);
+        // The spot goes (see the render), so the player flies back by
+        // itself; done once it has landed.
+        const t = setTimeout(() => insp.onClosed(), INSPECT_OUT_MS);
         return () => clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [closing]);
     // In and out take different times (going back is quicker).
     const chromeMs = closing ? INSPECT_OUT_MS : INSPECT_MS;
@@ -391,7 +272,6 @@ export default function ScrollView({
                 className="relative flex min-h-0 flex-1 flex-col"
             >
                 <div
-                    ref={areaRef}
                     className={`relative min-h-0 flex-1 overflow-hidden ${pointer.cursorClass}`}
                     onWheel={handleWheel}
                     {...pointer.handlers}
@@ -444,11 +324,6 @@ export default function ScrollView({
                                     disabled={!active || slot !== frontSlot}
                                     rotation={slotFiles[slot]!.rotation}
                                     seeThrough={!!inspect}
-                                    {...(inspect &&
-                                    slot === frontSlot &&
-                                    slotFiles[slot]!.id === initialFile?.id
-                                        ? { startAt: inspect.startAt, onReady: growIn }
-                                        : {})}
                                 />
                             )}
                         </div>

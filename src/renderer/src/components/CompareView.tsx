@@ -1,5 +1,4 @@
 import {
-    Fragment,
     useEffect,
     useState,
     useCallback,
@@ -34,16 +33,7 @@ import SingleFileView from "./SingleFileView";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useStatus } from "@renderer/contexts/StatusContext";
 import { usePlacement, PLACEMENT_MATCHES } from "@renderer/contexts/PlacementContext";
-import {
-    INSPECT_MS,
-    INSPECT_OUT_MS,
-    type PlayState,
-    applyPlayState,
-    barRect,
-    pictureRect,
-    playStateIn,
-    shownVideo,
-} from "@renderer/lib/inspect";
+import { INSPECT_MS, INSPECT_OUT_MS, shownVideo } from "@renderer/lib/inspect";
 
 async function preloadFile(rootPath: string, file: DbFile): Promise<void> {
     if (file.media_type === "video") return;
@@ -105,29 +95,23 @@ export default function CompareView({
     // Always one side focused: it has sound and gets V / Q / E (Tab switches).
     // Starts on the left, then follows whichever side won the last round.
     const [focus, setFocus] = useState<Side>("a");
-    // A side open in the file view, as an inspection: its picture grows from
-    // that side and goes back there on closing (Compare stays underneath,
-    // dimmed, and keeps playing).
+    // A side open in the file view, as an inspection: its very player flies
+    // from that side to the file view and back on closing (Compare stays
+    // underneath, dimmed).
     const [inspect, setInspect] = useState<{
         file: DbFile;
         side: Side;
-        from: DOMRect | null;
-        /** Where this side drew the video's playhead strip. */
-        fromBar: DOMRect | null;
-        startAt: PlayState | null;
-        closing: { to: DOMRect | null; toBar: DOMRect | null } | null;
-        /** The file view's copy is showing: this side hides its own (it
-         *  keeps playing) until the file view has gone back and closed. */
+        closing: boolean;
+        /** The file view is up: Compare dims from now. */
         shown: boolean;
     } | null>(null);
     const inspectRef = useRef(inspect);
     inspectRef.current = inspect;
     // Sound: none from Compare while a file view is up. Once it's going back,
     // the other side may be heard again at once (focus can move there during
-    // the flight); the opened side stays quiet until the swap, the file
-    // view's copy has the sound till then.
+    // the flight); the opened side's player is the file view's till it lands.
     const audibleDuringInspect = (side: Side): boolean =>
-        !inspect || (!!inspect.closing && inspect.side !== side);
+        !inspect || (inspect.closing && inspect.side !== side);
     // The file changed in place (rotated, renamed): same inspection.
     const setInspectedFile = useCallback(
         (update: (f: DbFile) => DbFile) =>
@@ -145,43 +129,25 @@ export default function CompareView({
         const f = pairRef.current?.[side === "a" ? 0 : 1];
         return f ? document.querySelector(`[data-layer-player="${f.id}"]`) : null;
     };
+    const sideVideo = (side: Side): HTMLVideoElement | null => shownVideo(sideRoot(side));
     const openInspect = useCallback((side: Side) => {
         const p = pairRef.current;
         if (!p || inspectRef.current) return;
-        const root = sideRoot(side);
-        setInspect({
-            file: side === "a" ? p[0] : p[1],
-            side,
-            from: pictureRect(root),
-            fromBar: barRect(root),
-            startAt: playStateIn(root),
-            closing: null,
-            shown: false,
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        setInspect({ file: side === "a" ? p[0] : p[1], side, closing: false, shown: false });
     }, []);
-    // Back to its side if that side still shows it; otherwise (deleted, or
-    // the side moved on) it fades out.
-    const closeInspect = useCallback((flyBack: boolean) => {
+    // The file view's spot goes: the player flies back to its side if that
+    // side still shows it (the layer's claims do that by themselves).
+    const closeInspect = useCallback(() => {
         const i = inspectRef.current;
         if (!i || i.closing) return;
-        const p = pairRef.current;
-        const still = !!p && (i.side === "a" ? p[0] : p[1]).id === i.file.id;
-        const back = flyBack && still;
-        const next = {
-            ...i,
-            closing: {
-                to: back ? pictureRect(sideRoot(i.side)) : null,
-                toBar: back ? barRect(sideRoot(i.side)) : null,
-            },
-        };
+        const next = { ...i, closing: true };
         inspectRef.current = next;
         setInspect(next);
         // Compare is back in charge from now, not from the landing: the other
         // side plays again at once (its keys are on again too; see
         // keysEnabled).
         if (resumeOtherSide.current) {
-            shownVideo(sideRoot(resumeOtherSide.current))?.play().catch(() => {});
+            sideVideo(resumeOtherSide.current)?.play().catch(() => {});
             resumeOtherSide.current = null;
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,174 +161,31 @@ export default function CompareView({
             if ((e.code !== "KeyG" && e.code !== "Escape") || e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTyping()) return;
             if (document.querySelector("[data-modal]")) return;
             e.preventDefault();
-            closeInspect(true);
+            closeInspect();
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, [active, inspecting, closeInspect]);
     // Nothing moves behind the file view: the other side's video pauses as
     // Compare dims, and picks up again on closing if it was playing.
-    // The opened side's own copy (hidden, muted) keeps rolling in step with
-    // the file view's video instead, so on closing the two are on the same
-    // frame and can simply swap. It follows on events only: once now (the
-    // file view's copy has just jumped to its moment, a guess that can be a
-    // few frames off) and on every scrub, pause and play.
     const resumeOtherSide = useRef<Side | null>(null);
-    const overlayRef = useRef<HTMLDivElement>(null);
-    const stopFollowing = useRef<(() => void) | null>(null);
-    // While paused: the exact time the hidden copy last jumped to (null:
-    // it hasn't, or it's playing).
-    const mineJumpedTo = useRef<{ el: HTMLVideoElement; t: number } | null>(null);
-    const jumpedTo = (el: HTMLVideoElement, t: number): boolean => mineJumpedTo.current?.el === el && mineJumpedTo.current.t === t;
     const onInspectShown = useCallback(() => {
         const i = inspectRef.current;
-        if (i && !i.shown) {
-            const other: Side = i.side === "a" ? "b" : "a";
-            const otherVideo = shownVideo(sideRoot(other));
-            resumeOtherSide.current = otherVideo && !otherVideo.paused ? other : null;
-            otherVideo?.pause();
-            // The elements are looked up fresh every time: a saved rotation
-            // gives each copy a new <video> for the new version (the old one
-            // briefly covers, then goes), and holding on to the first ones
-            // would leave the copies following elements that are gone.
-            const side = i.side;
-            const overlay = overlayRef.current;
-            const card = sideRoot(side);
-            if (overlay && card && shownVideo(sideRoot(side)) && shownVideo(overlay)) {
-                const follow = () => {
-                    const mine = shownVideo(sideRoot(side));
-                    const theirs = shownVideo(overlay);
-                    if (!mine || !theirs) return;
-                    if (theirs.paused) {
-                        // Paused, a still frame shows: same time isn't
-                        // enough. Jump to exactly theirs, the way theirs got
-                        // there, so both pick the same frame.
-                        if (!mine.paused) mine.pause();
-                        if (!jumpedTo(mine, theirs.currentTime)) {
-                            mineJumpedTo.current = { el: mine, t: theirs.currentTime };
-                            mine.currentTime = theirs.currentTime;
-                        }
-                        return;
-                    }
-                    mineJumpedTo.current = null;
-                    if (Math.abs(mine.currentTime - theirs.currentTime) > 0.04) {
-                        mine.currentTime = theirs.currentTime;
-                    }
-                    if (mine.paused) mine.play().catch(() => {});
-                };
-                // Media events don't bubble, but they do pass down through
-                // the capture phase: listening on the containers catches
-                // whichever <video> is current, new versions included. The
-                // file view's copy leads; this side's copy is re-synced too
-                // when a new version of it is ready. (A version's cover is
-                // ignored: it's on its way out.)
-                const lead = (e: Event) => {
-                    const v = e.target as HTMLElement;
-                    if (v.tagName === "VIDEO" && !v.classList.contains("pointer-events-none")) follow();
-                };
-                const leadEvents = ["seeked", "play", "pause", "playing", "loadeddata"] as const;
-                const mineEvents = ["loadeddata", "seeked"] as const;
-                for (const ev of leadEvents) overlay.addEventListener(ev, lead, true);
-                for (const ev of mineEvents) card.addEventListener(ev, lead, true);
-                stopFollowing.current?.();
-                stopFollowing.current = () => {
-                    for (const ev of leadEvents) overlay.removeEventListener(ev, lead, true);
-                    for (const ev of mineEvents) card.removeEventListener(ev, lead, true);
-                };
-                follow();
-            }
-        }
-        setInspect((i) => (i && !i.shown ? { ...i, shown: true } : i));
+        if (!i || i.shown) return;
+        const otherVideo = sideVideo(i.side === "a" ? "b" : "a");
+        resumeOtherSide.current = otherVideo && !otherVideo.paused ? (i.side === "a" ? "b" : "a") : null;
+        otherVideo?.pause();
+        setInspect((s) => (s && !s.shown ? { ...s, shown: true } : s));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    // However the file view went (closed, or a session took over): stop.
-    useEffect(() => {
-        if (inspect) return;
-        stopFollowing.current?.();
-        stopFollowing.current = null;
-        mineJumpedTo.current = null;
-    }, [inspect]);
-    // This side's own copy is hidden while the file view's is up.
-    const hiddenSide = (side: Side, file: DbFile): boolean =>
-        !!inspect?.shown && inspect.side === side && inspect.file.id === file.id;
-    // Gone back. A video's two copies are normally on the same frame by now
-    // (see above): swap at once. Only if they're apart (one stuttered) does
-    // this side's copy jump to the file view's moment first, with the swap
-    // waiting until that frame is on screen (the file view's copy holds
-    // still at the landing spot meanwhile, capped) so it never shows a
-    // stray frame.
-    const onInspectClosed = useCallback((state: PlayState | null) => {
-        const i = inspectRef.current;
-        const p = pairRef.current;
-        const finish = () => {
-            stopFollowing.current?.();
-            stopFollowing.current = null;
-            if (resumeOtherSide.current) {
-                shownVideo(sideRoot(resumeOtherSide.current))?.play().catch(() => {});
-                resumeOtherSide.current = null;
-            }
-            inspectRef.current = null;
-            setInspect(null);
-        };
-        const same = !!i && !!p && (i.side === "a" ? p[0] : p[1]).id === i.file.id;
-        const mine = same ? shownVideo(sideRoot(i!.side)) : null;
-        const theirs = shownVideo(overlayRef.current);
-        if (!mine || !state) {
-            if (same) applyPlayState(sideRoot(i!.side), state);
-            finish();
-            return;
+    // Landed back (or faded out): the file view goes.
+    const onInspectClosed = useCallback(() => {
+        if (resumeOtherSide.current) {
+            sideVideo(resumeOtherSide.current)?.play().catch(() => {});
+            resumeOtherSide.current = null;
         }
-        // In step: just swap. Playing: within a frame. Paused: this copy
-        // jumped to exactly theirs and has finished getting there.
-        const inStep =
-            !!theirs &&
-            mine.paused === theirs.paused &&
-            (theirs.paused
-                ? jumpedTo(mine, theirs.currentTime) && !mine.seeking
-                : Math.abs(mine.currentTime - theirs.currentTime) < 0.05);
-        // For checking in dev tools how the landing went (temporary).
-        const report = {
-            apart: theirs ? +(mine.currentTime - theirs.currentTime).toFixed(3) : null,
-            comparePaused: mine.paused,
-            fileViewPaused: theirs?.paused ?? null,
-            seeking: mine.seeking,
-        };
-        if (inStep) {
-            console.info("[inspect] landing: in step, instant swap", report);
-            finish();
-            return;
-        }
-        console.warn("[inspect] landing: copies apart, jump-and-wait fallback", report);
-        const waitStart = performance.now();
-        theirs?.pause();
-        const time = theirs ? theirs.currentTime : state.time;
-        let done = false;
-        const swap = () => {
-            if (done) return;
-            done = true;
-            clearTimeout(cap);
-            mine.removeEventListener("seeked", onSeeked);
-            if (!state.paused) mine.play().catch(() => {});
-            console.warn(`[inspect] fallback swap after ${Math.round(performance.now() - waitStart)} ms`);
-            finish();
-        };
-        // Seeked: wait for that frame to be on screen, where supported.
-        const onSeeked = () => {
-            if (mine.requestVideoFrameCallback) mine.requestVideoFrameCallback(() => swap());
-            else swap();
-        };
-        const cap = setTimeout(swap, 300);
-        // Paused: only an exact jump to that time counts (see follow).
-        const there = state.paused
-            ? jumpedTo(mine, time) && !mine.seeking
-            : Math.abs(mine.currentTime - time) < 0.02;
-        if (there) {
-            swap();
-        } else {
-            mine.addEventListener("seeked", onSeeked);
-            mineJumpedTo.current = { el: mine, t: time };
-            mine.currentTime = time;
-        }
+        inspectRef.current = null;
+        setInspect(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -733,7 +556,7 @@ export default function CompareView({
                 (e) => !e.pair.some(gone),
             );
             // Its file deleted: the file view fades out (nothing to go back to).
-            if (inspectRef.current && gone(inspectRef.current.file)) closeInspect(false);
+            if (inspectRef.current && gone(inspectRef.current.file)) closeInspect();
             if (placementRef.current && gone(placementRef.current.file)) {
                 setPlacement(null);
             }
@@ -1240,8 +1063,7 @@ export default function CompareView({
         <div
             className="relative flex flex-1 flex-col overflow-hidden"
             style={{
-                // Dims when the file view's copy appears (not before: this
-                // side's own copy would darken, then the moving one pop in).
+                // Dims once the file view is up.
                 opacity: inspect?.shown && !inspect.closing ? 0.06 : 1,
                 transition: `opacity ${inspect?.closing ? INSPECT_OUT_MS : INSPECT_MS}ms ease-out`,
             }}
@@ -1283,7 +1105,6 @@ export default function CompareView({
                         disabled={!active}
                         focused={focus === "a"}
                         audible={(compareBothAudio || focus === "a") && audibleDuringInspect("a")}
-                        hideMedia={false}
                         hudLifted={!!inspect}
                         fade={mediaFade}
                         controlsRef={controlsA}
@@ -1312,7 +1133,6 @@ export default function CompareView({
                         disabled={!active}
                         focused={focus === "b"}
                         audible={(compareBothAudio || focus === "b") && audibleDuringInspect("b")}
-                        hideMedia={false}
                         hudLifted={!!inspect}
                         fade={mediaFade}
                         controlsRef={controlsB}
@@ -1338,67 +1158,22 @@ export default function CompareView({
             {inspect && (
                 // Between Compare's players (in the background) and the active
                 // player in the media layer (see LAYER_Z).
-                <div ref={overlayRef} className="absolute inset-0 flex flex-col" style={{ zIndex: LAYER_Z.overView }}>
+                <div className="absolute inset-0 flex flex-col" style={{ zIndex: LAYER_Z.overView }}>
                     <SingleFileView
-                        onClose={() => closeInspect(true)}
+                        onClose={closeInspect}
                         file={inspect.file}
                         active={active}
                         setView={setView}
                         inspect={{
-                            from: inspect.from,
-                            fromBar: inspect.fromBar,
-                            startAt: inspect.startAt,
                             closing: inspect.closing,
                             onClosed: onInspectClosed,
                             onShown: onInspectShown,
-                            asSpot: true,
                         }}
                     />
                 </div>
             )}
-            {/* The cards' always-on top pieces (focus line, rank, placing,
-                crown), above the flight so it never covers them: they fade
-                out as Compare dims and back in as the file view goes back,
-                then the cards' own take over in the same spot. Laid out
-                like the cards (two equal halves and the divider). */}
-            {inspect && (
-                <div
-                    className="pointer-events-none absolute inset-0 z-[60] flex"
-                    style={{
-                        opacity: inspect.shown && !inspect.closing ? 0 : 1,
-                        transition: `opacity ${inspect.closing ? INSPECT_OUT_MS : INSPECT_MS}ms ease-out`,
-                    }}
-                >
-                    {([a, b] as const).map((f, i) => (
-                        <Fragment key={i === 0 ? "a" : "b"}>
-                            {i === 1 && <div className="w-px shrink-0" />}
-                            <div className="relative min-w-0 flex-1">
-                                <CardTopGhost
-                                    file={f}
-                                    focused={active && focus === (i === 0 ? "a" : "b")}
-                                    placingLabel={placingLabel(f)}
-                                    isKing={king?.file.id === f.id}
-                                    streak={king?.streak ?? 0}
-                                />
-                            </div>
-                        </Fragment>
-                    ))}
-                </div>
-            )}
         </div>
     );
-}
-
-/** A card's always-on top pieces, drawn above a file view flight. */
-function CardTopGhost(props: {
-    file: DbFile;
-    focused: boolean;
-    placingLabel?: string;
-    isKing: boolean;
-    streak: number;
-}): JSX.Element {
-    const libraryRank = useLibraryRank(props.file.id);
-    return <CardTop {...props} showBar={false} libraryRank={libraryRank} ghost />;
 }
 
 function CompareCard({
@@ -1419,15 +1194,11 @@ function CompareCard({
     streak,
     onCrown,
     onUncrown,
-    hideMedia,
     hudLifted,
     fade,
 }: {
-    /** Open in the file view, whose copy is on screen: this one is hidden
-     *  (still playing) so there aren't two. */
-    hideMedia: boolean;
-    /** A file view is up: the always-on top pieces show in the copy above
-     *  it (CardTop ghost), so the card's own are hidden. */
+    /** A file view is up over Compare: no hover bar, and the player
+     *  flies home when it comes back. */
     hudLifted: boolean;
     /** Compare dimming itself (a file view is up): the media and its top
      *  pieces fade with it (they're drawn by the media layer). */
@@ -1510,7 +1281,9 @@ function CompareCard({
                     file={file}
                     className="absolute inset-0"
                     fade={fade}
-                    hidePlayer={hideMedia}
+                    // The top pieces stay above the player flying off to
+                    // the file view (and back) while they fade.
+                    overlayOnTop
                     // Its player back from the file view: it flies home (not
                     // on an ordinary pick, where a file may change sides).
                     arriveMs={hudLifted ? INSPECT_OUT_MS : 0}
@@ -1535,7 +1308,7 @@ function CompareCard({
                             placingLabel={placingLabel}
                             isKing={isKing}
                             streak={streak}
-                            lifted={hudLifted}
+                            fade={fade}
                             onInspectFile={onInspectFile}
                             onCrown={onCrown}
                             onUncrown={onUncrown}
@@ -1553,10 +1326,8 @@ function CompareCard({
  * The top of a Compare card: the focus line, and the info row (name and
  * scores, rank, placing, crown, rotate, folder). The rank, placing label,
  * the king's crown and the focus line are always on; the rest shows on
- * hover. `ghost`: a copy of just the always-on pieces in the same places,
- * drawn above a file view flight (see CompareView), not interactive.
- * `lifted`: the card's own always-on pieces are hidden (the ghost shows
- * them meanwhile).
+ * hover. `fade`: Compare dimming (a file view is up); the pieces go
+ * all the way out, since they sit above the file view meanwhile.
  */
 function CardTop({
     file,
@@ -1566,8 +1337,7 @@ function CardTop({
     placingLabel,
     isKing,
     streak,
-    ghost = false,
-    lifted = false,
+    fade,
     onInspectFile,
     onCrown,
     onUncrown,
@@ -1581,38 +1351,34 @@ function CardTop({
     placingLabel?: string;
     isKing: boolean;
     streak: number;
-    ghost?: boolean;
-    lifted?: boolean;
+    fade?: SpotFade;
     onInspectFile?: (file: DbFile) => void;
     onCrown?: () => void;
     onUncrown?: () => void;
     rotateLeft?: () => void;
     onGoToFolder?: (folderPath: string) => void;
 }): JSX.Element {
-    // Hover pieces: never in the ghost.
-    const fade =
-        showBar && !ghost ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none";
-    // Always-on pieces: hidden on the card while the ghost has them. By
-    // visibility, which switches at once (their opacity fades would make
-    // them blink in after the ghost has gone).
-    const keep = lifted ? "invisible" : "";
-    const live = ghost ? "" : "pointer-events-auto";
+    const hover =
+        showBar ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none";
+    const live = "pointer-events-auto";
+    const dimmed = !!fade && fade.opacity < 1;
     return (
-        <>
+        <div
+            className="pointer-events-none absolute inset-0"
+            style={fade && { opacity: dimmed ? 0 : 1, transition: `opacity ${fade.ms}ms ease-out` }}
+        >
             {/* Focus marker: a thin line across the top of the focused side. */}
             <div
-                className={`pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-white/80 transition-opacity duration-100 ${focused ? "opacity-100" : "opacity-0"} ${keep}`}
+                className={`pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-white/80 transition-opacity duration-100 ${focused ? "opacity-100" : "opacity-0"}`}
             />
 
             {/* Info bar: overlays the top of the media while hovered. */}
-            {!ghost && (
-                <div
-                    className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-150 ${showBar ? "opacity-100" : "opacity-0"}`}
-                />
-            )}
+            <div
+                className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-150 ${showBar ? "opacity-100" : "opacity-0"}`}
+            />
             <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-2 px-3 pt-2.5">
                 <div
-                    className={`min-w-0 flex-1 transition-opacity duration-150 ${fade}`}
+                    className={`min-w-0 flex-1 transition-opacity duration-150 ${hover}`}
                 >
                     <p
                         className="cursor-pointer truncate text-sm font-medium text-white/90 drop-shadow hover:text-white transition-colors"
@@ -1633,7 +1399,7 @@ function CardTop({
                     {/* Library rank stays visible, like the king's crown. */}
                     {libraryRank && (
                         <span
-                            className={`mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/80 drop-shadow ${keep}`}
+                            className={`mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/80 drop-shadow`}
                             title="Place in the whole library"
                         >
                             {libraryRank}
@@ -1641,7 +1407,7 @@ function CardTop({
                     )}
                     {placingLabel && (
                         <span
-                            className={`${live} mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white/80 drop-shadow ${keep}`}
+                            className={`${live} mr-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white/80 drop-shadow`}
                             title="New file: kept on screen until it has had its placement matches"
                         >
                             {placingLabel}
@@ -1651,8 +1417,8 @@ function CardTop({
                     <button
                         className={`rounded-md p-1.5 drop-shadow transition-all duration-150 ${
                             isKing
-                                ? `${live} opacity-100 text-amber-300 hover:text-amber-200 ${keep}`
-                                : `${fade} text-white/60 hover:text-white`
+                                ? `${live} opacity-100 text-amber-300 hover:text-amber-200`
+                                : `${hover} text-white/60 hover:text-white`
                         }`}
                         title={isKing ? "Stop keeping on screen (K)" : "Keep on screen (K)"}
                         onClick={(e) => {
@@ -1664,7 +1430,7 @@ function CardTop({
                         <CrownIcon className="h-4 w-4" />
                     </button>
                     <button
-                        className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${fade}`}
+                        className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${hover}`}
                         title="Rotate left (R)"
                         onClick={(e) => {
                             e.stopPropagation();
@@ -1674,7 +1440,7 @@ function CardTop({
                         <RotateIcon className="h-4 w-4" />
                     </button>
                     <button
-                        className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${fade}`}
+                        className={`rounded-md p-1.5 text-white/60 drop-shadow hover:text-white transition-all duration-150 ${hover}`}
                         title="Go to folder"
                         onClick={(e) => {
                             e.stopPropagation();
@@ -1685,6 +1451,6 @@ function CardTop({
                     </button>
                 </div>
             </div>
-        </>
+        </div>
     );
 }

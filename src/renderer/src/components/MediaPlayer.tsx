@@ -10,7 +10,6 @@ import React, {
 import { isImageReady, preloadImage } from "@renderer/lib/imageCache";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { isTyping } from "@renderer/lib/keys";
-import { PlayState } from "@renderer/lib/inspect";
 
 /** How far ahead of the old version a video's new version (baked / replaced) starts,
  *  to cover the time its seek takes while the old one keeps playing. */
@@ -53,9 +52,6 @@ interface MediaPlayerProps {
     rotation?: number;
     /** Called once there's something to show: a video's first frame, or an image (or its blurred thumbnail). */
     onReady?: () => void;
-    /** A video picks up here (opened from another player that was showing
-     *  it) instead of starting from the top. Read on mount only. */
-    startAt?: PlayState | null;
     /** No black behind the media: what's underneath shows around it (an
      *  inspection, over the view it was opened from). */
     seeThrough?: boolean;
@@ -80,7 +76,6 @@ export function MediaPlayer({
     controlsRef,
     onReady,
     rotation = 0,
-    startAt = null,
     seeThrough = false,
     barFitsPicture = false,
 }: MediaPlayerProps): JSX.Element {
@@ -115,7 +110,7 @@ export function MediaPlayer({
 
     const thumbUrl = thumb?.for === fullUrl ? thumb.url : null;
 
-    const [playing, setPlaying] = useState(!startAt?.paused);
+    const [playing, setPlaying] = useState(true);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [scrubbing, setScrubbing] = useState(false);
@@ -203,17 +198,13 @@ export function MediaPlayer({
     // Where the new version should pick up. Kept apart from `handoff` (the
     // visual cover), which gives up after a few seconds: a slow load must
     // still resume at the same moment rather than restart.
-    // Opened from another player: the first load picks up where it was
-    // (same seek-then-play as a hand-off).
-    const resumeRef = useRef<{ time: number; paused: boolean } | null>(
-        isVideo && startAt ? { ...startAt } : null,
-    );
+    const resumeRef = useRef<{ time: number; paused: boolean } | null>(null);
     const shownRef = useRef({ id: file.id, url: fullUrl, turns: turnsNow });
     // Whether this element starts by itself, decided once when it's created:
-    // not when it picks up somewhere (it plays itself once there, or stays
-    // paused). Flipping it later would set a paused video playing as soon as
-    // it had loaded enough.
-    const autoPlayRef = useRef(!resumeRef.current);
+    // not a new version picking up somewhere (it plays itself once there, or
+    // stays paused). Flipping it later would set a paused video playing as
+    // soon as it had loaded enough.
+    const autoPlayRef = useRef(true);
     if (shownRef.current.url !== fullUrl) {
         const old = videoRef.current;
         if (isVideo && shownRef.current.id === file.id && old) {
@@ -257,19 +248,12 @@ export function MediaPlayer({
         }, 3000);
         return () => clearTimeout(t);
     }, [handoff]);
-    // Opened from another player (startAt): it's ready once it has jumped
-    // to that moment, not on its first frame (the very start of the video).
-    const readyAfterSeekRef = useRef(isVideo && !!startAt);
     const finishHandoff = (v: HTMLVideoElement): void => {
         const resume = resumeRef.current;
         if (!resume) return;
         resumeRef.current = null;
         if (!resume.paused && !disabled) v.play().catch(() => {});
         setHandoff(null);
-        if (readyAfterSeekRef.current) {
-            readyAfterSeekRef.current = false;
-            reportReady();
-        }
     };
     const [isHovered, setIsHovered] = useState(false);
 
@@ -307,15 +291,12 @@ export function MediaPlayer({
     }, []);
 
     // Play / pause when `disabled` really changes (React may run this twice
-    // on mount in development: the second run does nothing). Handed over
-    // paused (startAt): it doesn't start playing on arrival.
+    // on mount in development: the second run does nothing).
     const lastDisabledRef = useRef<boolean | null>(null);
     useEffect(() => {
         if (!videoRef.current) return;
         if (lastDisabledRef.current === disabled) return;
-        const arriving = lastDisabledRef.current === null;
         lastDisabledRef.current = disabled;
-        if (arriving && isVideo && startAt?.paused) return;
         disabled ? videoRef.current.pause() : videoRef.current.play();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [disabled]);
@@ -521,9 +502,7 @@ export function MediaPlayer({
                             const v = videoRef.current;
                             if (v) finishHandoff(v);
                         }}
-                        onLoadedData={() => {
-                            if (!readyAfterSeekRef.current) reportReady();
-                        }}
+                        onLoadedData={reportReady}
                         onPlay={() => setPlaying(true)}
                         onPause={() => {
                             // The old version pausing for the hand-off isn't

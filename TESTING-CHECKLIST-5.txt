@@ -450,3 +450,20 @@ swap at the end.
     (Claude's scratch run 2026-11-26)
 [x] After any of these: picks, G, rotation still work on both sides
     (Claude's scratch run 2026-11-26: R, G, Esc on each side, two picks)
+
+── 28. Media layer step 5: old two-copy code removed (UNTESTED) ──────────
+   The code from before the one-player change is gone (the hidden second
+   copy, keeping the two in step, the landing fallback and its console
+   messages, the separate playhead flight, the copy of the card's top
+   pieces). Nothing should look different. One small change: the card's
+   own rank, crown, placing label and focus line now fade out above the
+   flying player and come back on the way home (before, a copy of them did).
+[ ] Compare, G on a side with a rank / crown / "Placing" label: they fade
+    out as Compare dims and back in on Esc, never covered by the player
+    flying past
+[ ] G / Esc on a playing and a paused video: flies in and back as before,
+    keeps playing / stays paused, no jump at the landing
+[ ] The other side's video pauses while the file view is up and plays
+    again on closing
+[ ] No "[inspect] landing" messages in the dev tools console any more
+[ ] Delete from the file view over Compare: still fades where it is (27)
