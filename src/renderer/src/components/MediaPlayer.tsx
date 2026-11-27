@@ -80,6 +80,9 @@ interface MediaPlayerProps {
     focused?: boolean;
     /** The media's own shape (width / height, unturned), once loaded. */
     onAspect?: (aspect: number) => void;
+    /** The file's thumbnail, already in hand: shown as its loading picture
+     *  from the first paint (a video's poster; a picture's, sharp). */
+    posterUrl?: string;
 }
 
 export function MediaPlayer({
@@ -103,6 +106,7 @@ export function MediaPlayer({
     mixed = false,
     focused,
     onAspect,
+    posterUrl,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     // The video's own shape (width / height), once known.
@@ -116,7 +120,7 @@ export function MediaPlayer({
     // Preloaded images show straight away: no blurred thumbnail, no fade.
     const preloaded = useMemo(() => isImageReady(fullUrl), [fullUrl]);
     const [thumb, setThumb] = useState<{ for: string; url: string } | null>(
-        null,
+        posterUrl ? { for: fullUrl, url: posterUrl } : null,
     );
     const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
     const fullLoaded = preloaded || loadedUrl === fullUrl;
@@ -634,6 +638,8 @@ export function MediaPlayer({
                         loop
                         playsInline
                         autoPlay={!disabled && autoPlayRef.current}
+                        // Grown from its thumbnail: that until the first frame.
+                        poster={posterUrl}
                         onLoadedMetadata={() => {
                             const v = videoRef.current;
                             const d = v?.duration;
@@ -693,10 +699,9 @@ export function MediaPlayer({
                                 alt=""
                                 onLoad={reportReady}
                                 className="h-full w-full object-contain"
-                                style={{
-                                    filter: "blur(12px)",
-                                    transform: "scale(1.1)",
-                                }}
+                                // Blurred, unless it's the thumbnail the
+                                // player grew from (it must look the same).
+                                style={posterUrl ? undefined : { filter: "blur(12px)", transform: "scale(1.1)" }}
                             />
                         </div>
                     )}

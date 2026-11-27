@@ -39,7 +39,7 @@ import { createPortal } from "react-dom";
 import type { DbFile } from "@renderer/shared/types/types";
 import { MediaPlayer, type MediaControls } from "@renderer/components/MediaPlayer";
 import { useFolders } from "@renderer/contexts/FolderContext";
-import { INSPECT_EASE, LANDING_PAD_MS, flightCss, flyTo, pictureRect } from "@renderer/lib/inspect";
+import { INSPECT_EASE, INSPECT_OUT_MS, LANDING_PAD_MS, flightCss, flyTo, pictureRect } from "@renderer/lib/inspect";
 
 /** How a spot wants the player to behave while it has it. */
 export interface SpotPlayer {
@@ -64,6 +64,18 @@ export interface SpotPlayer {
     focused?: boolean;
     /** The media's own shape (width / height, unturned), once loaded. */
     onAspect?: (aspect: number) => void;
+    /** The file's thumbnail, shown as the player's own loading picture
+     *  (a video's poster; sharp for a picture) until it has its own. */
+    posterUrl?: string;
+    /** Never takes the mouse (a hover zoom: the mouse is on its tile). */
+    inert?: boolean;
+}
+
+/** A plain picture of a file on screen (a Browse tile's thumbnail): the box
+ *  it fills, cropped (cover), and the picture's shape as drawn. */
+export interface TileShape {
+    rect: DOMRect;
+    aspect: number;
 }
 
 interface SpotState {
@@ -77,6 +89,13 @@ interface SpotState {
     /** Spots that change file together (Compare's two sides): their old
      *  players all go at once, when every new one is ready. */
     group?: string;
+    /** A new player for this spot (none existed) starts from this plain
+     *  picture of the file and grows here (over arriveMs), its crop opening
+     *  up. */
+    arriveFrom?: () => TileShape | null;
+    /** Let go with no other claim on the file: the player shrinks onto
+     *  this picture, its crop closing in, and goes (a video crossfades). */
+    leaveTo?: () => TileShape | null;
 }
 
 interface Spot extends SpotState {
@@ -127,6 +146,8 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     const readyFiles = useRef(new Set<number>());
     // Deleted files: fading out (with the spot they were shown at) …
     const fading = useRef(new Map<number, Spot>());
+    // Players let go onto a plain picture (leaveTo), on their way there.
+    const departing = useRef(new Map<number, { spot: Spot; to: TileShape | null }>());
     // … and, until no spot names them any more, never shown again.
     const deleted = useRef(new Set<number>());
     const [, setTick] = useState(0);
@@ -190,6 +211,7 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
     const api = useMemo<LayerApi>(
         () => ({
             claim: (id, state) => {
+                departing.current.delete(state.file.id);
                 spots.current.set(id, { ...state, id, order: nextOrder++ });
                 changed();
             },
@@ -216,9 +238,18 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 changed();
             },
             release: (id) => {
-                liftFrom(spots.current.get(id)?.el);
+                const s = spots.current.get(id);
+                liftFrom(s?.el);
                 liftFrom(leaving.current.get(id)?.spot.el);
                 const had = spots.current.delete(id);
+                // Nothing else wants the file: onto its plain picture.
+                if (
+                    s?.leaveTo &&
+                    !deleted.current.has(s.file.id) &&
+                    ![...spots.current.values()].some((x) => x.file.id === s.file.id)
+                ) {
+                    departing.current.set(s.file.id, { spot: s, to: s.leaveTo() });
+                }
                 const covering = leaving.current.delete(id);
                 forget();
                 if (had || covering) changed();
@@ -256,6 +287,12 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                 }
                 changed();
             }),
+        [changed],
+    );
+    const departed = useCallback(
+        (fileId: number) => {
+            if (departing.current.delete(fileId)) changed();
+        },
         [changed],
     );
     const faded = useCallback(
@@ -309,6 +346,25 @@ export function MediaLayerProvider({ children }: { children: ReactNode }): JSX.E
                             />
                         ),
                     })),
+                    ...[...departing.current.entries()]
+                        .filter(([fileId]) => !shown.has(fileId))
+                        .map(([fileId, { spot, to }]) => ({
+                            fileId,
+                            el: (
+                                <LayerPlayer
+                                    key={fileId}
+                                    box={boxFor(fileId)}
+                                    float={floatRef}
+                                    keep={(b) => keepBox(fileId, b)}
+                                    spot={spot}
+                                    leaving={false}
+                                    departTo={{ to }}
+                                    readyFiles={readyFiles.current}
+                                    onShown={() => {}}
+                                    onLeft={() => departed(fileId)}
+                                />
+                            ),
+                        })),
                     ...[...fading.current.entries()].map(([fileId, spot]) => ({
                         fileId,
                         el: (
@@ -362,10 +418,38 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
             barFitsPicture={p.barFitsPicture}
             focused={!!p.focused}
             onAspect={p.onAspect}
+            posterUrl={p.posterUrl}
             // Every layer player's sound goes through the app's mixer.
             mixed
         />
     );
+}
+
+/** A video's crossfade into its tile's thumbnail, after landing on it. */
+const DEPART_FADE_MS = 100;
+
+/** The rect a picture of `aspect` covers when drawn cover-fit in `box`. */
+function coverRect(box: DOMRect, aspect: number): DOMRect {
+    const w = Math.max(box.width, box.height * aspect);
+    const h = w / aspect;
+    return new DOMRect(box.left + (box.width - w) / 2, box.top + (box.height - h) / 2, w, h);
+}
+/** The rect a picture of `aspect` takes drawn contain-fit in `box`. */
+function containRect(box: DOMRect, aspect: number): DOMRect {
+    const w = Math.min(box.width, box.height * aspect);
+    const h = w / aspect;
+    return new DOMRect(box.left + (box.width - w) / 2, box.top + (box.height - h) / 2, w, h);
+}
+/** A clip (in the picture element's own box, `area` at rest) that shows
+ *  only `visible` on screen while the element is moved by `f`. */
+function insetFor(area: DOMRect, f: { k: number; tx: number; ty: number }, visible: DOMRect): string {
+    const x = (sx: number) => (sx - area.left - f.tx) / f.k;
+    const y = (sy: number) => (sy - area.top - f.ty) / f.k;
+    const top = Math.max(0, y(visible.top));
+    const left = Math.max(0, x(visible.left));
+    const right = Math.max(0, area.width - x(visible.right));
+    const bottom = Math.max(0, area.height - y(visible.bottom));
+    return `inset(${top}px ${right}px ${bottom}px ${left}px)`;
 }
 
 /** Float `box` above the app exactly where it is now on screen. */
@@ -405,6 +489,7 @@ function LayerPlayer({
     spot,
     leaving,
     gone = false,
+    departTo,
     readyFiles,
     onShown,
     onLeft,
@@ -419,6 +504,9 @@ function LayerPlayer({
     /** Its file was deleted: it stays where it is and fades out (sound
      *  too), then onLeft. */
     gone?: boolean;
+    /** Let go onto a plain picture (see SpotState.leaveTo): it shrinks onto
+     *  it and goes (null: nowhere to go, it fades), then onLeft. */
+    departTo?: { to: TileShape | null };
     /** Kept up to date: this file is in it while its player has shown something. */
     readyFiles: Set<number>;
     onShown: () => void;
@@ -426,7 +514,50 @@ function LayerPlayer({
 }): JSX.Element {
     // Into its spot (flying there if it comes from another one). Deleted: it
     // stays where it is.
-    useFlight(spot, box, float, gone);
+    const departing = !!departTo;
+    useFlight(spot, box, float, gone || departing);
+    // Onto its plain picture: the picture shrinks onto it (the tile's crop
+    // closing in), then a video crossfades into the tile's own thumbnail
+    // (a picture is the same image: it just goes).
+    const onLeftNow = useRef(onLeft);
+    onLeftNow.current = onLeft;
+    useLayoutEffect(() => {
+        if (!departTo) return;
+        const to = departTo.to;
+        const pic = box.querySelector<HTMLElement>("[data-picture]");
+        const root = pic?.parentElement as HTMLElement | null;
+        const fromPic = pictureRect(box);
+        const timers: ReturnType<typeof setTimeout>[] = [];
+        const fade = (ms: number, then: number) => {
+            box.style.transition = `opacity ${ms}ms ease-out`;
+            box.style.opacity = "0";
+            timers.push(setTimeout(() => onLeftNow.current(), then));
+        };
+        if (!to || !pic || !fromPic) {
+            fade(GONE_MS, GONE_MS + 30);
+        } else {
+            const b = box.getBoundingClientRect();
+            const f = flyTo(b, fromPic, coverRect(to.rect, to.aspect));
+            if (root) root.style.overflow = "visible";
+            const ease = `${INSPECT_OUT_MS}ms ${INSPECT_EASE}`;
+            Object.assign(pic.style, { transformOrigin: "0 0", transition: "none", transform: "none", clipPath: "inset(0px)" });
+            void pic.offsetWidth;
+            Object.assign(pic.style, {
+                transition: `transform ${ease}, clip-path ${ease}`,
+                transform: flightCss(f),
+                clipPath: insetFor(b, f, to.rect),
+            });
+            const isVideo = spot.file.media_type === "video";
+            timers.push(
+                setTimeout(() => {
+                    if (isVideo) fade(DEPART_FADE_MS, DEPART_FADE_MS + 20);
+                    else onLeftNow.current();
+                }, INSPECT_OUT_MS + 20),
+            );
+        }
+        return () => timers.forEach(clearTimeout);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [departTo != null, box]);
     const keepRef = useRef(keep);
     keepRef.current = keep;
     useLayoutEffect(() => {
@@ -479,15 +610,16 @@ function LayerPlayer({
             ? { ...spot.player, onClick: undefined, controlsRef: undefined, keyboardEnabled: false, onReady: undefined }
             : spot.player;
     // The box's own look, set on it directly (it isn't rendered by React).
-    // Covering or fading: the mouse goes past it.
-    const inert = leaving || gone;
+    // Covering, fading or leaving, or a spot that never takes it: the mouse
+    // goes past it.
+    const inert = leaving || gone || departing || !!spot.player.inert;
     useLayoutEffect(() => {
         box.className = `${inert ? "pointer-events-none" : "pointer-events-auto"} ${player.className ?? ""}`;
         if (gone) box.dataset.layerGone = String(fileId);
         else delete box.dataset.layerGone;
         if (leaving) box.dataset.layerLeaving = String(fileId);
         else delete box.dataset.layerLeaving;
-        if (leaving || gone) delete box.dataset.layerPlayer;
+        if (leaving || gone || departing) delete box.dataset.layerPlayer;
         else box.dataset.layerPlayer = String(fileId);
         // On top of the spot's new player while covering or fading.
         // Otherwise no level of its own: it stacks in page order, so the
@@ -531,6 +663,58 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
         const fl = float.current;
         if (!el || !fl) return;
         const ms = spot.arriveMs ?? 0;
+        // A new player for a spot that starts it from a plain picture of the
+        // file (a Browse tile): it grows from there, the tile's crop opening.
+        const from = prev === null && ms > 0 ? (spot.arriveFrom?.() ?? null) : null;
+        if (from) {
+            stop.current();
+            fl.appendChild(b);
+            const r = el.getBoundingClientRect();
+            Object.assign(b.style, {
+                position: "fixed",
+                inset: "auto",
+                left: `${r.left}px`,
+                top: `${r.top}px`,
+                width: `${r.width}px`,
+                height: `${r.height}px`,
+            } satisfies CSSProperties);
+            const pictureEl = b.querySelector<HTMLElement>("[data-picture]");
+            const root = pictureEl?.parentElement as HTMLElement | null;
+            const cleanups: (() => void)[] = [];
+            if (pictureEl) {
+                if (root) {
+                    const overflow = root.style.overflow;
+                    root.style.overflow = "visible";
+                    cleanups.push(() => (root.style.overflow = overflow));
+                }
+                const area = new DOMRect(r.left, r.top, r.width, r.height);
+                const f = flyTo(area, containRect(area, from.aspect), coverRect(from.rect, from.aspect));
+                const ease = `${ms}ms ${INSPECT_EASE}`;
+                Object.assign(pictureEl.style, {
+                    transformOrigin: "0 0",
+                    transition: "none",
+                    transform: flightCss(f),
+                    clipPath: insetFor(area, f, from.rect),
+                });
+                void pictureEl.offsetWidth;
+                Object.assign(pictureEl.style, { transition: `transform ${ease}, clip-path ${ease}`, transform: "none", clipPath: "inset(0px)" });
+                cleanups.push(() =>
+                    Object.assign(pictureEl.style, { transition: "", transform: "", transformOrigin: "", clipPath: "" }),
+                );
+            }
+            flyingTo.current = spot.id;
+            const t = setTimeout(() => {
+                stop.current();
+                if (el.isConnected) seat(b, el);
+            }, ms + LANDING_PAD_MS);
+            stop.current = () => {
+                clearTimeout(t);
+                cleanups.forEach((c) => c());
+                flyingTo.current = null;
+                stop.current = () => {};
+            };
+            return;
+        }
         const flies = prev !== null && prev !== spot.id && b.isConnected && ms > 0;
         if (!flies) {
             // Mid-flight to this same spot: let it land.
