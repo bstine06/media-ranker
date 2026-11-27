@@ -140,7 +140,11 @@ export default function ScrollView({
     // are over: a stepped-to file just appears).
     const stepped = useRef(false);
     if (cursor !== 0) stepped.current = true;
-    const opened = (f: DbFile) => !stepped.current && f.id === initialFile?.id;
+    // (The file it was opened on, kept from the start: Browse passes the
+    // file now on screen as initialFile, which changes the moment a step
+    // begins.)
+    const openedId = useRef(initialFile?.id);
+    const opened = (f: DbFile) => !stepped.current && f.id === openedId.current;
     const currentFileRef = useRef(currentFile);
     currentFileRef.current = currentFile;
     // Grown from a tile: once, on opening.

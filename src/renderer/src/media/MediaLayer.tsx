@@ -484,6 +484,20 @@ function floatAt(box: HTMLDivElement, float: HTMLElement): void {
     void getComputedStyle(box).opacity;
 }
 
+/** While a player flies to `el`, its floating box follows `el` frame by
+ *  frame (the spot can move meanwhile: a file view slot starting to slide).
+ *  The flight itself is relative to the box, so it goes along. Returns a stop. */
+function followWhileFlying(box: HTMLDivElement, el: HTMLElement): () => void {
+    let raf = 0;
+    const tick = () => {
+        const r = el.getBoundingClientRect();
+        Object.assign(box.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+        raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+}
+
 /** Put `box` inside `el`, filling it. */
 function seat(box: HTMLDivElement, el: HTMLElement): void {
     if (box.parentElement !== el) el.appendChild(box);
@@ -741,6 +755,7 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
                     Object.assign(pictureEl.style, { transition: "", transform: "", transformOrigin: "", clipPath: "" });
                 });
             }
+            cleanups.push(followWhileFlying(b, el));
             flyingTo.current = spot.id;
             const t = setTimeout(() => {
                 stop.current();
@@ -812,6 +827,7 @@ function useFlight(spot: Spot, b: HTMLDivElement, float: MutableRefObject<HTMLDi
                 for (const p of ["transition", "left", "top", "width", "height", "right", "bottom"] as const) hud.style[p] = "";
             });
         }
+        cleanups.push(followWhileFlying(b, el));
         flyingTo.current = spot.id;
         // Landed: inside the spot.
         const t = setTimeout(() => {
