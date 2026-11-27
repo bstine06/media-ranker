@@ -19,6 +19,9 @@ import { toMediaUrl } from "@renderer/lib/media";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { SlotResolver } from "@renderer/hooks/useScrollSlots";
 import ScrollView from "@renderer/components/ScrollView";
+import type { TileShape } from "@renderer/media/MediaLayer";
+import { isSideways } from "@renderer/lib/turn";
+import { INSPECT_MS, INSPECT_OUT_MS } from "@renderer/lib/inspect";
 import { showInFolder } from "@renderer/lib/filesystem";
 import { TagIcon } from "@renderer/components/icons/TagIcon";
 import FolderTagPanel from "./FolderTagPanel";
@@ -107,6 +110,52 @@ export default function BrowseView({
     const [browseScrollIndex, setBrowseScrollIndex] = useState<number | null>(
         null,
     );
+    // The file view as an inspection, over the grid (which stays, dimmed):
+    // the file's one player flies from its hover zoom, or grows from its
+    // tile (`arrive`, its thumbnail `poster` the player's loading picture),
+    // and on closing shrinks back onto the tile of the file then on screen.
+    const [fileView, setFileView] = useState<{
+        closing: boolean;
+        shown: boolean;
+        arrive: TileShape | null;
+        poster?: string;
+    } | null>(null);
+    const fileViewRef = useRef(fileView);
+    fileViewRef.current = fileView;
+    const browseBoxRef = useRef<HTMLDivElement>(null);
+    // A tile's (or row's) thumbnail, as a plain picture of its file: its box
+    // (the picture is drawn cover in it) and the picture's shape as drawn.
+    const tileAt = (index: number): { el: HTMLElement; shape: TileShape | null; poster?: string } | null => {
+        const el = browseBoxRef.current?.querySelector<HTMLElement>(`[data-browse-index="${index}"]`);
+        if (!el) return null;
+        const img = el.querySelector<HTMLImageElement>("img");
+        const file = sortedFilesRef.current[index];
+        if (!img || !file || !img.naturalWidth || !img.naturalHeight) return { el, shape: null };
+        const box = img.parentElement?.tagName === "SPAN" ? img.parentElement : img;
+        const rect = box.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return { el, shape: null };
+        const a = img.naturalWidth / img.naturalHeight;
+        return { el, shape: { rect, aspect: isSideways(file.rotation ?? 0) ? 1 / a : a }, poster: img.src };
+    };
+    const openFileView = (index: number) => {
+        if (fileViewRef.current) return;
+        const t = tileAt(index);
+        setFileView({ closing: false, shown: false, arrive: t?.shape ?? null, poster: t?.poster });
+        setBrowseScrollIndex(index);
+    };
+    // Closing: the tile of the file on screen is brought into view first, so
+    // the player has it to land on.
+    const closeFileView = () => {
+        const fv = fileViewRef.current;
+        if (!fv || fv.closing) return;
+        if (browseScrollIndex !== null) tileAt(browseScrollIndex)?.el.scrollIntoView({ block: "nearest" });
+        setFileView({ ...fv, closing: true });
+    };
+    // Gone at once (another folder, nothing left to show).
+    const dropFileView = () => {
+        setFileView(null);
+        setBrowseScrollIndex(null);
+    };
 
     // ── Selection ───────────────────────────────────────────────────────────
     // ⌘-click toggles a file; "Select" mode makes plain clicks toggle too.
@@ -173,6 +222,7 @@ export default function BrowseView({
     //get files on mount, clear browseScroll
     useEffect(() => {
         getFilesForFolder(activeFolder, activeFilter, showUnsorted);
+        setFileView(null);
         setBrowseScrollIndex(null);
     }, [rootPath, activeFolder, activeFilter, showUnsorted]);
 
@@ -196,14 +246,14 @@ export default function BrowseView({
             if (browseScrollIndex !== null) {
                 if (e.code !== "KeyG" && e.code !== "Escape") return;
                 e.preventDefault();
-                setBrowseScrollIndex(null);
+                closeFileView();
                 return;
             }
             if (e.code !== "KeyG") return;
             const el = document.querySelector<HTMLElement>("[data-browse-index]:hover");
             if (!el) return;
             e.preventDefault();
-            setBrowseScrollIndex(Number(el.dataset.browseIndex));
+            openFileView(Number(el.dataset.browseIndex));
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
@@ -581,7 +631,7 @@ export default function BrowseView({
         } else if (selectMode || e?.metaKey || e?.ctrlKey) {
             toggleSelected(file);
         } else {
-            setBrowseScrollIndex(index);
+            openFileView(index);
         }
     };
 
@@ -595,6 +645,8 @@ export default function BrowseView({
         () => sortFiles(files, sortMode, sortDirection),
         [files, sortMode, sortDirection],
     );
+    const sortedFilesRef = useRef(sortedFiles);
+    sortedFilesRef.current = sortedFiles;
 
     const selectedFiles = useMemo(
         () => sortedFiles.filter((f) => selectedIds.has(f.id)),
@@ -792,7 +844,7 @@ export default function BrowseView({
             // The shown file is gone: the one now in its place takes over
             // (the one before it, if it was last). Nothing left: close.
             if (sortedFiles.length === 0) {
-                setBrowseScrollIndex(null);
+                dropFileView();
                 return;
             }
             const last = shownAtRef.current >= sortedFiles.length;
@@ -834,6 +886,7 @@ export default function BrowseView({
         [sortedFiles, browseScrollIndex],
     );
 
+    let fileViewEl: JSX.Element | null = null;
     if (rootPath && browseScrollIndex !== null) {
         const currentFile = sortedFiles[browseScrollIndex];
 
@@ -841,7 +894,7 @@ export default function BrowseView({
             ? getDisplayFolder(currentFile.path)
             : null;
 
-        return (
+        fileViewEl = (
             <ScrollView
                 initialFile={currentFile}
                 resolver={resolver}
@@ -857,14 +910,29 @@ export default function BrowseView({
                 onFolderClick={(folderName) => {
                     // To that folder's grid, even when it's the one already
                     // open (the file view closes).
-                    setBrowseScrollIndex(null);
+                    dropFileView();
                     setActiveFolder(folderName);
                     if (folderName === null) setShowUnsorted(true);
                     else setShowUnsorted(false);
                     setView("browse");
                 }}
                 onFileClick={(file) => showInFolder(rootPath!, file.path)}
-                onClose={() => setBrowseScrollIndex(null)}
+                onClose={closeFileView}
+                inspect={
+                    fileView
+                        ? {
+                              closing: fileView.closing,
+                              onShown: () => setFileView((f) => (f && !f.shown ? { ...f, shown: true } : f)),
+                              onClosed: dropFileView,
+                              arriveFrom: () => fileViewRef.current?.arrive ?? null,
+                              posterUrl: fileView.poster,
+                              leaveTo: (file) => {
+                                  const i = sortedFilesRef.current.findIndex((f) => f.id === file.id);
+                                  return i >= 0 ? (tileAt(i)?.shape ?? null) : null;
+                              },
+                          }
+                        : undefined
+                }
                 jumpTo={jumpTo}
                 onCrown={crownAndCompare}
                 onPlace={(file) => {
@@ -879,8 +947,17 @@ export default function BrowseView({
         );
     }
 
+    const dimmed = !!fileView?.shown && !fileView.closing;
     return (
+    <div ref={browseBoxRef} className="relative flex flex-1 flex-col overflow-hidden">
+    {fileViewEl && (
+        <div className="absolute inset-0 z-20 flex flex-col">{fileViewEl}</div>
+    )}
     <div
+        style={{
+            opacity: dimmed ? 0.06 : 1,
+            transition: `opacity ${fileView?.closing ? INSPECT_OUT_MS : INSPECT_MS}ms ease-out`,
+        }}
         className="flex flex-1 flex-col overflow-hidden"
         onDragOver={(e) => e.preventDefault()}
         onDragEnter={(e) => e.preventDefault()}
@@ -1169,6 +1246,7 @@ export default function BrowseView({
                                         onClickTrash={() => setDeleting([file])}
                                         onClickCrown={() => crownAndCompare(file)}
                                         onDragOut={() => handleDragOut(file)}
+                                        previewOff={fileView != null}
                                     />
                                     {draftProfileImage ===
                                         file.content_hash && (
@@ -1206,6 +1284,7 @@ export default function BrowseView({
                                 rootPath={rootPath!}
                                 onClick={(e) => handleTileClick(file, index, e)}
                                 onDragOut={() => handleDragOut(file)}
+                                previewOff={fileView != null}
                                 isSelected={
                                     draftProfileImage === file.content_hash || isSelected(file)
                                 }
@@ -1280,6 +1359,7 @@ export default function BrowseView({
                 />
             )}
         </div>
+    </div>
     </div>
 );
 }
