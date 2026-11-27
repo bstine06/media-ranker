@@ -1020,9 +1020,10 @@ function SweepStrip({
         <div
             ref={boxRef}
             // The pointer stands in for the mouse here, so the cursor hides
-            // (back while picking, to click a result).
+            // (back while picking, to click a result), over the tiles' players
+            // too (they set their own).
             className={`relative min-h-0 flex-1 overflow-hidden bg-black select-none ${
-                picking ? "" : "cursor-none"
+                picking ? "" : "cursor-none [&_*]:!cursor-none"
             }`}
         >
             <div className="absolute inset-0 flex flex-col">
