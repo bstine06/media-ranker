@@ -10,18 +10,25 @@ Tick each box as you go. Note anything odd next to the item.
    Each view (Browse, Compare, Sweep, Pass, a file opened from a list, the
    pending-changes list) now has its own player for a file. A view in the
    background keeps its own and no longer takes the one on screen.
-[ ] Browse's file view open on a file, then Compare shows that same file
+[y] Browse's file view open on a file, then Compare shows that same file
     on a card: the card shows it. Back to Browse: the file view still
     shows it
-[ ] The other way round: a file on a Compare card, open it in Browse's
+[y] The other way round: a file on a Compare card, open it in Browse's
     file view, then back to Compare: the card still shows it
-[ ] The same with Sweep: a file in a lane, open it in Browse's file view
+[y] The same with Sweep: a file in a lane, open it in Browse's file view
     (or hover zoom it), back to Sweep: the tile still shows it
-[ ] Hover zoom on a file that's on a Compare card: shows, plays, right
+[y] Hover zoom on a file that's on a Compare card: shows, plays, right
     shape (tall for a vertical video), as fixed earlier today
-[ ] Flights inside a view work as before: Compare card → G → back, Browse
+[y] Flights inside a view work as before: Compare card → G → back, Browse
     tile / hover zoom → G → back, Sweep and Pass → G → back
-[ ] Compare: the focused side's keys (Q / E, P, hold 4) work, and its
+[y] Compare: the focused side's keys (Q / E, P, hold 4) work, and its
     bar shows, with the same file also open in Browse's file view
-[ ] Only one sound plays: switching views with a video open in two views,
+[y] Only one sound plays: switching views with a video open in two views,
     the view in the background stays silent and paused
+
+
+── 2. Left over from checklist 6 ─────────────────────────────────────────
+[ ] A baked MP4 / MOV opens turned in QuickTime (a big one too, if you
+    feel like it)
+[ ] Q / E step back / forward on the focused video (Compare's focused side,
+    the file view, Pass's current tile); P plays / pauses (V no longer does)

@@ -47,7 +47,7 @@ i found a pretty unacceptable bug that has nothing to do with rotation. A file t
 
 ── 25–27. Bake and the delete fade ───────────────────────────────────────
 [y] A baked JPEG opens turned in Finder / Preview
-[ ] A baked MP4 / MOV opens turned in QuickTime (try a big one too)
+[→7] A baked MP4 / MOV opens turned in QuickTime (try a big one too)
 lazy to try a big one
 [y] Compare → G → Delete on a PLAYING video: its sound fades out, no
     cut-off pop
@@ -77,7 +77,7 @@ there is lag. unclear if its always been there. totally acceptable lag for now
 
 pass doesnt keep playing silently, it pauses, but thats what i wanted so its all good. we should have sweep lanes pause their horizontal movement when pause when unfocused is on. There's a bug in sweep with the pause when unfocused, that new videos sailing into frame will start playing, but that will be a non-issue that we needn't address if we just pause the sweep lanes while unfocused and the app has that setting enabled.
 
-[ ] Q / E step back / forward on the focused video (Compare's focused side,
+[→7] Q / E step back / forward on the focused video (Compare's focused side,
     the file view, Pass's current tile); P plays / pauses (V no longer does)
 [y] Hold 4: the focused video plays faster (Pass's speed setting), in
     Compare, the file view and Pass; letting go: normal speed; in Pass,
