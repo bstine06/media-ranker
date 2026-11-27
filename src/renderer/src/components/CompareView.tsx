@@ -1,10 +1,8 @@
 import {
     useEffect,
-    useLayoutEffect,
     useState,
     useCallback,
     useRef,
-    type ReactNode,
 } from "react";
 import type {
     DbFile,
@@ -15,8 +13,8 @@ import type {
 } from "../shared/types/types";
 import { toMediaUrl } from "../lib/media";
 import { preloadImage } from "../lib/imageCache";
-import { MediaSpot, useLiftAbove } from "@renderer/media/MediaLayer";
-import { createPortal } from "react-dom";
+import { MediaSpot } from "@renderer/media/MediaLayer";
+import { Liftable } from "@renderer/media/Liftable";
 import { claimSpaceAndTab, isTyping } from "@renderer/lib/keys";
 import { useTags } from "@renderer/contexts/TagsContext";
 import { useFolders } from "@renderer/contexts/FolderContext";
@@ -1250,7 +1248,6 @@ function CompareCard({
     // The top pieces: after the spot, so they sit above the player; while a
     // file view is up, in the lift box instead (above the player flying
     // past, see liftFade).
-    const lift = useLiftAbove();
     const mediaRef = useRef<HTMLDivElement>(null);
     const cardTop = (
         <CardTop
@@ -1300,57 +1297,10 @@ function CompareCard({
                         rotation: file.rotation,
                     }}
                 />
-                {liftFade && lift
-                    ? createPortal(
-                          <LiftedOver over={mediaRef} fade={liftFade}>
-                              {cardTop}
-                          </LiftedOver>,
-                          lift,
-                      )
-                    : cardTop}
+                <Liftable over={mediaRef} fade={liftFade}>
+                    {cardTop}
+                </Liftable>
             </div>
-        </div>
-    );
-}
-
-/** Pieces drawn in the lift box, laid exactly over `over`; never take the
- *  mouse (a file view is up). */
-function LiftedOver({
-    over,
-    fade,
-    children,
-}: {
-    over: React.RefObject<HTMLElement>;
-    fade: { opacity: number; ms: number };
-    children: ReactNode;
-}): JSX.Element {
-    const [r, setR] = useState<DOMRect | null>(() => over.current?.getBoundingClientRect() ?? null);
-    useLayoutEffect(() => {
-        const el = over.current;
-        if (!el) return;
-        const measure = () => setR(el.getBoundingClientRect());
-        measure();
-        const ro = new ResizeObserver(measure);
-        ro.observe(el);
-        window.addEventListener("resize", measure);
-        return () => {
-            ro.disconnect();
-            window.removeEventListener("resize", measure);
-        };
-    }, [over]);
-    return (
-        <div
-            className="pointer-events-none fixed overflow-hidden [&_*]:!pointer-events-none"
-            style={{
-                left: r?.left ?? 0,
-                top: r?.top ?? 0,
-                width: r?.width ?? 0,
-                height: r?.height ?? 0,
-                opacity: fade.opacity,
-                transition: `opacity ${fade.ms}ms ease-out`,
-            }}
-        >
-            {children}
         </div>
     );
 }

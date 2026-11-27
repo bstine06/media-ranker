@@ -73,6 +73,8 @@ interface MediaPlayerProps {
      *  its bottom. Unset: focused while keyboardEnabled and it's live (heard,
      *  or hovered). */
     focused?: boolean;
+    /** The media's own shape (width / height, unturned), once loaded. */
+    onAspect?: (aspect: number) => void;
 }
 
 export function MediaPlayer({
@@ -95,6 +97,7 @@ export function MediaPlayer({
     barFitsPicture = false,
     mixed = false,
     focused,
+    onAspect,
 }: MediaPlayerProps): JSX.Element {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     // The video's own shape (width / height), once known.
@@ -572,7 +575,10 @@ export function MediaPlayer({
                             const v = videoRef.current;
                             const d = v?.duration;
                             if (d && isFinite(d)) setDuration(d);
-                            if (v?.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight);
+                            if (v?.videoWidth && v.videoHeight) {
+                                setVideoAspect(v.videoWidth / v.videoHeight);
+                                onAspect?.(v.videoWidth / v.videoHeight);
+                            }
                             // Pick up where the previous version was.
                             const resume = resumeRef.current;
                             if (v && resume) {
@@ -640,7 +646,9 @@ export function MediaPlayer({
                         style={{
                             opacity: fullLoaded ? 1 : 0,
                         }}
-                        onLoad={() => {
+                        onLoad={(e) => {
+                            const img = e.currentTarget;
+                            if (img.naturalWidth && img.naturalHeight) onAspect?.(img.naturalWidth / img.naturalHeight);
                             setLoadedUrl(fullUrl);
                             setImgCover(null);
                             reportReady();

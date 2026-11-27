@@ -66,6 +66,8 @@ export interface SpotPlayer {
     /** The focused media of its view: answers the playback keys and shows
      *  its bar (see MediaPlayer). */
     focused?: boolean;
+    /** The media's own shape (width / height, unturned), once loaded. */
+    onAspect?: (aspect: number) => void;
 }
 
 interface SpotState {
@@ -363,6 +365,7 @@ function Player({ spot, onReady }: { spot: Spot; onReady?: () => void }): JSX.El
             seeThrough={p.seeThrough}
             barFitsPicture={p.barFitsPicture}
             focused={!!p.focused}
+            onAspect={p.onAspect}
             // Every layer player's sound goes through the app's mixer.
             mixed
         />

@@ -25,9 +25,11 @@ import { useTags } from "@renderer/contexts/TagsContext";
 import { useSettings } from "@renderer/contexts/SettingsContext";
 import { useFileTags, publishFileTags } from "@renderer/hooks/useFileTags";
 import { isTyping } from "@renderer/lib/keys";
-import { stepVideo } from "@renderer/lib/media";
 import { PointerLabel, MediaFlash } from "./TagPointer";
-import { LaneMedia, measureAspect } from "./lane";
+import { measureAspect } from "./lane";
+import { MediaSpot } from "@renderer/media/MediaLayer";
+import { Liftable } from "@renderer/media/Liftable";
+import { INSPECT_OUT_MS } from "@renderer/lib/inspect";
 import { turnedAspect } from "@renderer/lib/turn";
 import { TagPill } from "./TagPill";
 
@@ -68,11 +70,15 @@ export default function PassRun({
     rootPath,
     onInspect,
     onCompare,
+    liftFade,
 }: {
     active: boolean;
     rootPath: string;
     onInspect: (file: DbFile) => void;
     onCompare: (file: DbFile) => void;
+    /** A file view is up over the run: its pieces on the current tile (the
+     *  no-ring, the pointer) sit above the flying player, at this opacity. */
+    liftFade: { opacity: number; ms: number } | null;
 }): JSX.Element | null {
     const { run, forward, back, pickTag, replaceFile } = usePass();
     const { tagMap } = useTags();
@@ -407,52 +413,29 @@ export default function PassRun({
         }
     }, [W]);
     useLayoutEffect(() => placePointer(true));
-    const onMouseMove = (e: React.MouseEvent) => {
+    // A page listener, not React's: the tiles' players are rendered by the
+    // media layer, so React's mouse events from them don't come through here
+    // (the page's do: they're inside the lane).
+    const onMouseMove = useRef<(e: MouseEvent) => void>(() => {});
+    onMouseMove.current = (e: MouseEvent) => {
         const b = boxRef.current?.getBoundingClientRect();
         if (!b) return;
         mouse.current = { x: e.clientX - b.left, y: e.clientY - b.top };
         if (!hasMouse) setHasMouse(true);
         placePointer(false);
     };
+    useEffect(() => {
+        const box = boxRef.current;
+        if (!box) return;
+        const move = (e: MouseEvent) => onMouseMove.current(e);
+        box.addEventListener("mousemove", move);
+        return () => box.removeEventListener("mousemove", move);
+    }, [run != null]);
 
-    // ── Videos (Q / E scrub the current one) ──
-    const currentVideo = useRef<HTMLVideoElement | null>(null);
-    // Hold 4: the current video plays faster (the factor is a setting).
-    // Stepping to another file while held carries it over; letting go, or
-    // the window losing focus, goes back to normal speed.
-    const { passFfFactor } = useSettings();
-    const ffHeld = useRef(false);
-    const ffFactor = useRef(passFfFactor);
-    ffFactor.current = passFfFactor;
-    const setCurrentVideo = useCallback((el: HTMLVideoElement | null) => {
-        if (currentVideo.current && currentVideo.current !== el) currentVideo.current.playbackRate = 1;
-        currentVideo.current = el;
-        if (el) el.playbackRate = ffHeld.current ? ffFactor.current : 1;
-    }, []);
-    const setFf = useCallback((on: boolean) => {
-        ffHeld.current = on;
-        if (currentVideo.current) currentVideo.current.playbackRate = on ? ffFactor.current : 1;
-    }, []);
-    useEffect(() => {
-        if (ffHeld.current && currentVideo.current) currentVideo.current.playbackRate = passFfFactor;
-    }, [passFfFactor]);
-    useEffect(() => {
-        if (!active) {
-            setFf(false);
-            return;
-        }
-        const onUp = (e: KeyboardEvent) => {
-            if (e.code === "Digit4") setFf(false);
-        };
-        const onBlur = () => setFf(false);
-        window.addEventListener("keyup", onUp);
-        window.addEventListener("blur", onBlur);
-        return () => {
-            window.removeEventListener("keyup", onUp);
-            window.removeEventListener("blur", onBlur);
-            setFf(false);
-        };
-    }, [active, setFf]);
+    // ── Videos ──
+    // Q / E scrub, hold 4 fast-forward and P play / pause the current video:
+    // its player does it (it's the focused one, see PassTile).
+    const curMediaRef = useRef<HTMLDivElement>(null);
 
     // ── Keys ──
     const state = useRef({ current, tagId, tagged: !!onFile, upperTag, upperTagged: !!onFileUpper, currentKey });
@@ -520,11 +503,6 @@ export default function PassRun({
                     e.preventDefault();
                     if (!e.repeat) back();
                     break;
-                case "Digit4":
-                    // Hold: fast-forward the current video (see setFf).
-                    e.preventDefault();
-                    if (!e.repeat) setFf(true);
-                    break;
                 case "KeyV":
                     // A pair: V toggles the upper tag (flashing the top edge).
                     if (!upperTag) return;
@@ -535,15 +513,6 @@ export default function PassRun({
                             setTileFlash((f) => ({ key: currentKey, kind, n: (f?.n ?? 0) + 1, edges: "top" }));
                         }
                     });
-                    break;
-                case "KeyQ":
-                case "KeyE":
-                case "ArrowLeft":
-                case "ArrowRight":
-                    e.preventDefault();
-                    if (currentVideo.current) {
-                        stepVideo(currentVideo.current, e.code === "KeyQ" || e.code === "ArrowLeft" ? -1 : 1);
-                    }
                     break;
                 case "KeyR":
                     // A turn on the file's rotation setting (one undo entry,
@@ -565,7 +534,7 @@ export default function PassRun({
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [active, forward, back, replaceFile, onInspect, onCompare, pickingRef, loadNoes, toggleUpper, setFf]);
+    }, [active, forward, back, replaceFile, onInspect, onCompare, pickingRef, loadNoes, toggleUpper]);
 
     if (!run) return null;
     const tr = run.t < run.tags.length ? run.tags[run.t] : null;
@@ -578,7 +547,6 @@ export default function PassRun({
             <div
                 ref={boxRef}
                 className={`relative flex-1 overflow-hidden ${cursorClass}`}
-                onMouseMove={onMouseMove}
             >
                 {/* The lane: one row of tiles edge to edge, moving as one */}
                 <div
@@ -601,6 +569,7 @@ export default function PassRun({
                                 style={{ width: w, height: laneH }}
                             >
                                 <div
+                                    ref={isCurrent ? curMediaRef : undefined}
                                     className="absolute inset-x-0 overflow-hidden"
                                     style={{
                                         top,
@@ -618,13 +587,21 @@ export default function PassRun({
                                         current={isCurrent}
                                         active={active}
                                         onShape={onShape}
-                                        onVideo={isCurrent ? setCurrentVideo : undefined}
+                                        returning={!!liftFade}
                                     />
                                     {/* A firm no: a steady red ring round the media (easy
                                         to catch as it slides away), and a badge saying so. A
                                         pair: the top half for the upper tag, the bottom half
                                         for the lower one, each badge naming its tag. */}
-                                    {it.kind === "file" && <NoMarks run={run} t={it.t} fileId={it.file.id} noes={noes} />}
+                                    {it.kind === "file" &&
+                                        (isCurrent ? (
+                                            // Above the player flying past while a file view is up.
+                                            <Liftable over={curMediaRef} fade={liftFade}>
+                                                <NoMarks run={run} t={it.t} fileId={it.file.id} noes={noes} />
+                                            </Liftable>
+                                        ) : (
+                                            <NoMarks run={run} t={it.t} fileId={it.file.id} noes={noes} />
+                                        ))}
                                 </div>
                                 {isCurrent && tileFlash && tileFlash.key === key && (
                                     <div
@@ -656,6 +633,8 @@ export default function PassRun({
 
                 {/* The pointer, with the tag it applies (not on the end card) */}
                 {current && current.kind !== "end" && (
+                    // Above the player flying past while a file view is up.
+                    <Liftable over={boxRef} fade={liftFade}>
                     <div
                         ref={pointerRef}
                         className={`pointer-events-none absolute z-20 w-max flex-col items-center whitespace-nowrap ${
@@ -668,6 +647,7 @@ export default function PassRun({
                             upper={upperTag ? { tag: upperTag, onFile: onFileUpper } : undefined}
                         />
                     </div>
+                    </Liftable>
                 )}
 
                 {/* The strip: tag, place, keys, and the run's progress */}
@@ -735,7 +715,7 @@ function PassTile({
     current,
     active,
     onShape,
-    onVideo,
+    returning,
 }: {
     item: PassItem;
     run: Run;
@@ -744,18 +724,32 @@ function PassTile({
     /** The run is showing (not under the file view, G): paused otherwise. */
     active: boolean;
     onShape: (fileId: number, aspect: number) => void;
-    onVideo?: (el: HTMLVideoElement | null) => void;
+    /** A file view is up: its player flies home to its tile on closing. */
+    returning: boolean;
 }): JSX.Element {
     if (item.kind === "file") {
         const id = item.file.id;
+        // A spot: the file's one player (media layer), sliding with the lane
+        // and flown to the file view and back on G. Every tile plays while
+        // the run shows; only the current one is heard, answers the playback
+        // keys and shows its bar.
         return (
-            <LaneMedia
+            <MediaSpot
                 file={item.file}
-                rootPath={rootPath}
-                audible={current && active}
-                play={active}
-                onShape={(aspect) => onShape(id, aspect)}
-                onVideo={onVideo}
+                className="absolute inset-0"
+                arriveMs={returning && current ? INSPECT_OUT_MS : 0}
+                player={{
+                    disabled: !active,
+                    muted: !(current && active),
+                    focused: current && active,
+                    clickToPauseEnabled: false,
+                    keyboardEnabled: false,
+                    rotation: item.file.rotation,
+                    // A lane: keeps playing, silently, while the window is
+                    // in the background.
+                    whenAway: "silence",
+                    onAspect: (aspect) => onShape(id, aspect),
+                }}
             />
         );
     }
