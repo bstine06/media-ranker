@@ -355,8 +355,6 @@ function SettingsModal({
         toggleHoverPreview,
         volume,
         handleVolumeChange,
-        scrollTime,
-        handleScrollTimeChange,
         tileSize,
         handleTileSizeChange,
         showTagCategoryNames,
@@ -489,13 +487,6 @@ function SettingsModal({
                         max={100}
                         value={volume}
                         onChange={handleVolumeChange}
-                    />
-                    <SliderInput
-                        name="scroll time"
-                        min={0}
-                        max={2000}
-                        value={scrollTime}
-                        onChange={handleScrollTimeChange}
                     />
                 </SettingsGroup>
 

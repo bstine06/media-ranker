@@ -1,8 +1,9 @@
 // Shared bits of the viewers' keyboard scheme. Every viewer (Compare,
 // Browse scroll, single file) uses the same keys:
-//   2 / ↓      confirm (Compare: focused side wins) or next file
-//   W / ↑      previous (Compare: undo the last pick)
-//   1 / 3      Compare: focus the left / right side
+//   2 / ↓      Compare: confirm (focused side wins)
+//   W / ↑      Compare: undo the last pick
+//   1 / 3      Compare: focus the left / right side; the file view (Browse)
+//              and a pass: previous / next file
 //   Q / ←      step back       E / →  step forward   (the focused video)
 //   P          play / pause    hold 4 fast-forward   (lib/fastForward)
 //   R          rotate left     K      king (crown / Compare)

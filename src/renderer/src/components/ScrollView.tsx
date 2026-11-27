@@ -80,7 +80,6 @@ export default function ScrollView({
         videoRef1,
         currentFile,
         cursor,
-        handleWheel,
         navigate,
     } = useScrollSlots({ initialFile, resolver, active });
 
@@ -246,35 +245,6 @@ export default function ScrollView({
             )}
         </div>
     );
-    const arrows = (
-        <div
-            // Up / down mean nothing here; on closing they just go
-            // (no fade), so they don't hang over the picture.
-            style={closing ? { opacity: 0, transition: "none" } : chromeStyle}
-            className="absolute inset-0 z-10 flex items-center justify-end pr-4 pointer-events-none group"
-            onKeyDown={(e) => {
-                if (e.key === " ") {
-                    e.preventDefault();
-                }
-            }}
-        >
-            <div className="flex flex-col gap-2 pointer-events-auto opacity-20 group-hover:opacity-100 duration-500">
-                <button
-                    onClick={() => navigate("up")}
-                    className="rounded-full bg-neutral-800 p-2 text-white disabled:opacity-20 hover:bg-black/80"
-                >
-                    ▲
-                </button>
-                <button
-                    onClick={() => navigate("down")}
-                    className="rounded-full bg-neutral-800 p-2 text-white hover:bg-black/80"
-                >
-                    ▼
-                </button>
-            </div>
-        </div>
-    );
-
     return (
         <div className="relative flex min-h-0 flex-1">
             {backBar}
@@ -283,7 +253,6 @@ export default function ScrollView({
             >
                 <div
                     className={`relative min-h-0 flex-1 overflow-hidden ${pointer.cursorClass}`}
-                    onWheel={handleWheel}
                     {...pointer.handlers}
                 >
                     <MediaFlash flash={pointer.flash} />
@@ -336,7 +305,6 @@ export default function ScrollView({
                     ))}
                 </div>
 
-                {arrows}
             </div>
 
             {/* Draggable divider */}

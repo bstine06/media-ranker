@@ -10,8 +10,6 @@ interface Settings {
     toggleHoverPreview: () => void;
     volume: number;
     handleVolumeChange: (newVolume: number) => void;
-    scrollTime: number; //260ms default
-    handleScrollTimeChange: (newScrollTime: number) => void;
     tileSize: number; //200px default
     handleTileSizeChange: (newTileSize: number) => void;
     showTagCategoryNames: boolean;
@@ -93,8 +91,6 @@ const SettingsContext = createContext<Settings>({
     toggleHoverPreview: () => {},
     volume: 100,
     handleVolumeChange: (newVolume: number) => {},
-    scrollTime: 260,
-    handleScrollTimeChange: (newScrollTime: number) => {},
     tileSize: 200,
     handleTileSizeChange: (newTileSize: number) => {},
     showTagCategoryNames: true,
@@ -185,16 +181,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             );
         }
         setVolume(newVolume);
-    }, []);
-
-    const [scrollTime, setScrollTime] = useState(() => savedNum("scrollTime", 260, 0, 2000));
-    const handleScrollTimeChange = useCallback((newScrollTime: number) => {
-        if (newScrollTime < 0 || newScrollTime > 2000) {
-            throw new RangeError(
-                `ScrollTime must be between 0 and 2000, got ${newScrollTime}`,
-            );
-        }
-        setScrollTime(newScrollTime);
     }, []);
 
     const [tileSize, setTileSize] = useState(() => savedNum("tileSize", 200, 100, 300));
@@ -318,7 +304,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 .saveSettings({
                     hoverPreviewEnabled,
                     volume,
-                    scrollTime,
                     tileSize,
                     showTagCategoryNames,
                     pauseWhenUnfocused,
@@ -352,7 +337,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }, [
         hoverPreviewEnabled,
         volume,
-        scrollTime,
         tileSize,
         showTagCategoryNames,
         pauseWhenUnfocused,
@@ -388,8 +372,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 toggleHoverPreview,
                 volume,
                 handleVolumeChange,
-                scrollTime,
-                handleScrollTimeChange,
                 tileSize,
                 handleTileSizeChange,
                 showTagCategoryNames,
