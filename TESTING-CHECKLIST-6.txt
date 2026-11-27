@@ -135,22 +135,22 @@ the hold-to-change-directions happens a bit too fast for me and it becomes a lit
 
 it can be a bit unresponsive. it seems to ignore a new 1/3 keypress while the animation from the previous one is still happening, we should tighten this up so you can quickly navigate through a list with 1/3
 
-[g] Esc / G / Back: it shrinks back into the tile, edges cropping in; a
+[y] Esc / G / Back: it shrinks back into the tile, edges cropping in; a
     video fades into the tile's still picture; after stepping, it lands on
     the new file's tile, the grid scrolled to it if needed
-[g] List view: the same from a row's thumbnail
-[g] The "scroll time" setting is gone from Settings
+[y] List view: the same from a row's thumbnail
+[y] The "scroll time" setting is gone from Settings
 
 
 ── 35. Files shown in another view, in Browse (UNTESTED) ─────────────────
    Fix for: a file on a Compare card / in Sweep / a file view never showed
    in Browse's hover zoom, and Browse's file view showed it only once.
-[ ] Hover zoom on a file that's on a Compare card (fresh start too): it
+[y] Hover zoom on a file that's on a Compare card (fresh start too): it
     shows and plays
-[ ] Same for a file showing in Sweep
-[ ] Browse's file view (G) on that file, close, open it again: it shows
+[y] Same for a file showing in Sweep
+[y] Browse's file view (G) on that file, close, open it again: it shows
     both times (picture and video)
-[ ] Back to Compare after that: the card looks normal (not see-through, not
+[y] Back to Compare after that: the card looks normal (not see-through, not
     shrunk or cropped)
-[ ] Hover zoom on a VERTICAL video (and a vertical picture) that's on a
+[y] Hover zoom on a VERTICAL video (and a vertical picture) that's on a
     Compare card / in Sweep: the zoom box is tall, no wide black box around it
