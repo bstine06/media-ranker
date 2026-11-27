@@ -28,7 +28,7 @@ Tick each box as you go. Note anything odd next to the item.
 
 
 ── 2. Left over from checklist 6 ─────────────────────────────────────────
-[ ] A baked MP4 / MOV opens turned in QuickTime (a big one too, if you
+[y] A baked MP4 / MOV opens turned in QuickTime (a big one too, if you
     feel like it)
 [y] Q / E step back / forward on the focused video (Compare's focused side,
     the file view, Pass's current tile); P plays / pauses (V no longer does)
