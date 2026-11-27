@@ -64,7 +64,7 @@ interface Settings {
      *  1 s after the last scrub). */
     sweepScrubHold: boolean;
     toggleSweepScrubHold: () => void;
-    /** Sweep's 1 / 3 / 6 (and edge zones) move every lane, not just the
+    /** Sweep's 1 / 3 (and edge zones) move every lane, not just the
      *  one under the cursor. */
     sweepAllLanes: boolean;
     toggleSweepAllLanes: () => void;

@@ -32,11 +32,15 @@ import { filterKey, pruneFilter } from "@renderer/lib/tagFilters";
 // (contexts/TagPointerContext): its keys (Space, Tab / T / right click, `,
 // H) work the same here as everywhere; Sweep adds the strip's own.
 //   Space  toggle the tag on the active file (or click any file)
-//   1  held: fast reverse; on release, forward again at the set speed
-//   3  forward again (held: fast forward)    6  stop
+//   1 / 3  the lanes' direction, 3 the forward key, 1 the reverse key:
+//     the key of the way it's going: held, fast that way (back to the set
+//     speed on letting go); paused: goes that way (held: fast, then the set
+//     speed); the opposite key: pauses at once, and still held after a
+//     moment, goes fast the other way (then the set speed that way)
 //   2  pointer to the next lane (2–3 lanes), same height in it
 //   Fast either way is 4× at once, climbing to 20×; so do the edges.
-//   4 / 5  set speed down / up (or scroll)    `  new random tag
+//   5 / 6  set speed down / up (or scroll)    `  new random tag
+//   (4 is fast-forward on a focused video, app-wide: lib/fastForward)
 //   Tab / right click / T  hold: the strip stops and the pointer grows,
 //     with earlier tags stacked above it (smaller and smaller, 3 at a time):
 //     Tab steps back through them, Shift+Tab forward again, Space (or a
@@ -266,7 +270,7 @@ const CHECK_MIN_VISIBLE = 0.5;
  *  within about a second. */
 const BOOST_START = 4;
 const BOOST_MAX = 20;
-/** 4 / 5 change the set speed by this much (px/s), within these limits. */
+/** 5 / 6 change the set speed by this much (px/s), within these limits. */
 const SPEED_STEP = 20;
 const SPEED_MIN = 20;
 const SPEED_MAX = 1000;
@@ -287,6 +291,9 @@ const LANE_SPEED_VARY = [1, 0.86, 1.14];
 
 type LaneMotion = { dir: 1 | 0 | -1; boost: boolean };
 const CRUISE: LaneMotion = { dir: 1, boost: false };
+/** The opposite direction key held this long after its pause: fast the
+ *  other way. */
+const TURN_HOLD_MS = 200;
 
 /** What a lane hands the strip so it can update the lane's files. */
 interface LaneHandle {
@@ -349,7 +356,7 @@ function SweepStrip({
     // 1 to 3 rows, each with its own random files; + adds one below, −
     // removes the bottom one (the top lane always stays). They split the
     // height equally. Each lane's motion: its direction and whether 1 / 3 is
-    // held. 1 / 3 / 6 and the edge zones move the lane under the cursor (or
+    // held. 1 / 3 and the edge zones move the lane under the cursor (or
     // every lane, with the setting on).
     const [laneCount, setLaneCount] = useState(1);
     const laneCountRef = useRef(1);
@@ -366,7 +373,7 @@ function SweepStrip({
     // the first press picked (the lock) until the mouse moves or the lanes
     // go again. With the setting on they stay stopped until 3. Otherwise
     // they pick up again SCRUB_RESUME_MS after the last scrub, as they were
-    // (a rewind comes back as forward). Pressing 1 / 3 / 6, opening the
+    // (a rewind comes back as forward). Pressing 1 / 3, opening the
     // picker or leaving ends it: you've taken over.
     const scrubHoldRef = useRef(sweepScrubHold);
     scrubHoldRef.current = sweepScrubHold;
@@ -511,7 +518,7 @@ function SweepStrip({
         }
         setMotion((m) => m.map((x, i) => (i < laneCount ? x : CRUISE)));
     }, [laneCount]);
-    // The lanes 1 / 3 / 6 and the edge zones act on.
+    // The lanes 1 / 3 and the edge zones act on.
     const targetLanes = (): number[] =>
         sweepAllLanes
             ? Array.from({ length: laneCountRef.current }, (_, i) => i)
@@ -553,7 +560,7 @@ function SweepStrip({
     const flashCount = useRef(0);
 
     // The live set speed: scrolling changes it straight away (finer than the
-    // rounded setting); the slider and 4 / 5 come in through `speed`. A new
+    // rounded setting); the slider and 5 / 6 come in through `speed`. A new
     // speed takes effect at once in every cruising lane (no easing).
     const wheelSpeed = useRef(speed);
     const varispeedRef = useRef(sweepVarispeed);
@@ -747,24 +754,59 @@ function SweepStrip({
     // Keys
     const state = useRef({ activeItem, speed });
     state.current = { activeItem, speed };
-    // The lanes a held 1 / 3 started on (letting go affects the same ones).
-    const heldLanes = useRef<{ one: number[]; three: number[] }>({ one: [], three: [] });
-    // Whether the strip itself took the 1 / 3 press (not the picker), so
-    // only those releases move lanes.
-    const heldDown = useRef({ one: false, three: false });
+    // A held 1 / 3: the lanes it acts on (letting go affects the same ones),
+    // and, for the opposite key, the moment its pause turns into going fast
+    // the other way. Only presses the strip itself took (not the picker).
+    const held = useRef<Record<"one" | "three", { lanes: number[]; timer: ReturnType<typeof setTimeout> | null; boosting: boolean } | null>>({
+        one: null,
+        three: null,
+    });
+    const pressDir = (key: "one" | "three", lanes: number[]) => {
+        const dir: 1 | -1 = key === "three" ? 1 : -1;
+        releaseDir(key);
+        const h = { lanes, timer: null as ReturnType<typeof setTimeout> | null, boosting: false };
+        held.current[key] = h;
+        const now = motionRef.current;
+        const opposite = lanes.filter((i) => (now[i] ?? CRUISE).dir === -dir);
+        const others = lanes.filter((i) => !opposite.includes(i));
+        // Going this way or paused: fast this way while held.
+        if (others.length) {
+            setLaneMotion(others, { dir, boost: true });
+            h.boosting = true;
+        }
+        // Going the other way: pause at once; still held after a moment,
+        // fast this way.
+        if (opposite.length) {
+            setLaneMotion(opposite, { dir: 0, boost: false });
+            h.timer = setTimeout(() => {
+                h.timer = null;
+                if (held.current[key] !== h) return;
+                setLaneMotion(opposite, { dir, boost: true });
+                h.boosting = true;
+            }, TURN_HOLD_MS);
+        }
+    };
+    const releaseDir = (key: "one" | "three") => {
+        const h = held.current[key];
+        if (!h) return;
+        held.current[key] = null;
+        if (h.timer) clearTimeout(h.timer);
+        // Back to the set speed, still going that way.
+        if (h.boosting) setLaneMotion(h.lanes, { boost: false });
+    };
     useEffect(() => {
         if (!active) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.metaKey || e.ctrlKey || e.altKey || isTyping() || pickingRef.current) return;
             const { activeItem, speed } = state.current;
             switch (e.code) {
-                case "Digit4":
                 case "Digit5":
+                case "Digit6":
                     e.preventDefault();
                     onSpeed(
                         Math.max(
                             SPEED_MIN,
-                            Math.min(SPEED_MAX, speed + (e.code === "Digit5" ? SPEED_STEP : -SPEED_STEP)),
+                            Math.min(SPEED_MAX, speed + (e.code === "Digit6" ? SPEED_STEP : -SPEED_STEP)),
                         ),
                     );
                     break;
@@ -772,31 +814,13 @@ function SweepStrip({
                     e.preventDefault();
                     if (!e.repeat && activeItem) onInspect(activeItem.file);
                     break;
-                case "Digit1": {
-                    // Fast reverse while held (forward again on release).
-                    e.preventDefault();
-                    if (e.repeat) return;
-                    cancelScrubResume();
-                    const lanes = targetLanes();
-                    heldLanes.current.one = lanes;
-                    heldDown.current.one = true;
-                    setLaneMotion(lanes, { dir: -1, boost: true });
-                    break;
-                }
-                case "Digit6":
-                    // Stop (the lane under the cursor, or all of them).
-                    e.preventDefault();
-                    cancelScrubResume();
-                    setLaneMotion(targetLanes(), { dir: 0, boost: false });
-                    break;
+                case "Digit1":
                 case "Digit3": {
+                    // The lanes' direction (see the top): 3 forward, 1 reverse.
                     e.preventDefault();
                     if (e.repeat) return;
                     cancelScrubResume();
-                    const lanes = targetLanes();
-                    heldLanes.current.three = lanes;
-                    heldDown.current.three = true;
-                    setLaneMotion(lanes, { dir: 1, boost: true });
+                    pressDir(e.code === "Digit3" ? "three" : "one", targetLanes());
                     break;
                 }
                 case "Digit2":
@@ -857,17 +881,16 @@ function SweepStrip({
         // of 1 also turns those lanes forward again.
         const onKeyUp = (e: KeyboardEvent) => {
             if (pickingRef.current) return;
-            if (e.code === "Digit3" && heldDown.current.three) {
-                heldDown.current.three = false;
-                setLaneMotion(heldLanes.current.three, { boost: false });
-            }
-            if (e.code === "Digit1" && heldDown.current.one) {
-                heldDown.current.one = false;
-                setLaneMotion(heldLanes.current.one, { dir: 1, boost: false });
-            }
+            if (e.code === "Digit3") releaseDir("three");
+            if (e.code === "Digit1") releaseDir("one");
         };
-        const stopBoost = () =>
-            setMotion((m) => m.map((x) => ({ dir: x.dir === -1 ? 1 : x.dir, boost: false })));
+        // Leaving the window: no key is held any more; the lanes keep their
+        // direction at the set speed.
+        const stopBoost = () => {
+            releaseDir("one");
+            releaseDir("three");
+            setMotion((m) => m.map((x) => ({ ...x, boost: false })));
+        };
         window.addEventListener("keydown", onKey);
         window.addEventListener("keyup", onKeyUp);
         window.addEventListener("blur", stopBoost);
@@ -1745,7 +1768,7 @@ function SweepToolbar({
                 )}
             </div>
 
-            <label className="flex items-center gap-2" title="Scroll speed (4 / 5, or scroll)">
+            <label className="flex items-center gap-2" title="Scroll speed (5 / 6, or scroll)">
                 <span className="text-neutral-500">Speed</span>
                 <input
                     type="range"

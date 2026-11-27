@@ -446,7 +446,7 @@ function SettingsModal({
                         onToggle={toggleSweepVarispeed}
                     />
                     <ToggleRow
-                        label="Sweep: 1 / 3 / 6 move all lanes"
+                        label="Sweep: 1 / 3 move all lanes"
                         on={sweepAllLanes}
                         onToggle={toggleSweepAllLanes}
                     />
