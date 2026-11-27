@@ -498,6 +498,18 @@ swap at the end.
     switching together
 
 ── 30. Players: mixer, keys, bar (UNTESTED) ──────────────────────────────
+   Claude's dev-mode scratch run 2026-11-27 (30 checks pass): the mixer
+   runs right after launch with no key or click; Compare: E steps only the
+   focused side, P pauses it, V does nothing, hold 4 = 2x then back to 1,
+   bar hidden at rest, shown after E and with the mouse near the bottom;
+   Pass: tiles are layer players, E / hold 4 / bar on the current tile only,
+   the pointer follows the mouse over a tile, a panorama tile 1192x149
+   (whole), G / Esc fly the same video (~20-25 frames), the run dims to
+   0.06 and its other tiles pause, then play again; Sweep: 1 pauses at once,
+   held = fast reverse, let go = normal reverse, 3 pauses / goes forward, 6
+   faster. Found and fixed: the lane sat 5 tiles off (focus scrolled it).
+   Not checked by ear: the sound itself; not run: focus loss, the lifted
+   pieces' look, 4 carried over a step.
 [ ] Compare and the file view sound as before (focused side heard, X for
     both, volume setting), incl. right after launch before any key press
 [ ] With "pause when unfocused" on: Compare and the file view pause when
