@@ -16,8 +16,8 @@ import { fastForwardHeld, onFastForward } from "@renderer/lib/fastForward";
 
 /** A turn's length; then a moment more of following the box (a Sweep tile
  *  easing to its new shape takes a little longer). */
-const TURN_MS = 200;
-const TURN_SETTLE_MS = 150;
+const TURN_MS = 120;
+const TURN_SETTLE_MS = 100;
 
 /** How near the bottom of the focused player the mouse brings its bar up. */
 const BAR_ZONE_PX = 90;

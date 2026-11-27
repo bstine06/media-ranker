@@ -1722,7 +1722,7 @@ function StripTile({
             // (H, F, the window, + / −) snaps too: the row's offset is
             // rescaled at once, so easing the widths would throw the row off
             // and slide it back.
-            style={{ width, transition: resized ? "none" : "width 250ms ease-out" }}
+            style={{ width, transition: resized ? "none" : "width 150ms ease-out" }}
             onClick={onClick}
         >
             {/* A spot: the file's one player (media layer), moving with the
