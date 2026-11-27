@@ -154,19 +154,24 @@ side's file name).
        FIX BUILT (untested): rotation previews are shared by every view, so
        Compare's hidden copy turns with the file view's (and the other way
        round); the flight math knows about a sideways preview turn.
-[ ] File view from Compare → R → close straight away (before it saves):
+[-] File view from Compare → R → close straight away (before it saves):
     no flicker, it lands turned
-[ ] Compare → R → G straight away: the file view's copy starts turned
-[ ] After the save in either case: the new version, not turned twice
+    >> obsolete: turns no longer save a new version (rotation is a setting since 2026-11-26); see 21
+[-] Compare → R → G straight away: the file view's copy starts turned
+    >> obsolete, same reason; the one player carries the turn (see 21)
+[-] After the save in either case: the new version, not turned twice
     >> 2026-11-25: still a black flash on saves (worst on images, with the
        blur), and on a VIDEO after many rotations the flying copy was out
        of step. FIX BUILT (untested): an image's old version stays up until
        the new one has loaded (no black/blur on a rotation); the two video
        copies are kept in step through the new element each save creates.
-[ ] Rotate an IMAGE a few times (with pauses so it saves): no black flash,
+    >> obsolete: no save any more
+[-] Rotate an IMAGE a few times (with pauses so it saves): no black flash,
     no blur, in Compare and in the file view
-[ ] Rotate a VIDEO many times in the file view (some saves in between),
+    >> obsolete: no save any more, so no version swap to flash
+[-] Rotate a VIDEO many times in the file view (some saves in between),
     scrub, close: lands turned right, same moment, no flash
+    >> obsolete: no save any more
 [y] Flying in and out (a video): the bar never jumps. It starts where
     Compare draws it (card width, window bottom), stays 4 px thick and
     glides to the file view's bar (full media area width), on the same
@@ -264,18 +269,24 @@ Open the file view from Compare (G, or click the name) and close it
 (Back, G, Esc). It's one player now, flown there and back: no copy, no
 swap at the end.
 
-[ ] Image and video, left and right side: it flies in and back smoothly,
+[x] Image and video, left and right side: it flies in and back smoothly,
     lands exactly; Compare dims and comes back as before
-[ ] A video keeps playing straight through the flights (no restart, no
+    >> Claude's scratch run 2026-11-26: picture only grows in, only shrinks back, lands on its card to the pixel; Compare dims/returns (video, side a)
+[x] A video keeps playing straight through the flights (no restart, no
     jump, no flash); paused stays paused
-[ ] The playhead goes from the card's width to the full width and back,
+    >> Claude's scratch run 2026-11-26: same element, time only moving on (2.93 → 3.83 s during the flight in); paused stays paused both ways
+[x] The playhead goes from the card's width to the full width and back,
     staying at the bottom, never jumping
-[ ] In the file view: clicking the video pauses it, scrubbing works, the
+    >> Claude's scratch run 2026-11-26: 596 → 900 px wide, bottom at the window edge throughout
+[~] In the file view: clicking the video pauses it, scrubbing works, the
     tag pointer works over the media (Space / Tab), right click opens the
     picker
-[ ] The tag panel, Back, and the delete confirm box all take clicks
-[ ] Compare's other side can't be clicked while the file view is up
-[ ] Rotate in the file view (several times, with saves), close: lands
+    >> Claude's scratch run 2026-11-26: click pauses / plays, scrubbing lands where clicked. Tag pointer (Space / Tab) and right click not checked
+[x] The tag panel, Back, and the delete confirm box all take clicks
+    >> Claude's scratch run 2026-11-26: each is what's under the mouse
+[x] Compare's other side can't be clicked while the file view is up
+    >> Claude's scratch run 2026-11-26
+[-] Rotate in the file view (several times, with saves), close: lands
     turned right, no flash, no stale frame
     >> First try 2026-11-26: Compare's two sides changed at different moments
        and a side could show the previous file for ~1.5 s; in the file view no
@@ -287,6 +298,7 @@ swap at the end.
        the file view's Back / ▲▼ / rotate / tag flash are its spot's overlay
        above it, Compare's dimmed players stay below the file view; name bar
        off while the file view is up.
+    >> obsolete: no saves; a turn in the file view landing turned on Compare's side is checked in 21
 [y] In the file view from Compare: hover pause/play, click, scrub, rotate
     button on hover near the top, Back, tag pointer
     >> 2026-11-26: Back, click-to-pause, scrubbing work. The rotate button
@@ -303,38 +315,49 @@ swap at the end.
    Library side only: files get a rotation setting (quarter turns), "add a
    turn" is one undo entry made at the press, replacing a file resets it.
    Nothing in the app uses it yet (R still works the old way until step 2).
-[ ] An existing library opens normally (new column added on open)
-[ ] Replace file still works, and undo of it still works
+[x] An existing library opens normally (new column added on open)
+    >> Claude's scratch run 2026-11-26: a library from before the column opened, column added, all files there
+[x] Replace file still works, and undo of it still works
+    >> Claude's scratch run 2026-11-26: replace resets the turn; ⌘Z brings back the old file and its turn
 
 ── 21. Rotation as a setting, step 2 (UNTESTED) ──────────────────────────
    R / the rotate button in the file view and on Compare's cards now turn
    the file's setting; the file on disk is never rewritten.
    Until steps 3–4: Browse tiles, thumbnails and hover zoom still show the
    file unturned, and Sweep / Pass still rotate the old way (rewriting).
-[ ] Compare, R on a side (and the card's rotate button): turns at once with
+[~] Compare, R on a side (and the card's rotate button): turns at once with
     the turning animation, every press, including the 4th (back upright,
     turning the same way, not spinning back)
-[ ] A playing video keeps playing through a turn (no reload, no jump)
-[ ] ⌘Z right after R turns it back at once (one undo per press, in order:
+    >> Claude's scratch run 2026-11-26: R turns at once, 4th press goes on to -360° (same way round). The card's rotate button not checked
+[x] A playing video keeps playing through a turn (no reload, no jump)
+    >> Claude's scratch run 2026-11-26: same element, time moving on
+[x] ⌘Z right after R turns it back at once (one undo per press, in order:
     pick, R, R, ⌘Z ⌘Z ⌘Z undoes R, R, then the pick)
-[ ] The file view from Compare: R turns it there; close: Compare's side
+    >> Claude's scratch run 2026-11-26: pick, R, R, then ⌘Z ×3 undid R, R, then the pick
+[x] The file view from Compare: R turns it there; close: Compare's side
     shows it turned the same, lands without a jump
+    >> Claude's scratch run 2026-11-26: lands exactly on the card, drawn turned
 [ ] The file view from Browse / the side panel: R turns it; scroll away and
     back: still turned
-[ ] The rotated file in Finder is untouched (opens the original way)
-[ ] Quit and reopen: the turn is remembered
+[x] The rotated file in Finder is untouched (opens the original way)
+    >> Claude's scratch run 2026-11-26: file byte-identical after turns
+[x] Quit and reopen: the turn is remembered
+    >> Claude's scratch run 2026-11-26
 
 ── 22. Rotation as a setting, step 3 (UNTESTED) ──────────────────────────
    Thumbnails and hover zoom drawn turned by the setting. (Sweep / Pass
    lanes: step 4.)
-[ ] Turn a wide file sideways in the file view, back to Browse: its tile
+[x] Turn a wide file sideways in the file view, back to Browse: its tile
     shows it turned and still fills the tile (no gaps, not squashed);
     same in the list (row) layout
-[ ] Hover zoom on that tile: turned, and the zoom box has the turned shape
+    >> Claude's scratch run 2026-11-26: grid tile and row thumbnail drawn turned, covering their box with no gaps
+[x] Hover zoom on that tile: turned, and the zoom box has the turned shape
     (tall for a wide file turned sideways), for a picture and a video
-[ ] A file used as a folder picture: turned in the sidebar, the file
+    >> Claude's scratch run 2026-11-26: picture 505×675 and video 380×675 boxes, both turned
+[~] A file used as a folder picture: turned in the sidebar, the file
     view's side panel and the folder's info; turning it again or ⌘Z
     updates those pictures right away
+    >> Claude's scratch run 2026-11-26: sidebar picture turned, another turn and ⌘Z update it at once. Side panel and folder info not checked
 [ ] The pending-changes list (Manage): turned thumbnails
 [ ] Unturned files everywhere look exactly as before
 
@@ -342,27 +365,33 @@ swap at the end.
    Sweep and Pass: R turns the file's setting (one undo entry at the
    press); tiles drawn turned and shaped for the turn; their own save
    timers are gone.
-[ ] Sweep, R on a wide file: turns at once; the lane eases to a stop and
+[x] Sweep, R on a wide file: turns at once; the lane eases to a stop and
     the tile keeps its width while pressing (R R R without moving the
     mouse); ~1 s after the last press (or moving to another file) the tile
     takes its new shape, left edge staying, the files to the right moving
-[ ] Sweep: a file turned in the file view / Compare shows turned in the
+    >> Claude's scratch run 2026-11-26: width held through R R R, then the turned width (1457 → 465 px video, 1108 → 611 px picture) ~0.5–0.9 s after the last press, lane carrying on. (One early run didn't re-shape; couldn't reproduce)
+[x] Sweep: a file turned in the file view / Compare shows turned in the
     lanes, tile in the turned shape; ⌘Z of a turn re-shapes it
-[ ] Pass, R: turns at once, the tile takes the turned shape; ⌘Z turns it
+    >> Claude's scratch run 2026-11-26: a turn made elsewhere shows turned with the turned width (1108 → 611); ⌘Z re-shapes
+[x] Pass, R: turns at once, the tile takes the turned shape; ⌘Z turns it
     back
-[ ] Pass: a turned video still plays, scrubs (Q / E), and is heard
+    >> Claude's scratch run 2026-11-26: 1114×830 → 618×830; ⌘Z back to 1114×830
+[~] Pass: a turned video still plays, scrubs (Q / E), and is heard
+    >> Claude's scratch run 2026-11-26: plays, E +3 s, Q −3 s. Sound not checked
 [ ] Sweep / Pass with nothing turned: tiles exactly as before
 
 ── 24. Edits bar, step 5 (UNTESTED) ───────────────────────────────────────
    The tag panel's Copy / Paste row is gone; an "Edits" row takes its place
    (rotate, Bake). Bake does nothing yet (step 6).
-[ ] File view (from Browse, Compare, the side panel…): the Edits row at the
+[~] File view (from Browse, Compare, the side panel…): the Edits row at the
     top of the tag panel; the rotate button turns the file like R
     (from Browse: works, scratch run 2026-11-26; Compare / side panel not)
+    >> Claude's scratch run 2026-11-26: Browse and Compare yes; side panel not checked
 [x] Bake is greyed out on an unturned file and stands out (amber) on a
     turned one; turning back to upright (4 presses or ⌘Z) greys it again
     (Claude's scratch run 2026-11-26)
-[ ] No rotate button floats over the media any more
+[x] No rotate button floats over the media any more
+    >> Claude's scratch run 2026-11-26
 [-] The "Tags" heading is still there under the Edits row
     (dropped in step 6, see 25)
 
@@ -384,6 +413,8 @@ swap at the end.
     (scratch run 2026-11-26, small 8 s MP4: plain confirm, kept playing
     4.5 s → 7.6 s through the swap, flag 90 written. Not checked: a big
     one, "Baking…", QuickTime)
+    >> Claude's scratch run 2026-11-26: a 120 s 1080p MP4 (234 MB): plain confirm, "Baking…"
+       showed, flag written in 0.4 s. QuickTime still not checked
 [x] Turned WebP or GIF: the warning ("lowers its quality slightly"); after
     baking it shows turned, animated GIFs still animate at the same speed
     (Claude's scratch run 2026-11-26): WebP 300x150 → 150x300; GIF 5 frames
@@ -391,12 +422,14 @@ swap at the end.
 [x] ⌘Z after a bake: the original file is back (Finder shows it unturned)
     and the app shows it turned again with Bake lit; ⇧⌘Z bakes it again
     (Claude's scratch run 2026-11-26): JPEG back byte for byte
-[ ] Thumbnails / tiles after a bake: turned the same, no double turn
+[x] Thumbnails / tiles after a bake: turned the same, no double turn
+    >> Claude's scratch run 2026-11-26: the baked MP4's thumbnail is portrait and not turned again in the app
 
 ── 26. Old rotate path removed, step 7 (UNTESTED) ─────────────────────────
    The rotate-by-rewriting code is gone. Nothing should look different.
-[ ] R in the file view, Compare, Sweep, Pass: turns at once as in 21–23
+[x] R in the file view, Compare, Sweep, Pass: turns at once as in 21–23
     (file view and Sweep: yes, scratch run 2026-11-26; Compare / Pass not)
+    >> Claude's scratch run 2026-11-26: all four
 [x] Baking a video that's playing: it carries on playing through the swap
     (no black frame / restart) (Claude's scratch run 2026-11-26): no restart;
     a black frame wasn't watched for
@@ -408,9 +441,10 @@ swap at the end.
    on a card, it stays put and fades (picture and sound together), the
    replacement is on that side underneath from the start, the other side
    unchanged, no flight back.
-[ ] Compare, open a side in the file view (G), Delete: the file dissolves
+[x] Compare, open a side in the file view (G), Delete: the file dissolves
     where it is while Compare brightens; that side already shows a new file
     (or its loading state); nothing flies back to the card
+    >> Claude's scratch run 2026-11-26: stays at the file view's spot, fades in ~0.2 s, replacement underneath, no flight back. How it looks in motion is yours to judge
 [ ] A playing video deleted that way: its sound fades out, no cut-off pop
 [x] A file on a Compare card deleted in Finder: it fades on its card
     (Claude's scratch run 2026-11-26)
