@@ -496,3 +496,37 @@ swap at the end.
     (this was the "smooth resize" backlog item)
 [ ] Compare as before: picks, hover bar, click to pick, R, K, both sides
     switching together
+
+── 30. Players: mixer, keys, bar (UNTESTED) ──────────────────────────────
+[ ] Compare and the file view sound as before (focused side heard, X for
+    both, volume setting), incl. right after launch before any key press
+[ ] With "pause when unfocused" on: Compare and the file view pause when
+    the app loses focus and pick up again on return (as before); Pass keeps
+    playing silently
+[ ] Q / E step back / forward on the focused video (Compare's focused side,
+    the file view, Pass's current tile); P plays / pauses (V no longer does)
+[ ] Hold 4: the focused video plays faster (Pass's speed setting), in
+    Compare, the file view and Pass; letting go: normal speed; in Pass,
+    stepping to another file while 4 is held keeps it fast
+[ ] The bar (playhead, ▶, time) shows only on the focused video when the
+    mouse is near its bottom, for a moment after Q / E, and while dragging
+    the playhead or holding 4; no thin line otherwise
+
+── 31. Pass on the media layer (UNTESTED) ────────────────────────────────
+[ ] Pass looks as before: tiles, neighbours slightly dimmed, the red no-ring
+    and badges, the tag pointer following the mouse, stepping glides
+[ ] Only the current tile is heard; the others play silently
+[ ] G: Pass dims and stays, the current tile's video flies into the file
+    view still playing (no restart); Esc / G: it flies back into its tile
+    and Pass brightens; other tiles pause meanwhile and play again
+[ ] The no-ring / badges and the pointer stay above the flying video while
+    they fade (no blink)
+[ ] A very wide file (panorama) in Pass: shown whole, black above and below
+
+── 32. Sweep keys (UNTESTED) ─────────────────────────────────────────────
+[ ] 5 / 6 slower / faster (4 no longer changes speed)
+[ ] Going forward: hold 3 = fast, back to normal on letting go; tap 1 =
+    pause at once; hold 1 = pause, then fast reverse, then normal reverse
+[ ] Paused: 3 forward, 1 reverse (held: fast, then normal that way)
+[ ] In reverse: the mirror image (hold 1 fast; tap 3 pause; hold 3 forward)
+[ ] 6 does nothing in Sweep now; "1 / 3 move all lanes" setting still works
