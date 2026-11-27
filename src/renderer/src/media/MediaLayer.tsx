@@ -584,7 +584,17 @@ function LayerPlayer({
                 }, INSPECT_OUT_MS + 20),
             );
         }
-        return () => timers.forEach(clearTimeout);
+        return () => {
+            timers.forEach(clearTimeout);
+            // Landed (or claimed again on the way): back to a plain player.
+            // Another spot may still hold the file (a view in the
+            // background): it gets the player as it was, not faded out or
+            // shrunk onto the tile.
+            box.style.transition = "";
+            box.style.opacity = "";
+            if (pic) Object.assign(pic.style, { transition: "", transform: "", transformOrigin: "", clipPath: "" });
+            if (root) root.style.overflow = "";
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [departTo != null, box]);
     const keepRef = useRef(keep);
@@ -615,6 +625,14 @@ function LayerPlayer({
         onReadyRef.current?.();
     }, [readyFiles, fileId]);
     useEffect(() => () => void readyFiles.delete(fileId), [readyFiles, fileId]);
+    // Moved into a new spot already showing something (it was up in another
+    // view): it won't load again, so the new spot hears it's ready now (a
+    // hover zoom stays see-through until then).
+    useEffect(() => {
+        if (leaving || gone || departing) return;
+        if (readyFiles.has(fileId)) onReadyRef.current?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [spot.id]);
     const onLeftRef = useRef(onLeft);
     onLeftRef.current = onLeft;
     useEffect(() => {
